@@ -1,0 +1,26 @@
+{
+  "name": "@diagno-pilot/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "@diagno-pilot/types": "*",
+    "@diagno-pilot/api-client": "*",
+    "@diagno-pilot/ui": "*",
+    "@diagno-pilot/i18n": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
+  }
+}

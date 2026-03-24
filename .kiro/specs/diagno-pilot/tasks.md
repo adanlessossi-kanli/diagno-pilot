@@ -8,7 +8,7 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
 
 ## Tâches
 
-- [ ] 1. Initialiser le monorepo et l'environnement de développement
+- [x] 1. Initialiser le monorepo et l'environnement de développement
   - Créer la structure de répertoires : `apps/web`, `apps/mobile`, `packages/ui`, `packages/api-client`, `packages/types`, `packages/i18n`, `backend/`
   - Configurer `package.json` racine avec workspaces (npm/yarn workspaces)
   - Créer `docker-compose.yml` avec les services `frontend`, `backend`, `mongo` (mongodb-atlas-local), `localstack`
@@ -16,14 +16,14 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
   - Créer le fichier `.env` avec toutes les variables d'environnement requises
   - _Requirements : REQ-05 (S3/LocalStack), REQ-11 (monorepo)_
 
-- [ ] 2. Mettre en place les types partagés et le client API
-  - [ ] 2.1 Créer `packages/types/index.ts` avec tous les types TypeScript partagés
+- [x] 2. Mettre en place les types partagés et le client API
+  - [x] 2.1 Créer `packages/types/index.ts` avec tous les types TypeScript partagés
     - Définir `AgeGroup`, `AlertLevel`, `UserRole`, `Locale`, `PatientProfile`, `Consultation`, `ChatMessage`, `ChatSession`, `Prescription`, `SafetyAlert`, `DifferentialDiagnosis`, `DocumentSource`, `Symptom`
     - _Requirements : REQ-02, REQ-03, REQ-06, REQ-08, REQ-09_
-  - [ ] 2.2 Créer `packages/api-client/index.ts` avec les fonctions HTTP pour chaque endpoint
+  - [x] 2.2 Créer `packages/api-client/index.ts` avec les fonctions HTTP pour chaque endpoint
     - Implémenter les appels vers `/auth`, `/chat`, `/diagnose`, `/patients`, `/documents`, `/files`, `/alerts`
     - _Requirements : REQ-01 à REQ-09_
-  - [ ] 2.3 Écrire les tests unitaires pour les types et le client API
+  - [x] 2.3 Écrire les tests unitaires pour les types et le client API
     - Tester la sérialisation/désérialisation des types
     - _Requirements : REQ-02, REQ-06_
 
