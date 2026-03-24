@@ -1,0 +1,16 @@
+{
+  "name": "@diagno-pilot/i18n",
+  "version": "0.1.0",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@diagno-pilot/types": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "diagno-pilot",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "docker compose up --build",
+    "down": "docker compose down -v",
+    "logs": "docker compose logs -f"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

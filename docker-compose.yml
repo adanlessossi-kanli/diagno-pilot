@@ -1,0 +1,57 @@
+services:
+  frontend:
+    build: ./apps/web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      - S3_BUCKET=diagno-pilot-files
+      - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
+      - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
+      - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
+      - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
+      - EMBED_MODEL=${EMBED_MODEL}
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - mongo
+      - localstack
+
+  mongo:
+    image: mongodb/mongodb-atlas-local:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh
+
+volumes:
+  mongo_data:
+  localstack_data:

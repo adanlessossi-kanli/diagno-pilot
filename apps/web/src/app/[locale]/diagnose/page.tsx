@@ -1,0 +1,488 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
+import { createApiClient } from '@diagno-pilot/api-client';
+import type { DiagnosisResponse, PrescriptionResponse } from '@diagno-pilot/api-client';
+import type { PatientProfile, Symptom } from '@diagno-pilot/types';
+import { useAuth } from '../../../contexts/AuthContext';
+import { PrescriptionStep } from './PrescriptionStep';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type InputMode = 'freeText' | 'structured';
+type PatientMode = 'none' | 'select' | 'oneshot';
+
+interface StructuredSymptom {
+  name: string;
+  severity: string;
+  duration_days: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+let memoryToken: string | null = null;
+
+function getToken(): string | null {
+  return memoryToken;
+}
+
+function getApiClient() {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+  return createApiClient(baseUrl, getToken);
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function DiagnosePage() {
+  const t = useTranslations('diagnose');
+  const tCommon = useTranslations('common');
+  const tErrors = useTranslations('errors');
+  const { user } = useAuth();
+
+  // Symptom input state
+  const [inputMode, setInputMode] = useState<InputMode>('freeText');
+  const [freeText, setFreeText] = useState('');
+  const [structuredSymptoms, setStructuredSymptoms] = useState<StructuredSymptom[]>([]);
+  const [newSymptom, setNewSymptom] = useState<StructuredSymptom>({ name: '', severity: 'moderate', duration_days: 1 });
+
+  // Patient context state
+  const [patientMode, setPatientMode] = useState<PatientMode>('none');
+  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState('');
+  const [loadingPatients, setLoadingPatients] = useState(false);
+  const [patientsError, setPatientsError] = useState('');
+  const [oneShotPatient, setOneShotPatient] = useState({
+    fullName: '',
+    dateOfBirth: '',
+    weightKg: '',
+    allergies: '',
+  });
+
+  // Results state
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [results, setResults] = useState<DiagnosisResponse | null>(null);
+
+  // Sync token from cookie on mount (best-effort)
+  useEffect(() => {
+    if (user) {
+      // Token is managed in-memory by AuthContext; we re-use the same pattern
+      // by reading from the httpOnly cookie via the /api/auth/me endpoint
+      // The token is already set in memoryToken by AuthContext's login flow.
+      // For page refreshes, we rely on the cookie-based session.
+    }
+  }, [user]);
+
+  // Fetch patients when "select" mode is chosen
+  const fetchPatients = useCallback(async () => {
+    setLoadingPatients(true);
+    setPatientsError('');
+    try {
+      const client = getApiClient();
+      const list = await client.patients.listPatients();
+      setPatients(list);
+    } catch {
+      setPatientsError(t('errorFetch'));
+    } finally {
+      setLoadingPatients(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (patientMode === 'select') {
+      void fetchPatients();
+    }
+  }, [patientMode, fetchPatients]);
+
+  // ─── Symptom helpers ────────────────────────────────────────────────────────
+
+  function addStructuredSymptom() {
+    if (!newSymptom.name.trim()) return;
+    setStructuredSymptoms((prev) => [...prev, { ...newSymptom }]);
+    setNewSymptom({ name: '', severity: 'moderate', duration_days: 1 });
+  }
+
+  function removeSymptom(index: number) {
+    setStructuredSymptoms((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  // ─── Build payload ──────────────────────────────────────────────────────────
+
+  function buildSymptoms(): Symptom[] {
+    if (inputMode === 'freeText') {
+      if (!freeText.trim()) return [];
+      return [{ name: freeText.trim(), severity: 'moderate', duration_days: 0 }];
+    }
+    return structuredSymptoms.map((s) => ({
+      name: s.name,
+      severity: s.severity,
+      duration_days: s.duration_days,
+    }));
+  }
+
+  function buildPatientProfile(): PatientProfile | undefined {
+    if (patientMode === 'select' && selectedPatientId) {
+      const found = patients.find((p) => p.id === selectedPatientId);
+      return found ?? undefined;
+    }
+    if (patientMode === 'oneshot') {
+      const allergies = oneShotPatient.allergies
+        ? oneShotPatient.allergies.split(',').map((a) => a.trim()).filter(Boolean)
+        : [];
+      return {
+        fullName: oneShotPatient.fullName || undefined,
+        dateOfBirth: oneShotPatient.dateOfBirth || undefined,
+        weightKg: oneShotPatient.weightKg ? parseFloat(oneShotPatient.weightKg) : undefined,
+        allergies,
+        renalFailure: false,
+        hepaticFailure: false,
+        currentMedications: [],
+      };
+    }
+    return undefined;
+  }
+
+  // ─── Submit ─────────────────────────────────────────────────────────────────
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setResults(null);
+
+    const symptoms = buildSymptoms();
+    if (symptoms.length === 0) {
+      setError(t('noSymptoms'));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const client = getApiClient();
+      const patientProfile = buildPatientProfile();
+      const response = await client.diagnose.getSymptomsDiagnosis(symptoms, patientProfile);
+      setResults(response);
+    } catch {
+      setError(t('errorDiagnose'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ─── Prescription handler ────────────────────────────────────────────────────
+
+  async function handleGetPrescription(diagnosisId: string): Promise<PrescriptionResponse> {
+    const client = getApiClient();
+    const patientProfile = buildPatientProfile() ?? {
+      allergies: [],
+      renalFailure: false,
+      hepaticFailure: false,
+      currentMedications: [],
+    };
+    return client.diagnose.getPrescription(diagnosisId, patientProfile);
+  }
+
+  // ─── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <main className="min-h-screen p-8 max-w-3xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">{t('title')}</h1>
+
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
+
+        {/* ── Symptom input section ── */}
+        <section className="border rounded-lg p-6 space-y-4">
+          <h2 className="text-lg font-semibold">{t('symptoms')}</h2>
+
+          {/* Mode toggle */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setInputMode('freeText')}
+              className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
+                inputMode === 'freeText'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {t('freeText')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode('structured')}
+              className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
+                inputMode === 'structured'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {t('structured')}
+            </button>
+          </div>
+
+          {/* Free text input */}
+          {inputMode === 'freeText' && (
+            <textarea
+              value={freeText}
+              onChange={(e) => setFreeText(e.target.value)}
+              className="w-full border rounded px-3 py-2 h-28 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder={t('symptomsPlaceholder')}
+            />
+          )}
+
+          {/* Structured symptom list */}
+          {inputMode === 'structured' && (
+            <div className="space-y-3">
+              {/* Existing symptoms */}
+              {structuredSymptoms.length > 0 && (
+                <ul className="space-y-2">
+                  {structuredSymptoms.map((s, i) => (
+                    <li key={i} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
+                      <span>
+                        <span className="font-medium">{s.name}</span>
+                        {' — '}
+                        <span className="text-gray-500">{s.severity}, {s.duration_days}j</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeSymptom(i)}
+                        className="text-red-500 hover:text-red-700 text-xs ml-2"
+                        aria-label="Supprimer"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Add new symptom row */}
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  type="text"
+                  value={newSymptom.name}
+                  onChange={(e) => setNewSymptom((p) => ({ ...p, name: e.target.value }))}
+                  placeholder={t('symptomName')}
+                  className="flex-1 min-w-32 border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <select
+                  value={newSymptom.severity}
+                  onChange={(e) => setNewSymptom((p) => ({ ...p, severity: e.target.value }))}
+                  className="border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="mild">{t('severityOptions.mild')}</option>
+                  <option value="moderate">{t('severityOptions.moderate')}</option>
+                  <option value="severe">{t('severityOptions.severe')}</option>
+                </select>
+                <input
+                  type="number"
+                  min={0}
+                  value={newSymptom.duration_days}
+                  onChange={(e) => setNewSymptom((p) => ({ ...p, duration_days: parseInt(e.target.value) || 0 }))}
+                  placeholder={t('durationDays')}
+                  className="w-24 border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={addStructuredSymptom}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-sm font-medium"
+                >
+                  + {t('addSymptom')}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ── Patient context section ── */}
+        <section className="border rounded-lg p-6 space-y-4">
+          <h2 className="text-lg font-semibold">{t('patientContext')}</h2>
+
+          <div className="flex gap-2 flex-wrap">
+            {(['none', 'select', 'oneshot'] as PatientMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setPatientMode(mode)}
+                className={`px-3 py-1.5 rounded text-sm font-medium border transition-colors ${
+                  patientMode === mode
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {mode === 'none' && t('noPatient')}
+                {mode === 'select' && t('selectPatient')}
+                {mode === 'oneshot' && t('oneShotMode')}
+              </button>
+            ))}
+          </div>
+
+          {/* Select existing patient */}
+          {patientMode === 'select' && (
+            <div>
+              {loadingPatients && <p className="text-sm text-gray-500">{t('loadingPatients')}</p>}
+              {patientsError && <p className="text-sm text-red-600">{patientsError}</p>}
+              {!loadingPatients && !patientsError && (
+                <select
+                  value={selectedPatientId}
+                  onChange={(e) => setSelectedPatientId(e.target.value)}
+                  className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— {t('selectPatient')} —</option>
+                  {patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.fullName ?? p.id}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* One-shot patient form */}
+          {patientMode === 'oneshot' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('patientName')}</label>
+                <input
+                  type="text"
+                  value={oneShotPatient.fullName}
+                  onChange={(e) => setOneShotPatient((p) => ({ ...p, fullName: e.target.value }))}
+                  className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('dateOfBirth')}</label>
+                <input
+                  type="date"
+                  value={oneShotPatient.dateOfBirth}
+                  onChange={(e) => setOneShotPatient((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                  className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('weightKg')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={oneShotPatient.weightKg}
+                  onChange={(e) => setOneShotPatient((p) => ({ ...p, weightKg: e.target.value }))}
+                  className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('allergiesLabel')}</label>
+                <input
+                  type="text"
+                  value={oneShotPatient.allergies}
+                  onChange={(e) => setOneShotPatient((p) => ({ ...p, allergies: e.target.value }))}
+                  className="w-full border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ── Error ── */}
+        {error && (
+          <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        {/* ── Submit ── */}
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-blue-600 text-white px-4 py-2.5 rounded font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? tCommon('loading') : t('analyze')}
+        </button>
+      </form>
+
+      {/* ── Results ── */}
+      {results && (
+        <div className="mt-8 space-y-4">
+          <section className="space-y-4">
+            <h2 className="text-xl font-bold">{t('resultsTitle')}</h2>
+
+            {results.llmUsed && (
+              <p className="text-xs text-gray-500">{t('llmUsed')}: {results.llmUsed}</p>
+            )}
+
+            <div className="space-y-3">
+              {results.diagnoses.map((diag, i) => (
+                <div key={i} className="border rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <h3 className="font-semibold text-gray-900">{diag.condition}</h3>
+                    {diag.icd_code && (
+                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">
+                        {diag.icd_code}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Probability bar */}
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span>{t('probability')}</span>
+                      <span>{Math.round(diag.probability * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all"
+                        style={{ width: `${Math.round(diag.probability * 100)}%` }}
+                        role="progressbar"
+                        aria-valuenow={Math.round(diag.probability * 100)}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Matching symptoms */}
+                  {diag.concordant_symptoms && diag.concordant_symptoms.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-1">{t('matchingSymptoms')}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {diag.concordant_symptoms.map((s, j) => (
+                          <span key={j} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Sources */}
+            {results.sources && results.sources.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-medium text-gray-500 mb-2">{t('sources')}</p>
+                <ul className="space-y-1">
+                  {results.sources.map((src, i) => (
+                    <li key={i} className="text-xs text-gray-600 bg-gray-50 rounded px-3 py-1.5">
+                      <span className="font-medium">{src.title}</span>
+                      {src.section && <span className="text-gray-400"> — {src.section}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+
+          {/* ── Step 3: Prescription ── */}
+          {results.diagnoses.length > 0 && (
+            <PrescriptionStep
+              diagnoses={results.diagnoses}
+              onGetPrescription={(diagnosisId) => handleGetPrescription(diagnosisId)}
+            />
+          )}
+        </div>
+      )}
+    </main>
+  );
+}
