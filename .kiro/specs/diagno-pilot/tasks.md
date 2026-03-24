@@ -234,22 +234,22 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Permettre l'attachement d'un contexte patient à la session
     - _Requirements : REQ-04_
 
-- [ ] 20. Implémenter la gestion des patients et du dossier patient (frontend) (REQ-06, REQ-07)
-  - [ ] 20.1 Créer la page `/patients` avec la liste des patients et le formulaire de création
+- [x] 20. Implémenter la gestion des patients et du dossier patient (frontend) (REQ-06, REQ-07)
+  - [x] 20.1 Créer la page `/patients` avec la liste des patients et le formulaire de création
     - _Requirements : REQ-06_
-  - [ ] 20.2 Créer la page `/patients/[id]` avec le dossier patient
+  - [x] 20.2 Créer la page `/patients/[id]` avec le dossier patient
     - Afficher l'historique des consultations (date, symptômes, diagnostic, prescription)
     - Implémenter l'upload de fichiers cliniques (résultats labo, imagerie, PDF, CSV) vers S3
     - Afficher les fichiers avec lien de téléchargement via URL présignée
     - _Requirements : REQ-07_
 
-- [ ] 21. Implémenter la page d'administration (frontend) (REQ-05, REQ-10)
-  - [ ] 21.1 Créer la page `/admin` (accès restreint rôle `admin`)
+- [x] 21. Implémenter la page d'administration (frontend) (REQ-05, REQ-10)
+  - [x] 21.1 Créer la page `/admin` (accès restreint rôle `admin`)
     - Afficher la liste des documents indexés avec statut et bouton de suppression
     - Implémenter le formulaire d'upload de nouveaux documents médicaux
     - _Requirements : REQ-05_
 
-- [ ] 22. Point de contrôle — Vérifier que tous les tests frontend passent
+- [x] 22. Point de contrôle — Vérifier que tous les tests frontend passent
   - S'assurer que les tests des composants et des pages passent. Poser des questions à l'utilisateur si nécessaire.
 
 - [ ] 23. Implémenter l'application mobile React Native (REQ-11)
