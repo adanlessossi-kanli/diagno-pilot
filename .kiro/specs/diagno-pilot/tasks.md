@@ -163,14 +163,14 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
 - [x] 12. Point de contrôle — Vérifier que tous les tests backend passent
   - S'assurer que les tests de diagnostic, prescription et alertes passent. Poser des questions à l'utilisateur si nécessaire.
 
-- [ ] 13. Implémenter le service de chat RAG conversationnel (REQ-04)
-  - [ ] 13.1 Créer `backend/services/chat_service.py`
+- [x] 13. Implémenter le service de chat RAG conversationnel (REQ-04)
+  - [x] 13.1 Créer `backend/services/chat_service.py`
     - Implémenter la gestion de sessions multi-tours avec historique des messages
     - Appeler `RAGService.query()` avec contexte patient optionnel
     - _Requirements : REQ-04_
-  - [ ] 13.2 Créer `backend/routers/chat.py` avec `POST /api/v1/chat/message` et `GET /api/v1/chat/history/{session_id}`
+  - [x] 13.2 Créer `backend/routers/chat.py` avec `POST /api/v1/chat/message` et `GET /api/v1/chat/history/{session_id}`
     - _Requirements : REQ-04_
-  - [ ] 13.3 Écrire le test de propriété pour le chat RAG
+  - [x] 13.3 Écrire le test de propriété pour le chat RAG
     - **Propriété 8 : Toute réponse du chat RAG contient au moins une source citée (document + section)**
     - **Valide : REQ-04**
     - _Requirements : REQ-04_
