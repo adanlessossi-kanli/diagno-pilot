@@ -104,21 +104,21 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester upload, génération d'URL présignée, gestion d'erreurs
     - _Requirements : REQ-07_
 
-- [ ] 9. Implémenter la couche IA — LLMRouter, Embedding et RAGService (REQ-04, REQ-02)
-  - [ ] 9.1 Créer `backend/services/llm_router.py` (classe `LLMRouter`)
+- [x] 9. Implémenter la couche IA — LLMRouter, Embedding et RAGService (REQ-04, REQ-02)
+  - [x] 9.1 Créer `backend/services/llm_router.py` (classe `LLMRouter`)
     - Implémenter `generate(prompt, context)` avec appel à MedicalQwen3 en priorité et fallback GPT-5 sur `LLMUnavailableError`
     - _Requirements : REQ-02, REQ-04_
-  - [ ] 9.2 Créer `backend/services/embedding_service.py` (classe `EmbeddingModel`)
+  - [x] 9.2 Créer `backend/services/embedding_service.py` (classe `EmbeddingModel`)
     - Implémenter `encode(text) -> list[float]` via l'API d'embedding configurée
     - _Requirements : REQ-05_
-  - [ ] 9.3 Créer `backend/services/rag_service.py` (classe `RAGService`)
+  - [x] 9.3 Créer `backend/services/rag_service.py` (classe `RAGService`)
     - Implémenter `query(question, context, top_k)` : encode la requête → `$vectorSearch` MongoDB → génération LLM avec passages + sources
     - _Requirements : REQ-04, REQ-02_
-  - [ ] 9.4 Écrire le test de propriété pour le LLMRouter
+  - [x] 9.4 Écrire le test de propriété pour le LLMRouter
     - **Propriété 4 : Si MedicalQwen3 lève `LLMUnavailableError`, le LLMRouter retourne toujours une réponse via GPT-5 (fallback)**
     - **Valide : REQ-04**
     - _Requirements : REQ-04_
-  - [ ] 9.5 Écrire les tests unitaires pour RAGService (avec mocks LLM et MongoDB)
+  - [x] 9.5 Écrire les tests unitaires pour RAGService (avec mocks LLM et MongoDB)
     - Tester la construction du pipeline `$vectorSearch`, la citation des sources
     - _Requirements : REQ-04_
 
