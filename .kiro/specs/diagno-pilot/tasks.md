@@ -202,11 +202,11 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester login, logout, persistance du token, redirection
     - _Requirements : REQ-01_
 
-- [ ] 16. Implémenter les composants partagés UI (REQ-11)
-  - [ ] 16.1 Créer `packages/ui` avec les composants React partagés web/mobile
+- [x] 16. Implémenter les composants partagés UI (REQ-11)
+  - [x] 16.1 Créer `packages/ui` avec les composants React partagés web/mobile
     - Implémenter : `AlertBanner` (critical/warning/info), `PatientCard`, `SymptomInput`, `PrescriptionCard`, `SourceCitation`
     - _Requirements : REQ-09, REQ-02, REQ-03, REQ-04_
-  - [ ] 16.2 Écrire les tests unitaires pour les composants UI partagés
+  - [x] 16.2 Écrire les tests unitaires pour les composants UI partagés
     - Tester le rendu des alertes critiques, l'affichage des sources
     - _Requirements : REQ-09, REQ-04_
 

@@ -5,22 +5,24 @@
   "types": "./index.ts",
   "scripts": {
     "build": "tsc",
-    "test": "jest"
-  },
-  "dependencies": {
-    "react": "latest"
-  },
-  "devDependencies": {
-    "typescript": "^5",
-    "@types/react": "^19"
+    "test": "vitest run"
   },
   "peerDependencies": {
-    "react": ">=18",
-    "react-native": ">=0.70"
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   },
-  "peerDependenciesMeta": {
-    "react-native": {
-      "optional": true
-    }
+  "dependencies": {
+    "@diagno-pilot/types": "*"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16",
+    "@testing-library/jest-dom": "^6",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "jsdom": "^25",
+    "react": "^18",
+    "react-dom": "^18",
+    "typescript": "^5",
+    "vitest": "^2"
   }
 }
