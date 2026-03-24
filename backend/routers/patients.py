@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, status
 
 from backend.core.auth import get_current_user
+from backend.models.consultation import Consultation, ConsultationCreate
 from backend.models.patient import PatientCreate, PatientProfile
 from backend.services import patient_service
+from backend.services import consultation_service
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -42,4 +44,27 @@ async def update_patient(
     """PUT /api/v1/patients/{id} — update an existing patient profile."""
     return await patient_service.update_patient(
         patient_id=patient_id, data=data, created_by=str(current_user["_id"])
+    )
+
+
+@router.get("/{patient_id}/consultations", response_model=list[Consultation], status_code=status.HTTP_200_OK)
+async def list_consultations(
+    patient_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """GET /api/v1/patients/{id}/consultations — list all consultations for a patient."""
+    return await consultation_service.list_consultations(
+        patient_id=patient_id, user_id=str(current_user["_id"])
+    )
+
+
+@router.post("/{patient_id}/consultations", response_model=Consultation, status_code=status.HTTP_201_CREATED)
+async def create_consultation(
+    patient_id: str,
+    data: ConsultationCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """POST /api/v1/patients/{id}/consultations — create a new consultation for a patient."""
+    return await consultation_service.create_consultation(
+        patient_id=patient_id, data=data, user_id=str(current_user["_id"])
     )

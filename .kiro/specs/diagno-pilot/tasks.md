@@ -87,20 +87,20 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester création, mise à jour, calcul d'âge aux limites de tranche
     - _Requirements : REQ-06_
 
-- [ ] 8. Implémenter le dossier patient, l'historique et les fichiers cliniques (REQ-07)
-  - [ ] 8.1 Créer les endpoints de consultations dans `backend/routers/patients.py`
+- [x] 8. Implémenter le dossier patient, l'historique et les fichiers cliniques (REQ-07)
+  - [x] 8.1 Créer les endpoints de consultations dans `backend/routers/patients.py`
     - Implémenter `GET /api/v1/patients/{id}/consultations`, `POST /api/v1/patients/{id}/consultations`
     - Gérer les consultations one-shot (sans `patient_id`)
     - _Requirements : REQ-07_
-  - [ ] 8.2 Créer `backend/services/s3_service.py` (classe `S3Service`)
+  - [x] 8.2 Créer `backend/services/s3_service.py` (classe `S3Service`)
     - Implémenter `upload(file, patient_id) -> str` et `get_presigned_url(key, expires_in) -> str`
     - Configurer le client boto3 avec `AWS_ENDPOINT_URL` pour LocalStack
     - _Requirements : REQ-07_
-  - [ ] 8.3 Créer `backend/routers/files.py` avec les endpoints `POST /api/v1/files/upload` et `GET /api/v1/files/{file_id}`
+  - [x] 8.3 Créer `backend/routers/files.py` avec les endpoints `POST /api/v1/files/upload` et `GET /api/v1/files/{file_id}`
     - Persister les métadonnées dans la collection `patient_files` MongoDB
     - Retourner une URL présignée S3 pour l'accès aux fichiers
     - _Requirements : REQ-07_
-  - [ ] 8.4 Écrire les tests unitaires pour S3Service (avec mock LocalStack)
+  - [x] 8.4 Écrire les tests unitaires pour S3Service (avec mock LocalStack)
     - Tester upload, génération d'URL présignée, gestion d'erreurs
     - _Requirements : REQ-07_
 

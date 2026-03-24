@@ -41,3 +41,12 @@ class Consultation(BaseModel):
     llm_used: str | None = None
     is_one_shot: bool = False
     created_at: datetime | None = None
+
+
+class ConsultationCreate(BaseModel):
+    """Input model for creating a new consultation."""
+    symptoms: list[Symptom]
+    diagnoses: list[DifferentialDiagnosis] = []
+    prescription: Prescription | None = None
+    alerts: list[SafetyAlert] = []
+    llm_used: str | None = None
