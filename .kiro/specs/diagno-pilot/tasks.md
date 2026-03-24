@@ -133,34 +133,34 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - **Valide : REQ-02**
     - _Requirements : REQ-02_
 
-- [ ] 11. Implémenter le service de prescription antibiotique et les alertes de sécurité (REQ-03, REQ-08, REQ-09)
-  - [ ] 11.1 Créer `backend/services/prescription_service.py`
+- [x] 11. Implémenter le service de prescription antibiotique et les alertes de sécurité (REQ-03, REQ-08, REQ-09)
+  - [x] 11.1 Créer `backend/services/prescription_service.py`
     - Implémenter le calcul de dose au poids (mg/kg) pour les groupes pédiatriques
     - Implémenter le plafonnement à la dose adulte maximale (`is_capped_to_adult_dose`)
     - Implémenter les ajustements pour insuffisance rénale/hépatique
     - _Requirements : REQ-03, REQ-08_
-  - [ ] 11.2 Créer `backend/services/alert_service.py` (classe `AlertService`)
+  - [x] 11.2 Créer `backend/services/alert_service.py` (classe `AlertService`)
     - Implémenter `check_prescription(prescription, patient)` : vérifier allergies, interactions médicamenteuses, contre-indications par âge
     - Retourner des alertes `critical` (bloquantes) et `warning` avec alternative thérapeutique si critique
     - _Requirements : REQ-09_
-  - [ ] 11.3 Créer l'endpoint `POST /api/v1/diagnose/prescription` dans `backend/routers/diagnose.py`
+  - [x] 11.3 Créer l'endpoint `POST /api/v1/diagnose/prescription` dans `backend/routers/diagnose.py`
     - Appeler `prescription_service` puis `alert_service`, retourner prescription + alertes
     - _Requirements : REQ-03, REQ-09_
-  - [ ] 11.4 Créer l'endpoint `GET /api/v1/alerts/check` dans `backend/routers/alerts.py`
+  - [x] 11.4 Créer l'endpoint `GET /api/v1/alerts/check` dans `backend/routers/alerts.py`
     - _Requirements : REQ-09_
-  - [ ] 11.5 Écrire le test de propriété pour le calcul de dose pédiatrique
+  - [x] 11.5 Écrire le test de propriété pour le calcul de dose pédiatrique
     - **Propriété 6 : Pour tout patient pédiatrique (non adulte) avec poids > 0, la dose calculée est toujours ≤ dose adulte maximale (`is_capped_to_adult_dose` = true si dépassement)**
     - **Valide : REQ-03, REQ-08**
     - _Requirements : REQ-03, REQ-08_
-  - [ ] 11.6 Écrire le test de propriété pour les alertes de sécurité
+  - [x] 11.6 Écrire le test de propriété pour les alertes de sécurité
     - **Propriété 7 : Toute prescription contenant un antibiotique figurant dans les allergies connues du patient génère au minimum une alerte de niveau `critical`**
     - **Valide : REQ-09**
     - _Requirements : REQ-09_
-  - [ ] 11.7 Écrire les tests unitaires pour le service de prescription
+  - [x] 11.7 Écrire les tests unitaires pour le service de prescription
     - Tester les cas limites : poids nul, plafonnement dose, ajustements rénaux/hépatiques
     - _Requirements : REQ-03, REQ-08_
 
-- [ ] 12. Point de contrôle — Vérifier que tous les tests backend passent
+- [x] 12. Point de contrôle — Vérifier que tous les tests backend passent
   - S'assurer que les tests de diagnostic, prescription et alertes passent. Poser des questions à l'utilisateur si nécessaire.
 
 - [ ] 13. Implémenter le service de chat RAG conversationnel (REQ-04)

@@ -1,4 +1,4 @@
-"""Diagnose router — differential diagnosis endpoints (REQ-02)."""
+"""Diagnose router — differential diagnosis and prescription endpoints (REQ-02, REQ-03, REQ-09)."""
 from __future__ import annotations
 
 import uuid
@@ -10,11 +10,14 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from backend.core.auth import get_current_user
 from backend.core.database import db
-from backend.models.consultation import Consultation, DifferentialDiagnosis, Symptom
+from backend.models.alert import SafetyAlert
+from backend.models.consultation import Consultation, DifferentialDiagnosis, Prescription, Symptom
 from backend.models.patient import PatientProfile
+from backend.services.alert_service import alert_service
 from backend.services.diagnostic_service import DiagnosticService
 from backend.services.embedding_service import EmbeddingModel
 from backend.services.llm_router import LLMRouter
+from backend.services.prescription_service import prescription_service
 from backend.services.rag_service import RAGService
 from pydantic import BaseModel
 
@@ -138,3 +141,57 @@ async def get_diagnosis_session(
         is_one_shot=doc.get("is_one_shot", True),
         created_at=doc.get("created_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Prescription endpoint models
+# ---------------------------------------------------------------------------
+
+class PrescriptionRequest(BaseModel):
+    antibiotic: str
+    patient_profile: PatientProfile
+
+
+class PrescriptionResponse(BaseModel):
+    prescription: Prescription
+    alerts: list[SafetyAlert]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/diagnose/prescription
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/prescription",
+    response_model=PrescriptionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def create_prescription(
+    body: PrescriptionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """POST /api/v1/diagnose/prescription
+
+    Calculates an antibiotic prescription adapted to the patient profile
+    (weight-based dosing, renal/hepatic adjustments) and runs safety checks
+    (allergies, interactions, age contraindications).
+
+    Returns the prescription together with any safety alerts.
+    """
+    try:
+        rx = prescription_service.calculate_prescription(
+            antibiotic=body.antibiotic,
+            patient=body.patient_profile,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+
+    alerts = await alert_service.check_prescription(
+        prescription=rx,
+        patient=body.patient_profile,
+    )
+
+    return PrescriptionResponse(prescription=rx, alerts=alerts)
