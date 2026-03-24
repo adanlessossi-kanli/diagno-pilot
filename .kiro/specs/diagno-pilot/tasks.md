@@ -27,15 +27,15 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester la sérialisation/désérialisation des types
     - _Requirements : REQ-02, REQ-06_
 
-- [ ] 3. Initialiser le backend FastAPI et la couche base de données
-  - [ ] 3.1 Créer la structure du projet FastAPI (`backend/main.py`, `backend/routers/`, `backend/models/`, `backend/services/`, `backend/core/`)
+- [x] 3. Initialiser le backend FastAPI et la couche base de données
+  - [x] 3.1 Créer la structure du projet FastAPI (`backend/main.py`, `backend/routers/`, `backend/models/`, `backend/services/`, `backend/core/`)
     - Configurer FastAPI avec CORS, middleware de logging, gestion d'erreurs globale
     - Configurer la connexion MongoDB Atlas via `motor` (AsyncIOMotorClient)
     - _Requirements : REQ-01, REQ-10_
-  - [ ] 3.2 Créer les modèles Pydantic dans `backend/models/`
+  - [x] 3.2 Créer les modèles Pydantic dans `backend/models/`
     - Implémenter `PatientProfile`, `Prescription`, `SafetyAlert`, `RAGResponse`, `AgeGroup`, `AlertLevel`, `Locale`, `Consultation`, `User`, `AuditLog`
     - _Requirements : REQ-02, REQ-03, REQ-06, REQ-08, REQ-09_
-  - [ ] 3.3 Écrire les tests de validation des modèles Pydantic
+  - [x] 3.3 Écrire les tests de validation des modèles Pydantic
     - Tester les contraintes de validation (poids négatif, groupe d'âge, etc.)
     - _Requirements : REQ-06, REQ-08_
 
