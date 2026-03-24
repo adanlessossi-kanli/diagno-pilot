@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     MONGODB_URI: str = "mongodb://localhost:27017/diagno_pilot"
-    JWT_SECRET: str = "change_me"
+    JWT_SECRET: str = "change_me_in_production_use_a_long_secret_key"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60
 

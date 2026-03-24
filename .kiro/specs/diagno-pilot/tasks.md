@@ -68,22 +68,22 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - **Valide : REQ-10**
     - _Requirements : REQ-10_
 
-- [ ] 6. Point de contrôle — Vérifier que tous les tests passent
+- [x] 6. Point de contrôle — Vérifier que tous les tests passent
   - S'assurer que les tests d'authentification et d'audit passent. Poser des questions à l'utilisateur si nécessaire.
 
-- [ ] 7. Implémenter la gestion des profils patients (REQ-06)
-  - [ ] 7.1 Créer `backend/routers/patients.py` avec les endpoints CRUD patients
+- [x] 7. Implémenter la gestion des profils patients (REQ-06)
+  - [x] 7.1 Créer `backend/routers/patients.py` avec les endpoints CRUD patients
     - Implémenter `GET /api/v1/patients`, `POST /api/v1/patients`, `GET /api/v1/patients/{id}`, `PUT /api/v1/patients/{id}`
     - _Requirements : REQ-06_
-  - [ ] 7.2 Créer `backend/services/patient_service.py`
+  - [x] 7.2 Créer `backend/services/patient_service.py`
     - Implémenter le calcul automatique du groupe d'âge (`neonatal` 0–28j, `infant` 1–23 mois, `child` 2–17 ans, `adult` 18+) à partir de `date_of_birth`
     - Persister et récupérer les profils dans la collection `patients` MongoDB
     - _Requirements : REQ-06, REQ-08_
-  - [ ] 7.3 Écrire le test de propriété pour le calcul du groupe d'âge
+  - [x] 7.3 Écrire le test de propriété pour le calcul du groupe d'âge
     - **Propriété 3 : Pour tout `date_of_birth` valide, le groupe d'âge calculé correspond exactement aux tranches définies (néonatal 0–28j, nourrisson 1–23 mois, enfant 2–17 ans, adulte 18+)**
     - **Valide : REQ-06, REQ-08**
     - _Requirements : REQ-06, REQ-08_
-  - [ ] 7.4 Écrire les tests unitaires pour le service patient
+  - [x] 7.4 Écrire les tests unitaires pour le service patient
     - Tester création, mise à jour, calcul d'âge aux limites de tranche
     - _Requirements : REQ-06_
 

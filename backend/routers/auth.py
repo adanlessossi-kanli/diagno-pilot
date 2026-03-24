@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from passlib.context import CryptContext
 from pydantic import BaseModel
 
@@ -48,7 +49,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         user_id: str | None = payload.get("sub")
         if user_id is None:
             raise credentials_exc
-    except JWTError:
+    except InvalidTokenError:
         raise credentials_exc
 
     database = db.get_db()

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from bson import ObjectId
 from fastapi import HTTPException
-from jose import jwt
+import jwt
 
 from backend.core.config import settings
 from backend.routers.auth import (

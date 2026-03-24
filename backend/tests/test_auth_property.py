@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import pytest
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
-from jose import jwt
+import jwt
 
 from backend.core.config import settings
 from backend.routers.auth import create_access_token
