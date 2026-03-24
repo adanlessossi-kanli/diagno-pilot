@@ -201,11 +201,11 @@ class TestUserCreate:
     def test_password_long_ok(self):
         u = UserCreate(
             email="doc@example.com",
-            password="supersecretpassword",
+            password="test_password_123",
             role=UserRole.MEDECIN,
             full_name="Dr. Test",
         )
-        assert u.password == "supersecretpassword"
+        assert u.password == "test_password_123"
 
     def test_invalid_email_raises(self):
         with pytest.raises(ValidationError):
