@@ -175,15 +175,15 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - **Valide : REQ-04**
     - _Requirements : REQ-04_
 
-- [ ] 14. Implémenter la base de connaissances médicale — indexation documents (REQ-05)
-  - [ ] 14.1 Créer `backend/services/document_service.py`
+- [x] 14. Implémenter la base de connaissances médicale — indexation documents (REQ-05)
+  - [x] 14.1 Créer `backend/services/document_service.py`
     - Implémenter l'ingestion de fichiers PDF, DOCX, TXT, CSV : extraction texte → découpage en chunks → encodage en vecteurs → insertion dans `document_chunks` MongoDB
     - Stocker le fichier source sur S3 via `S3Service`
     - _Requirements : REQ-05_
-  - [ ] 14.2 Créer `backend/routers/documents.py` avec `POST /api/v1/documents/upload`, `GET /api/v1/documents`, `DELETE /api/v1/documents/{id}`
+  - [x] 14.2 Créer `backend/routers/documents.py` avec `POST /api/v1/documents/upload`, `GET /api/v1/documents`, `DELETE /api/v1/documents/{id}`
     - Restreindre les endpoints d'écriture au rôle `admin`
     - _Requirements : REQ-05, REQ-01_
-  - [ ] 14.3 Écrire les tests unitaires pour le service de documents
+  - [x] 14.3 Écrire les tests unitaires pour le service de documents
     - Tester le découpage en chunks, l'encodage, la suppression avec nettoyage S3
     - _Requirements : REQ-05_
 
