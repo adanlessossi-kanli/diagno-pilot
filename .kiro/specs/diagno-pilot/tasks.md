@@ -252,15 +252,15 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
 - [x] 22. Point de contrôle — Vérifier que tous les tests frontend passent
   - S'assurer que les tests des composants et des pages passent. Poser des questions à l'utilisateur si nécessaire.
 
-- [ ] 23. Implémenter l'application mobile React Native (REQ-11)
-  - [ ] 23.1 Initialiser `apps/mobile` avec Expo et TypeScript
+- [x] 23. Implémenter l'application mobile React Native (REQ-11)
+  - [x] 23.1 Initialiser `apps/mobile` avec Expo et TypeScript
     - Configurer la navigation native (React Navigation)
     - Réutiliser `packages/types`, `packages/api-client`, `packages/i18n`
     - _Requirements : REQ-11_
-  - [ ] 23.2 Implémenter les écrans mobiles : mode guidé, chat Q&A, dossier patient
+  - [x] 23.2 Implémenter les écrans mobiles : mode guidé, chat Q&A, dossier patient
     - Réutiliser les composants de `packages/ui` adaptés mobile
     - _Requirements : REQ-11_
-  - [ ] 23.3 Adapter les composants `packages/ui` pour React Native (StyleSheet vs CSS)
+  - [x] 23.3 Adapter les composants `packages/ui` pour React Native (StyleSheet vs CSS)
     - _Requirements : REQ-11_
 
 - [ ] 24. Câblage final et intégration

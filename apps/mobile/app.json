@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Diagno-Pilot",
+    "slug": "diagno-pilot",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "diagno-pilot",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.diagnopilot.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#2563eb"
+      },
+      "package": "com.diagnopilot.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
