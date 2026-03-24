@@ -1,0 +1,95 @@
+{
+  "nav": {
+    "home": "Home",
+    "chat": "Q&A Assistant",
+    "diagnose": "Guided Diagnosis",
+    "patients": "Patients",
+    "admin": "Administration",
+    "logout": "Logout"
+  },
+  "auth": {
+    "login": "Login",
+    "email": "Email address",
+    "password": "Password",
+    "submit": "Sign in",
+    "logout": "Sign out",
+    "sessionExpired": "Your session has expired. Please log in again."
+  },
+  "common": {
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "back": "Back",
+    "confirm": "Confirm",
+    "search": "Search",
+    "noResults": "No results"
+  },
+  "errors": {
+    "generic": "An error occurred. Please try again.",
+    "notFound": "Resource not found.",
+    "unauthorized": "Unauthorized access.",
+    "forbidden": "You do not have the required permissions.",
+    "networkError": "Network error. Please check your connection."
+  },
+  "patients": {
+    "title": "Patients",
+    "new": "New patient",
+    "name": "Full name",
+    "dateOfBirth": "Date of birth",
+    "ageGroup": "Age group",
+    "weight": "Weight (kg)",
+    "allergies": "Allergies",
+    "medications": "Current medications",
+    "ageGroups": {
+      "neonatal": "Neonatal (0–28d)",
+      "infant": "Infant (1–23 months)",
+      "child": "Child (2–17 years)",
+      "adult": "Adult (18+)"
+    }
+  },
+  "diagnose": {
+    "title": "Guided Diagnosis",
+    "symptoms": "Symptoms",
+    "symptomsPlaceholder": "Describe the patient's symptoms...",
+    "analyze": "Analyze",
+    "differential": "Differential diagnoses",
+    "probability": "Probability",
+    "icdCode": "ICD-10 code",
+    "prescription": "Prescription",
+    "antibiotic": "Antibiotic",
+    "dose": "Dose",
+    "frequency": "Frequency",
+    "duration": "Duration",
+    "route": "Route of administration"
+  },
+  "chat": {
+    "title": "Q&A Assistant",
+    "placeholder": "Ask your question...",
+    "send": "Send",
+    "sources": "Sources",
+    "attachPatient": "Attach a patient"
+  },
+  "alerts": {
+    "critical": "Critical alert",
+    "warning": "Warning",
+    "info": "Information",
+    "allergy": "Allergy detected",
+    "interaction": "Drug interaction",
+    "contraindication": "Contraindication",
+    "alternative": "Suggested alternative",
+    "confirmCritical": "Confirm despite critical alert"
+  },
+  "admin": {
+    "title": "Administration",
+    "documents": "Medical documents",
+    "importDocument": "Import document",
+    "documentTitle": "Title",
+    "documentSource": "Source",
+    "documentStatus": "Status",
+    "indexed": "Indexed",
+    "pending": "Pending",
+    "error": "Error"
+  }
+}

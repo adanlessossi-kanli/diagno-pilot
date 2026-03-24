@@ -7,6 +7,9 @@
     "build": "tsc",
     "test": "jest"
   },
+  "dependencies": {
+    "@diagno-pilot/types": "*"
+  },
   "devDependencies": {
     "typescript": "^5"
   }

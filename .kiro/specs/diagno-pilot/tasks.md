@@ -187,18 +187,18 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester le découpage en chunks, l'encodage, la suppression avec nettoyage S3
     - _Requirements : REQ-05_
 
-- [ ] 15. Mettre en place le frontend Next.js — structure et authentification (REQ-01, REQ-12)
-  - [ ] 15.1 Initialiser `apps/web` avec Next.js App Router et TypeScript
+- [x] 15. Mettre en place le frontend Next.js — structure et authentification (REQ-01, REQ-12)
+  - [x] 15.1 Initialiser `apps/web` avec Next.js App Router et TypeScript
     - Configurer les routes : `/`, `/login`, `/chat`, `/diagnose`, `/patients`, `/patients/[id]`, `/admin`
     - Configurer `next-intl` ou `i18next` dans `packages/i18n` avec les fichiers de traduction FR/EN
     - _Requirements : REQ-12_
-  - [ ] 15.2 Créer la page `/login` et le contexte d'authentification (`AuthContext`)
+  - [x] 15.2 Créer la page `/login` et le contexte d'authentification (`AuthContext`)
     - Implémenter le formulaire de connexion, la gestion du token JWT en cookie httpOnly, la redirection selon le rôle
     - _Requirements : REQ-01_
-  - [ ] 15.3 Implémenter le sélecteur de langue dans l'interface (sans rechargement de page)
+  - [x] 15.3 Implémenter le sélecteur de langue dans l'interface (sans rechargement de page)
     - Détecter la langue depuis les préférences navigateur au premier chargement
     - _Requirements : REQ-12_
-  - [ ] 15.4 Écrire les tests unitaires pour le contexte d'authentification
+  - [x] 15.4 Écrire les tests unitaires pour le contexte d'authentification
     - Tester login, logout, persistance du token, redirection
     - _Requirements : REQ-01_
 

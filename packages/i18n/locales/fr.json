@@ -1,0 +1,95 @@
+{
+  "nav": {
+    "home": "Accueil",
+    "chat": "Assistant Q&A",
+    "diagnose": "Diagnostic guidé",
+    "patients": "Patients",
+    "admin": "Administration",
+    "logout": "Déconnexion"
+  },
+  "auth": {
+    "login": "Connexion",
+    "email": "Adresse e-mail",
+    "password": "Mot de passe",
+    "submit": "Se connecter",
+    "logout": "Se déconnecter",
+    "sessionExpired": "Votre session a expiré. Veuillez vous reconnecter."
+  },
+  "common": {
+    "loading": "Chargement...",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "back": "Retour",
+    "confirm": "Confirmer",
+    "search": "Rechercher",
+    "noResults": "Aucun résultat"
+  },
+  "errors": {
+    "generic": "Une erreur est survenue. Veuillez réessayer.",
+    "notFound": "Ressource introuvable.",
+    "unauthorized": "Accès non autorisé.",
+    "forbidden": "Vous n'avez pas les droits nécessaires.",
+    "networkError": "Erreur réseau. Vérifiez votre connexion."
+  },
+  "patients": {
+    "title": "Patients",
+    "new": "Nouveau patient",
+    "name": "Nom complet",
+    "dateOfBirth": "Date de naissance",
+    "ageGroup": "Groupe d'âge",
+    "weight": "Poids (kg)",
+    "allergies": "Allergies",
+    "medications": "Médicaments en cours",
+    "ageGroups": {
+      "neonatal": "Néonatal (0–28j)",
+      "infant": "Nourrisson (1–23 mois)",
+      "child": "Enfant (2–17 ans)",
+      "adult": "Adulte (18+)"
+    }
+  },
+  "diagnose": {
+    "title": "Diagnostic guidé",
+    "symptoms": "Symptômes",
+    "symptomsPlaceholder": "Décrivez les symptômes du patient...",
+    "analyze": "Analyser",
+    "differential": "Diagnostics différentiels",
+    "probability": "Probabilité",
+    "icdCode": "Code CIM-10",
+    "prescription": "Prescription",
+    "antibiotic": "Antibiotique",
+    "dose": "Dose",
+    "frequency": "Fréquence",
+    "duration": "Durée",
+    "route": "Voie d'administration"
+  },
+  "chat": {
+    "title": "Assistant Q&A",
+    "placeholder": "Posez votre question...",
+    "send": "Envoyer",
+    "sources": "Sources",
+    "attachPatient": "Attacher un patient"
+  },
+  "alerts": {
+    "critical": "Alerte critique",
+    "warning": "Avertissement",
+    "info": "Information",
+    "allergy": "Allergie détectée",
+    "interaction": "Interaction médicamenteuse",
+    "contraindication": "Contre-indication",
+    "alternative": "Alternative proposée",
+    "confirmCritical": "Confirmer malgré l'alerte critique"
+  },
+  "admin": {
+    "title": "Administration",
+    "documents": "Documents médicaux",
+    "importDocument": "Importer un document",
+    "documentTitle": "Titre",
+    "documentSource": "Source",
+    "documentStatus": "Statut",
+    "indexed": "Indexé",
+    "pending": "En attente",
+    "error": "Erreur"
+  }
+}
