@@ -56,14 +56,14 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - **Valide : REQ-01**
     - _Requirements : REQ-01_
 
-- [ ] 5. Implémenter le service d'audit et de traçabilité (REQ-10)
-  - [ ] 5.1 Créer `backend/services/audit_service.py`
+- [x] 5. Implémenter le service d'audit et de traçabilité (REQ-10)
+  - [x] 5.1 Créer `backend/services/audit_service.py`
     - Implémenter `log_action(user_id, action, resource, resource_id, details, ip_address)`
     - Persister les logs dans la collection `audit_logs` MongoDB
     - _Requirements : REQ-10_
-  - [ ] 5.2 Intégrer le middleware d'audit dans les routes sensibles (auth, consultations, prescriptions, documents)
+  - [x] 5.2 Intégrer le middleware d'audit dans les routes sensibles (auth, consultations, prescriptions, documents)
     - _Requirements : REQ-10_
-  - [ ] 5.3 Écrire le test de propriété pour l'audit
+  - [x] 5.3 Écrire le test de propriété pour l'audit
     - **Propriété 2 : Toute action sensible génère exactement un log d'audit avec utilisateur, action, ressource et horodatage**
     - **Valide : REQ-10**
     - _Requirements : REQ-10_

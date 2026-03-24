@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from backend.core.config import settings
 from backend.core.database import db
 from backend.models.common import Locale, UserRole
+from backend.services.audit_service import audit_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -85,10 +86,11 @@ class UserResponse(BaseModel):
 # --- Endpoints ---
 
 @router.post("/login", response_model=TokenResponse)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """Authenticate with email + password, return JWT."""
     database = db.get_db()
     user_doc = await database["users"].find_one({"email": form_data.username})
+    ip = request.client.host if request.client else None
 
     if user_doc is None or not verify_password(form_data.password, user_doc["password_hash"]):
         raise HTTPException(
@@ -106,6 +108,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         {"$set": {"last_login": datetime.now(timezone.utc)}},
     )
 
+    await audit_service.log_action(
+        user_id=user_id,
+        action="login",
+        resource="auth",
+        ip_address=ip,
+    )
+
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -114,8 +123,15 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-async def logout(_: dict = Depends(get_current_user)):
+async def logout(request: Request, current_user: dict = Depends(get_current_user)):
     """Invalidate session (stateless — client discards the token)."""
+    ip = request.client.host if request.client else None
+    await audit_service.log_action(
+        user_id=str(current_user["_id"]),
+        action="logout",
+        resource="auth",
+        ip_address=ip,
+    )
     return {"detail": "Logged out successfully"}
 
 

@@ -119,9 +119,15 @@ class TestLoginEndpoint:
         mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
         with patch("backend.routers.auth.db") as mock_db_obj, \
-             patch("backend.core.auth.db") as mock_core_db_obj:
+             patch("backend.core.auth.db") as mock_core_db_obj, \
+             patch("backend.services.audit_service.db") as mock_audit_db_obj:
             mock_db_obj.get_db.return_value = mock_db
             mock_core_db_obj.get_db.return_value = mock_db
+            audit_collection = MagicMock()
+            audit_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="audit_id"))
+            audit_mock_db = MagicMock()
+            audit_mock_db.__getitem__ = MagicMock(return_value=audit_collection)
+            mock_audit_db_obj.get_db.return_value = audit_mock_db
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post(
@@ -198,9 +204,15 @@ class TestLogoutEndpoint:
         mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
         with patch("backend.routers.auth.db") as mock_db_obj, \
-             patch("backend.core.auth.db") as mock_core_db_obj:
+             patch("backend.core.auth.db") as mock_core_db_obj, \
+             patch("backend.services.audit_service.db") as mock_audit_db_obj:
             mock_db_obj.get_db.return_value = mock_db
             mock_core_db_obj.get_db.return_value = mock_db
+            audit_collection = MagicMock()
+            audit_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="audit_id"))
+            audit_mock_db = MagicMock()
+            audit_mock_db.__getitem__ = MagicMock(return_value=audit_collection)
+            mock_audit_db_obj.get_db.return_value = audit_mock_db
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.post(
