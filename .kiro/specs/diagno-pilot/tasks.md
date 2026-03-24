@@ -122,13 +122,13 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester la construction du pipeline `$vectorSearch`, la citation des sources
     - _Requirements : REQ-04_
 
-- [ ] 10. Implémenter le service de diagnostic différentiel (REQ-02)
-  - [ ] 10.1 Créer `backend/services/diagnostic_service.py`
+- [x] 10. Implémenter le service de diagnostic différentiel (REQ-02)
+  - [x] 10.1 Créer `backend/services/diagnostic_service.py`
     - Implémenter `get_differential_diagnosis(symptoms, patient_profile)` : construit le prompt RAG avec profil patient, retourne ≥3 diagnostics avec score de probabilité et code CIM-10
     - _Requirements : REQ-02_
-  - [ ] 10.2 Créer `backend/routers/diagnose.py` avec `POST /api/v1/diagnose/symptoms` et `GET /api/v1/diagnose/session/{session_id}`
+  - [x] 10.2 Créer `backend/routers/diagnose.py` avec `POST /api/v1/diagnose/symptoms` et `GET /api/v1/diagnose/session/{session_id}`
     - _Requirements : REQ-02_
-  - [ ] 10.3 Écrire le test de propriété pour le diagnostic différentiel
+  - [x] 10.3 Écrire le test de propriété pour le diagnostic différentiel
     - **Propriété 5 : Pour tout ensemble de symptômes valide, le service retourne au moins 3 diagnostics différentiels avec un score de probabilité entre 0 et 1**
     - **Valide : REQ-02**
     - _Requirements : REQ-02_
