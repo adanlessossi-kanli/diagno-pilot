@@ -39,19 +39,19 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester les contraintes de validation (poids négatif, groupe d'âge, etc.)
     - _Requirements : REQ-06, REQ-08_
 
-- [ ] 4. Implémenter l'authentification et la gestion des rôles (REQ-01)
-  - [ ] 4.1 Créer `backend/routers/auth.py` avec les endpoints `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`
+- [x] 4. Implémenter l'authentification et la gestion des rôles (REQ-01)
+  - [x] 4.1 Créer `backend/routers/auth.py` avec les endpoints `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`
     - Implémenter le hachage de mot de passe (bcrypt), génération et validation JWT
     - Implémenter l'expiration de session par inactivité
     - _Requirements : REQ-01_
-  - [ ] 4.2 Créer le middleware de contrôle d'accès basé sur les rôles (`backend/core/auth.py`)
+  - [x] 4.2 Créer le middleware de contrôle d'accès basé sur les rôles (`backend/core/auth.py`)
     - Implémenter les dépendances FastAPI `require_role(roles)` et `get_current_user`
     - Restreindre les routes admin aux utilisateurs avec rôle `admin`
     - _Requirements : REQ-01_
-  - [ ] 4.3 Écrire les tests unitaires pour l'authentification
+  - [x] 4.3 Écrire les tests unitaires pour l'authentification
     - Tester login valide/invalide, expiration JWT, contrôle d'accès par rôle
     - _Requirements : REQ-01_
-  - [ ] 4.4 Écrire le test de propriété pour l'authentification
+  - [x] 4.4 Écrire le test de propriété pour l'authentification
     - **Propriété 1 : Tout token JWT généré est valide uniquement pour l'utilisateur émetteur et expire après la durée configurée**
     - **Valide : REQ-01**
     - _Requirements : REQ-01_
