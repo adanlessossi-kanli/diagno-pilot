@@ -83,6 +83,7 @@ async def list_documents(
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Delete a medical document and its chunks (admin only)",
     dependencies=[Depends(require_role(["admin"])), Depends(audit_dependency("delete_document", "documents"))],
 )

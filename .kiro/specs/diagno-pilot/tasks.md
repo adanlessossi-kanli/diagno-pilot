@@ -263,19 +263,19 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
   - [x] 23.3 Adapter les composants `packages/ui` pour React Native (StyleSheet vs CSS)
     - _Requirements : REQ-11_
 
-- [ ] 24. Câblage final et intégration
-  - [ ] 24.1 Connecter tous les routers FastAPI dans `backend/main.py`
+- [x] 24. Câblage final et intégration
+  - [x] 24.1 Connecter tous les routers FastAPI dans `backend/main.py`
     - Enregistrer les routers : auth, chat, diagnose, patients, documents, files, alerts
     - Vérifier que le middleware d'audit est actif sur toutes les routes sensibles
     - _Requirements : REQ-01, REQ-10_
-  - [ ] 24.2 Vérifier l'intégration end-to-end du flux RAG (symptômes → diagnostic → prescription → alertes)
+  - [x] 24.2 Vérifier l'intégration end-to-end du flux RAG (symptômes → diagnostic → prescription → alertes)
     - Écrire des tests d'intégration automatisés couvrant le flux complet
     - _Requirements : REQ-02, REQ-03, REQ-04, REQ-09_
-  - [ ] 24.3 Écrire les tests d'intégration pour le flux complet
+  - [x] 24.3 Écrire les tests d'intégration pour le flux complet
     - Tester le flux : login → saisie symptômes → diagnostic → prescription → alerte → audit log
     - _Requirements : REQ-01, REQ-02, REQ-03, REQ-09, REQ-10_
 
-- [ ] 25. Point de contrôle final — Vérifier que tous les tests passent
+- [x] 25. Point de contrôle final — Vérifier que tous les tests passent
   - S'assurer que l'ensemble des tests unitaires, de propriété et d'intégration passent. Poser des questions à l'utilisateur si nécessaire.
 
 ---
