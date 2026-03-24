@@ -210,26 +210,26 @@ Implémentation incrémentale de l'application Diagno-Pilot : backend FastAPI (P
     - Tester le rendu des alertes critiques, l'affichage des sources
     - _Requirements : REQ-09, REQ-04_
 
-- [ ] 17. Implémenter le mode guidé — diagnostic différentiel (frontend) (REQ-02)
-  - [ ] 17.1 Créer la page `/diagnose` avec le formulaire de saisie des symptômes
+- [x] 17. Implémenter le mode guidé — diagnostic différentiel (frontend) (REQ-02)
+  - [x] 17.1 Créer la page `/diagnose` avec le formulaire de saisie des symptômes
     - Implémenter la saisie en texte libre et via liste structurée
     - Afficher les diagnostics différentiels avec score de probabilité et code CIM-10
     - _Requirements : REQ-02_
-  - [ ] 17.2 Intégrer le profil patient dans le formulaire de diagnostic (sélection ou saisie one-shot)
+  - [x] 17.2 Intégrer le profil patient dans le formulaire de diagnostic (sélection ou saisie one-shot)
     - _Requirements : REQ-02, REQ-06_
 
-- [ ] 18. Implémenter le mode guidé — prescription et alertes (frontend) (REQ-03, REQ-09)
-  - [ ] 18.1 Créer l'étape prescription dans la page `/diagnose`
+- [x] 18. Implémenter le mode guidé — prescription et alertes (frontend) (REQ-03, REQ-09)
+  - [x] 18.1 Créer l'étape prescription dans la page `/diagnose`
     - Afficher la prescription (molécule, dose, fréquence, durée, voie)
     - Afficher les alertes de sécurité avec blocage sur alerte `critical` et confirmation explicite requise
     - Proposer une alternative thérapeutique en cas d'alerte critique
     - _Requirements : REQ-03, REQ-09_
-  - [ ] 18.2 Écrire les tests unitaires pour le flux prescription/alertes
+  - [x] 18.2 Écrire les tests unitaires pour le flux prescription/alertes
     - Tester le blocage sur alerte critique, l'affichage de l'alternative
     - _Requirements : REQ-09_
 
-- [ ] 19. Implémenter l'interface de chat Q&A (frontend) (REQ-04)
-  - [ ] 19.1 Créer la page `/chat` avec l'interface de conversation multi-tours
+- [x] 19. Implémenter l'interface de chat Q&A (frontend) (REQ-04)
+  - [x] 19.1 Créer la page `/chat` avec l'interface de conversation multi-tours
     - Afficher les messages utilisateur/assistant, les sources citées par réponse
     - Permettre l'attachement d'un contexte patient à la session
     - _Requirements : REQ-04_
