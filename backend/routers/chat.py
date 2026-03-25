@@ -1,11 +1,11 @@
 """Chat router — conversational RAG Q&A endpoints (REQ-04)."""
-from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.core.auth import get_current_user
 from backend.core.database import db
+from backend.core.rate_limit import limiter
 from backend.models.document import DocumentSource, RAGResponse
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
@@ -68,7 +68,9 @@ def get_chat_service() -> ChatService:
     response_model=ChatMessageResponse,
     status_code=status.HTTP_200_OK,
 )
+@limiter.limit("60/minute")
 async def send_message(
+    request: Request,
     body: ChatMessageRequest,
     current_user: dict = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),

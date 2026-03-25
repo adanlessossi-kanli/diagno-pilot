@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -27,7 +27,7 @@ class ChatMessage:
         self.role: str = role  # 'user' | 'assistant'
         self.content: str = content
         self.sources: list[DocumentSource] = sources or []
-        self.timestamp: datetime = datetime.utcnow()
+        self.timestamp: datetime = datetime.now(timezone.utc)
 
     def to_dict(self) -> dict:
         return {
@@ -76,7 +76,7 @@ class ChatService:
             top_k=5,
         )
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         user_turn = {
             "id": str(uuid.uuid4()),
             "role": "user",

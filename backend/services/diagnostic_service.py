@@ -5,11 +5,15 @@ import json
 import logging
 import re
 
+from fastapi import HTTPException
+
 from backend.models.consultation import DifferentialDiagnosis, Symptom
 from backend.models.patient import PatientProfile
 from backend.services.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
+
+_ICD_CODE_RE = re.compile(r"^[A-Z][0-9]{2}(\.[0-9]{1,4})?$")
 
 
 class DiagnosticService:
@@ -92,6 +96,42 @@ class DiagnosticService:
 
         return "\n".join(lines)
 
+    def _validate_diagnoses(
+        self, diagnoses: list[DifferentialDiagnosis], raw_response: str
+    ) -> None:
+        """Validate a list of DifferentialDiagnosis objects.
+
+        Checks:
+        - 1 ≤ len(diagnoses) ≤ 10
+        - Each item has a non-empty ``condition`` and ``probability`` ∈ [0.0, 1.0]
+        - ``icd_code``, if present, matches ``^[A-Z][0-9]{2}(\\.[0-9]{1,4})?$``
+
+        Raises:
+            HTTPException(502): with detail ``"llm_response_invalid"`` on any failure.
+        """
+        def _fail(reason: str) -> None:
+            logger.error(
+                "LLM response validation failed — %s. Raw response: %s",
+                reason,
+                raw_response,
+            )
+            raise HTTPException(status_code=502, detail="llm_response_invalid")
+
+        if not (1 <= len(diagnoses) <= 10):
+            _fail(f"expected 1–10 diagnoses, got {len(diagnoses)}")
+
+        for i, d in enumerate(diagnoses):
+            if not d.condition or not d.condition.strip():
+                _fail(f"diagnosis[{i}].condition is empty")
+            if not (0.0 <= d.probability <= 1.0):
+                _fail(
+                    f"diagnosis[{i}].probability={d.probability} is out of [0.0, 1.0]"
+                )
+            if d.icd_code is not None and not _ICD_CODE_RE.match(d.icd_code):
+                _fail(
+                    f"diagnosis[{i}].icd_code={d.icd_code!r} does not match ICD-10 format"
+                )
+
     def _parse_diagnoses(self, llm_answer: str) -> list[DifferentialDiagnosis]:
         """Extract DifferentialDiagnosis objects from the LLM response."""
         # Try to find a JSON array in the response
@@ -109,7 +149,9 @@ class DiagnosticService:
                     if isinstance(item, dict)
                 ]
                 if len(diagnoses) >= 3:
-                    return sorted(diagnoses, key=lambda d: d.probability, reverse=True)
+                    sorted_diagnoses = sorted(diagnoses, key=lambda d: d.probability, reverse=True)
+                    self._validate_diagnoses(sorted_diagnoses, llm_answer)
+                    return sorted_diagnoses
             except (json.JSONDecodeError, ValueError, TypeError) as exc:
                 logger.warning("Failed to parse JSON diagnoses: %s", exc)
 

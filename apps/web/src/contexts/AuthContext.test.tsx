@@ -1,6 +1,7 @@
 /**
  * Unit tests for AuthContext
- * Validates: Requirements REQ-01 (login/logout, token persistence, role-based redirect)
+ * Validates: Requirements REQ-01, 4.5, 7.1, 7.2, 7.3
+ * (login/logout, token persistence, role-based redirect, fetchWithRefresh, isLoading)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -189,5 +190,62 @@ describe('AuthContext', () => {
     const lastCall = calls[calls.length - 1][0] as string;
     expect(lastCall).not.toContain('/admin');
     expect(lastCall).toMatch(/^\/fr/);
+  });
+
+  it('g. isLoading is true until auth/me resolves (REQ 7.2)', async () => {
+    let resolveMe!: (v: typeof fakeUser) => void;
+    mockMe.mockReturnValue(new Promise<typeof fakeUser>((res) => { resolveMe = res; }));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    // Still loading before /auth/me resolves
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => { resolveMe(fakeUser); });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+  });
+
+  it('h. fetchWithRefresh — replays request after successful silent refresh (REQ 4.5)', async () => {
+    mockMe.mockRejectedValue(new Error('no session'));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // First call returns 401, refresh returns new token, retry returns 200
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ status: 401, ok: false } as Response)          // original request → 401
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'new-tok' }) } as Response) // /auth/refresh
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'new-tok' }) } as Response) // set-cookie
+      .mockResolvedValueOnce({ status: 200, ok: true } as Response);          // replayed request
+
+    global.fetch = mockFetch;
+
+    let response!: Response;
+    await act(async () => {
+      response = await result.current.fetchWithRefresh('http://localhost:8000/api/v1/patients');
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('i. fetchWithRefresh — redirects to login if refresh fails (REQ 7.3)', async () => {
+    mockMe.mockRejectedValue(new Error('no session'));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ status: 401, ok: false } as Response)   // original → 401
+      .mockResolvedValueOnce({ ok: false, status: 401 } as Response)   // /auth/refresh fails
+      .mockResolvedValueOnce({ ok: true } as Response);                // set-cookie DELETE
+
+    global.fetch = mockFetch;
+
+    await act(async () => {
+      await result.current.fetchWithRefresh('http://localhost:8000/api/v1/patients');
+    });
+
+    expect(result.current.user).toBeNull();
+    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/login'));
   });
 });

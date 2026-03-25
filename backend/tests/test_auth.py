@@ -114,6 +114,7 @@ class TestLoginEndpoint:
         mock_collection = MagicMock()
         mock_collection.find_one = AsyncMock(return_value=user_doc)
         mock_collection.update_one = AsyncMock(return_value=None)
+        mock_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="rt_id"))
 
         mock_db = MagicMock()
         mock_db.__getitem__ = MagicMock(return_value=mock_collection)
@@ -138,6 +139,7 @@ class TestLoginEndpoint:
         assert resp.status_code == 200
         body = resp.json()
         assert "access_token" in body
+        assert "refresh_token" in body
         assert body["token_type"] == "bearer"
 
     async def test_invalid_password_returns_401(self):
@@ -358,3 +360,299 @@ class TestExpiredJWT:
             await get_current_user(token=token)
 
         assert exc_info.value.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 8. POST /refresh
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestRefreshEndpoint:
+    def _make_token_doc(self, user_id: str, revoked: bool = False, expired: bool = False):
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        if expired:
+            expires_at = now - timedelta(days=1)
+        else:
+            expires_at = now + timedelta(days=7)
+        return {
+            "token": "valid-refresh-token-uuid",
+            "user_id": user_id,
+            "expires_at": expires_at,
+            "revoked": revoked,
+        }
+
+    async def test_valid_refresh_token_returns_new_tokens(self):
+        from httpx import AsyncClient, ASGITransport
+        from backend.main import app
+
+        user_doc = _make_user_doc()
+        user_id = str(user_doc["_id"])
+        token_doc = self._make_token_doc(user_id)
+
+        mock_rt_collection = MagicMock()
+        mock_rt_collection.find_one = AsyncMock(return_value=token_doc)
+        mock_rt_collection.update_one = AsyncMock(return_value=None)
+        mock_rt_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="new_rt"))
+
+        mock_users_collection = MagicMock()
+        mock_users_collection.find_one = AsyncMock(return_value=user_doc)
+
+        def get_collection(name):
+            if name == "refresh_tokens":
+                return mock_rt_collection
+            return mock_users_collection
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(side_effect=get_collection)
+
+        with patch("backend.routers.auth.db") as mock_db_obj:
+            mock_db_obj.get_db.return_value = mock_db
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/auth/refresh",
+                    json={"refresh_token": "valid-refresh-token-uuid"},
+                )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "access_token" in body
+        assert "refresh_token" in body
+        assert body["token_type"] == "bearer"
+
+    async def test_revoked_refresh_token_returns_401(self):
+        from httpx import AsyncClient, ASGITransport
+        from backend.main import app
+
+        user_doc = _make_user_doc()
+        token_doc = self._make_token_doc(str(user_doc["_id"]), revoked=True)
+
+        mock_rt_collection = MagicMock()
+        mock_rt_collection.find_one = AsyncMock(return_value=token_doc)
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_rt_collection)
+
+        with patch("backend.routers.auth.db") as mock_db_obj:
+            mock_db_obj.get_db.return_value = mock_db
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/auth/refresh",
+                    json={"refresh_token": "revoked-token"},
+                )
+
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "refresh_token_invalid"
+
+    async def test_expired_refresh_token_returns_401(self):
+        from httpx import AsyncClient, ASGITransport
+        from backend.main import app
+
+        user_doc = _make_user_doc()
+        token_doc = self._make_token_doc(str(user_doc["_id"]), expired=True)
+
+        mock_rt_collection = MagicMock()
+        mock_rt_collection.find_one = AsyncMock(return_value=token_doc)
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_rt_collection)
+
+        with patch("backend.routers.auth.db") as mock_db_obj:
+            mock_db_obj.get_db.return_value = mock_db
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/auth/refresh",
+                    json={"refresh_token": "expired-token"},
+                )
+
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "refresh_token_invalid"
+
+    async def test_unknown_refresh_token_returns_401(self):
+        from httpx import AsyncClient, ASGITransport
+        from backend.main import app
+
+        mock_rt_collection = MagicMock()
+        mock_rt_collection.find_one = AsyncMock(return_value=None)
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_rt_collection)
+
+        with patch("backend.routers.auth.db") as mock_db_obj:
+            mock_db_obj.get_db.return_value = mock_db
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/api/v1/auth/refresh",
+                    json={"refresh_token": "unknown-token"},
+                )
+
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "refresh_token_invalid"
+
+    async def test_refresh_rotates_token(self):
+        """After a successful refresh, the old token must be revoked (update_one called)."""
+        from httpx import AsyncClient, ASGITransport
+        from backend.main import app
+
+        user_doc = _make_user_doc()
+        user_id = str(user_doc["_id"])
+        token_doc = self._make_token_doc(user_id)
+
+        mock_rt_collection = MagicMock()
+        mock_rt_collection.find_one = AsyncMock(return_value=token_doc)
+        mock_rt_collection.update_one = AsyncMock(return_value=None)
+        mock_rt_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id="new_rt"))
+
+        mock_users_collection = MagicMock()
+        mock_users_collection.find_one = AsyncMock(return_value=user_doc)
+
+        def get_collection(name):
+            if name == "refresh_tokens":
+                return mock_rt_collection
+            return mock_users_collection
+
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(side_effect=get_collection)
+
+        with patch("backend.routers.auth.db") as mock_db_obj:
+            mock_db_obj.get_db.return_value = mock_db
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                await client.post(
+                    "/api/v1/auth/refresh",
+                    json={"refresh_token": "valid-refresh-token-uuid"},
+                )
+
+        # Verify old token was revoked
+        mock_rt_collection.update_one.assert_called_once()
+        call_args = mock_rt_collection.update_one.call_args
+        assert call_args[0][0] == {"token": "valid-refresh-token-uuid"}
+        assert call_args[0][1] == {"$set": {"revoked": True}}
+
+
+# ---------------------------------------------------------------------------
+# 9. Property-based test — P7 : Rotation des refresh tokens
+# Feature: diagno-pilot-improvements, Property 7: Rotation des refresh tokens — l'ancien token est invalidé après usage
+# Validates: Requirements 4.3, 4.4
+# ---------------------------------------------------------------------------
+
+from hypothesis import given, settings as h_settings, HealthCheck
+from hypothesis import strategies as st
+
+h_settings.register_profile(
+    "ci",
+    max_examples=100,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+h_settings.load_profile("ci")
+
+
+def _make_refresh_token_doc(token_value: str, user_id: str, days_offset: int = 7) -> dict:
+    """Build a valid (non-revoked, non-expired) refresh token document."""
+    expires_at = datetime.now(timezone.utc) + timedelta(days=days_offset)
+    return {
+        "token": token_value,
+        "user_id": user_id,
+        "expires_at": expires_at,
+        "revoked": False,
+    }
+
+
+@h_settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
+@given(
+    token_suffix=st.text(
+        alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-"),
+        min_size=4,
+        max_size=32,
+    )
+)
+@pytest.mark.asyncio
+async def test_p7_refresh_token_rotation_invalidates_old_token(token_suffix: str):
+    """
+    Property 7 — Rotation des refresh tokens.
+
+    Pour tout refresh token valide T, après un appel réussi à POST /auth/refresh
+    avec T, une seconde utilisation de T doit retourner HTTP 401 avec le message
+    "refresh_token_invalid".
+
+    # Feature: diagno-pilot-improvements, Property 7: Rotation des refresh tokens — l'ancien token est invalidé après usage
+    # Validates: Requirements 4.3, 4.4
+    """
+    from httpx import AsyncClient, ASGITransport
+    from backend.main import app
+
+    old_token_value = f"old-token-{token_suffix}"
+    user_doc = _make_user_doc()
+    user_id = str(user_doc["_id"])
+
+    # Stateful in-memory store that simulates real MongoDB rotation behaviour
+    token_store: dict[str, dict] = {
+        old_token_value: _make_refresh_token_doc(old_token_value, user_id),
+    }
+    inserted_tokens: list[dict] = []
+
+    async def fake_find_one(query: dict) -> dict | None:
+        token_val = query.get("token")
+        if token_val is None:
+            return None
+        doc = token_store.get(token_val)
+        if doc is None:
+            return None
+        # Return a copy so mutations don't affect the store directly
+        return dict(doc)
+
+    async def fake_update_one(filter_: dict, update: dict) -> None:
+        token_val = filter_.get("token")
+        if token_val and token_val in token_store:
+            set_fields = update.get("$set", {})
+            token_store[token_val].update(set_fields)
+
+    async def fake_insert_one(doc: dict):
+        inserted_tokens.append(doc)
+        token_store[doc["token"]] = dict(doc)
+        return MagicMock(inserted_id="new_rt_id")
+
+    mock_rt_collection = MagicMock()
+    mock_rt_collection.find_one = AsyncMock(side_effect=fake_find_one)
+    mock_rt_collection.update_one = AsyncMock(side_effect=fake_update_one)
+    mock_rt_collection.insert_one = AsyncMock(side_effect=fake_insert_one)
+
+    mock_users_collection = MagicMock()
+    mock_users_collection.find_one = AsyncMock(return_value=user_doc)
+
+    def get_collection(name: str):
+        if name == "refresh_tokens":
+            return mock_rt_collection
+        return mock_users_collection
+
+    mock_db = MagicMock()
+    mock_db.__getitem__ = MagicMock(side_effect=get_collection)
+
+    with patch("backend.routers.auth.db") as mock_db_obj:
+        mock_db_obj.get_db.return_value = mock_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # First use of old_token — must succeed (HTTP 200)
+            first_resp = await client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": old_token_value},
+            )
+            assert first_resp.status_code == 200, (
+                f"Expected 200 on first refresh, got {first_resp.status_code}: {first_resp.text}"
+            )
+
+            # Second use of the same old_token — must be rejected (HTTP 401)
+            second_resp = await client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": old_token_value},
+            )
+            assert second_resp.status_code == 401, (
+                f"Expected 401 on second use of old token, got {second_resp.status_code}: {second_resp.text}"
+            )
+            assert second_resp.json().get("detail") == "refresh_token_invalid", (
+                f"Expected detail='refresh_token_invalid', got: {second_resp.json()}"
+            )

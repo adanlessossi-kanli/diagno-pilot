@@ -4,7 +4,7 @@ Validates: Requirements REQ-06
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -102,8 +102,8 @@ def _make_patient_doc(patient_id: ObjectId, dob: date | None = None, age_group: 
         "comorbidities": {"renal_failure": False, "hepatic_failure": False},
         "current_medications": [],
         "created_by": ObjectId(),
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
     }
 
 

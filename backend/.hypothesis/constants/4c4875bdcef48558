@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\alerts.py
+# hypothesis_version: 6.151.9
+
+[0.0, '/alerts', '/check', '_id', 'age_group', 'alerts', 'allergies', 'comorbidities', 'current_medications', 'full_name', 'hepatic_failure', 'oral', 'patients', 'renal_failure', 'unknown']

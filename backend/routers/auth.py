@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 
 from backend.core.config import settings
 from backend.core.database import db
+from backend.core.rate_limit import limiter
 from backend.models.common import Locale, UserRole
 from backend.services.audit_service import audit_service
 
@@ -36,6 +38,11 @@ def create_access_token(user_id: str, role: str) -> str:
         "exp": expire,
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def create_refresh_token() -> str:
+    """Generate an opaque UUID refresh token."""
+    return str(uuid.uuid4())
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
@@ -67,12 +74,27 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     return user_doc
 
 
+async def ensure_refresh_token_indexes() -> None:
+    """Create required indexes on the refresh_tokens collection (idempotent)."""
+    database = db.get_db()
+    col = database["refresh_tokens"]
+    # Unique index on token field
+    await col.create_index("token", unique=True)
+    # TTL index on expires_at (MongoDB auto-deletes documents after expiry)
+    await col.create_index("expires_at", expireAfterSeconds=0)
+
+
 # --- Schemas ---
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 
 class UserResponse(BaseModel):
@@ -87,8 +109,9 @@ class UserResponse(BaseModel):
 # --- Endpoints ---
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
-    """Authenticate with email + password, return JWT."""
+    """Authenticate with email + password, return JWT access token + opaque refresh token."""
     database = db.get_db()
     user_doc = await database["users"].find_one({"email": form_data.username})
     ip = request.client.host if request.client else None
@@ -101,7 +124,17 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         )
 
     user_id = str(user_doc["_id"])
-    token = create_access_token(user_id=user_id, role=user_doc["role"])
+    access_token = create_access_token(user_id=user_id, role=user_doc["role"])
+
+    # Create and store refresh token
+    refresh_token_value = create_refresh_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_EXPIRE_DAYS)
+    await database["refresh_tokens"].insert_one({
+        "token": refresh_token_value,
+        "user_id": user_id,
+        "expires_at": expires_at,
+        "revoked": False,
+    })
 
     # Update last_login
     await database["users"].update_one(
@@ -117,7 +150,74 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
     )
 
     return TokenResponse(
-        access_token=token,
+        access_token=access_token,
+        refresh_token=refresh_token_value,
+        token_type="bearer",
+        expires_in=settings.JWT_EXPIRE_MINUTES * 60,
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(body: RefreshRequest):
+    """
+    Validate a refresh token, rotate it (invalidate old, issue new),
+    and return a new JWT access token + new refresh token.
+
+    Returns HTTP 401 with "refresh_token_invalid" if token is expired or revoked.
+    """
+    database = db.get_db()
+    now = datetime.now(timezone.utc)
+
+    token_doc = await database["refresh_tokens"].find_one({"token": body.refresh_token})
+
+    if (
+        token_doc is None
+        or token_doc.get("revoked", True)
+        or token_doc["expires_at"].replace(tzinfo=timezone.utc) <= now
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="refresh_token_invalid",
+        )
+
+    # Revoke the old token (rotation)
+    await database["refresh_tokens"].update_one(
+        {"token": body.refresh_token},
+        {"$set": {"revoked": True}},
+    )
+
+    # Issue new tokens
+    user_id = token_doc["user_id"]
+    from bson import ObjectId
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="refresh_token_invalid",
+        )
+
+    user_doc = await database["users"].find_one({"_id": oid})
+    if user_doc is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="refresh_token_invalid",
+        )
+
+    new_access_token = create_access_token(user_id=user_id, role=user_doc["role"])
+    new_refresh_token_value = create_refresh_token()
+    new_expires_at = now + timedelta(days=settings.JWT_REFRESH_EXPIRE_DAYS)
+
+    await database["refresh_tokens"].insert_one({
+        "token": new_refresh_token_value,
+        "user_id": user_id,
+        "expires_at": new_expires_at,
+        "revoked": False,
+    })
+
+    return TokenResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token_value,
         token_type="bearer",
         expires_in=settings.JWT_EXPIRE_MINUTES * 60,
     )

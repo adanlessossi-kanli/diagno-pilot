@@ -1,12 +1,18 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useTranslations } from 'next-intl';
+import Image from 'next/image';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { DiagnosisResponse, PrescriptionResponse } from '@diagno-pilot/api-client';
 import type { PatientProfile, Symptom } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PrescriptionStep } from './PrescriptionStep';
+import { Toast } from '../../../components/Toast';
+import { IMAGES } from '@/lib/images';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +24,14 @@ interface StructuredSymptom {
   severity: string;
   duration_days: number;
 }
+
+// ─── Zod schema ───────────────────────────────────────────────────────────────
+
+const diagnoseSchema = z.object({
+  freeText: z.string().min(3, 'Le texte doit contenir au moins 3 caractères'),
+});
+
+type DiagnoseFormValues = z.infer<typeof diagnoseSchema>;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -37,12 +51,10 @@ function getApiClient() {
 export default function DiagnosePage() {
   const t = useTranslations('diagnose');
   const tCommon = useTranslations('common');
-  const tErrors = useTranslations('errors');
   const { user } = useAuth();
 
   // Symptom input state
   const [inputMode, setInputMode] = useState<InputMode>('freeText');
-  const [freeText, setFreeText] = useState('');
   const [structuredSymptoms, setStructuredSymptoms] = useState<StructuredSymptom[]>([]);
   const [newSymptom, setNewSymptom] = useState<StructuredSymptom>({ name: '', severity: 'moderate', duration_days: 1 });
 
@@ -63,14 +75,25 @@ export default function DiagnosePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [results, setResults] = useState<DiagnosisResponse | null>(null);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+
+  // react-hook-form for free text mode
+  const {
+    register,
+    watch,
+    formState: { errors: formErrors },
+  } = useForm<DiagnoseFormValues>({
+    resolver: zodResolver(diagnoseSchema),
+    mode: 'onChange',
+    defaultValues: { freeText: '' },
+  });
+
+  const freeTextValue = watch('freeText');
 
   // Sync token from cookie on mount (best-effort)
   useEffect(() => {
     if (user) {
-      // Token is managed in-memory by AuthContext; we re-use the same pattern
-      // by reading from the httpOnly cookie via the /api/auth/me endpoint
-      // The token is already set in memoryToken by AuthContext's login flow.
-      // For page refreshes, we rely on the cookie-based session.
+      // Token is managed in-memory by AuthContext
     }
   }, [user]);
 
@@ -95,6 +118,16 @@ export default function DiagnosePage() {
     }
   }, [patientMode, fetchPatients]);
 
+  // ─── Determine if submit should be disabled ──────────────────────────────────
+
+  function isSubmitDisabled(): boolean {
+    if (loading) return true;
+    if (inputMode === 'freeText') {
+      return !freeTextValue || freeTextValue.trim().length < 3;
+    }
+    return structuredSymptoms.length === 0;
+  }
+
   // ─── Symptom helpers ────────────────────────────────────────────────────────
 
   function addStructuredSymptom() {
@@ -111,8 +144,8 @@ export default function DiagnosePage() {
 
   function buildSymptoms(): Symptom[] {
     if (inputMode === 'freeText') {
-      if (!freeText.trim()) return [];
-      return [{ name: freeText.trim(), severity: 'moderate', duration_days: 0 }];
+      if (!freeTextValue?.trim()) return [];
+      return [{ name: freeTextValue.trim(), severity: 'moderate', duration_days: 0 }];
     }
     return structuredSymptoms.map((s) => ({
       name: s.name,
@@ -162,6 +195,7 @@ export default function DiagnosePage() {
       const patientProfile = buildPatientProfile();
       const response = await client.diagnose.getSymptomsDiagnosis(symptoms, patientProfile);
       setResults(response);
+      setShowSuccessToast(true);
     } catch {
       setError(t('errorDiagnose'));
     } finally {
@@ -186,7 +220,27 @@ export default function DiagnosePage() {
 
   return (
     <main className="min-h-screen p-8 max-w-3xl mx-auto">
+      {/* Header illustration */}
+      <div className="relative w-full h-32 mb-6 rounded-lg overflow-hidden bg-gray-100">
+        <Image
+          src={IMAGES.diagnoseHeader.src}
+          alt={IMAGES.diagnoseHeader.alt}
+          fill
+          className="object-cover"
+          sizes="(max-width: 768px) 100vw, 768px"
+        />
+      </div>
+
       <h1 className="text-2xl font-bold mb-6">{t('title')}</h1>
+
+      {showSuccessToast && (
+        <Toast
+          message={t('successDiagnose')}
+          type="success"
+          duration={3000}
+          onClose={() => setShowSuccessToast(false)}
+        />
+      )}
 
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-6">
 
@@ -222,12 +276,18 @@ export default function DiagnosePage() {
 
           {/* Free text input */}
           {inputMode === 'freeText' && (
-            <textarea
-              value={freeText}
-              onChange={(e) => setFreeText(e.target.value)}
-              className="w-full border rounded px-3 py-2 h-28 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder={t('symptomsPlaceholder')}
-            />
+            <div>
+              <textarea
+                {...register('freeText')}
+                className="w-full border rounded px-3 py-2 h-28 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder={t('symptomsPlaceholder')}
+              />
+              {formErrors.freeText && (
+                <p role="alert" className="text-xs text-red-600 mt-1">
+                  {formErrors.freeText.message}
+                </p>
+              )}
+            </div>
           )}
 
           {/* Structured symptom list */}
@@ -394,9 +454,15 @@ export default function DiagnosePage() {
         {/* ── Submit ── */}
         <button
           type="submit"
-          disabled={loading}
-          className="w-full bg-blue-600 text-white px-4 py-2.5 rounded font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          disabled={isSubmitDisabled()}
+          className="w-full bg-blue-600 text-white px-4 py-2.5 rounded font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
         >
+          {loading && (
+            <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          )}
           {loading ? tCommon('loading') : t('analyze')}
         </button>
       </form>

@@ -1,21 +1,37 @@
 import logging
 import time
+import traceback
+import uuid
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 
 from backend.core.config import settings
 from backend.core.database import db
-from backend.routers import alerts, auth, chat, diagnose, documents, files, patients
+from backend.core.logging_config import request_id_var, setup_logging
+from backend.core.rate_limit import limiter
+from backend.routers import admin, alerts, auth, chat, diagnose, documents, files, patients
+from backend.services.diagnostic_service import DiagnosticService
+from backend.services.embedding_service import EmbeddingModel
+from backend.services.llm_router import LLMRouter
+from backend.services.alert_service import alert_service
+from backend.services.prescription_service import prescription_service
+from backend.services.rag_service import RAGService
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# Initialise structured logging before anything else
+setup_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
@@ -23,6 +39,32 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     await db.connect()
     logger.info("MongoDB connected")
+    from backend.routers.auth import ensure_refresh_token_indexes
+    await ensure_refresh_token_indexes()
+    logger.info("refresh_tokens indexes ensured")
+
+    # Singleton DiagnosticService (REQ 6.5)
+    database = db.get_db()
+    mongo_client = database.client
+    llm_router = LLMRouter()
+    embedder = EmbeddingModel()
+    rag = RAGService(
+        mongo_client=mongo_client,
+        llm_router=llm_router,
+        embedder=embedder,
+        db_name=database.name,
+    )
+    app.state.diagnostic_service = DiagnosticService(rag_service=rag)
+    logger.info("DiagnosticService singleton initialised")
+
+    # Load antibiotic protocols from MongoDB (REQ 11.4, 11.5)
+    await prescription_service.load_protocols_from_db()
+    logger.info("PrescriptionService protocols loaded")
+
+    # Load drug interactions from MongoDB (REQ 12.1, 12.5)
+    await alert_service.load_interactions_from_db()
+    logger.info("AlertService drug interactions loaded")
+
     yield
     await db.disconnect()
     logger.info("MongoDB disconnected")
@@ -35,8 +77,36 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiter state
+app.state.limiter = limiter
+
+
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    """Custom handler that always includes Retry-After header (REQ 2.3)."""
+    response = JSONResponse(
+        {"error": f"Rate limit exceeded: {exc.detail}"}, status_code=429
+    )
+    # Calculate seconds until window reset and add Retry-After header
+    try:
+        view_rate_limit = getattr(request.state, "view_rate_limit", None)
+        if view_rate_limit is not None:
+            window_stats = limiter.limiter.get_window_stats(
+                view_rate_limit[0], *view_rate_limit[1]
+            )
+            reset_in = max(1, int(window_stats[0] - time.time()))
+            response.headers["Retry-After"] = str(reset_in)
+        else:
+            response.headers["Retry-After"] = "60"
+    except Exception:
+        response.headers["Retry-After"] = "60"
+    return response
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 # CORS
-origins = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",")] if settings.ALLOWED_ORIGINS != "*" else ["*"]
+origins = settings.get_allowed_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -46,31 +116,49 @@ app.add_middleware(
 )
 
 
-# Request logging middleware
+# Request logging middleware — injects request_id and logs structured HTTP fields (REQ 14.1, 14.2)
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
+    req_id = str(uuid.uuid4())
+    token = request_id_var.set(req_id)
+    request.state.request_id = req_id
     start = time.perf_counter()
     response = await call_next(request)
-    duration_ms = (time.perf_counter() - start) * 1000
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
     logger.info(
-        "%s %s %s %.1fms",
+        "%s %s %s",
         request.method,
         request.url.path,
         response.status_code,
-        duration_ms,
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+        },
     )
+    request_id_var.reset(token)
     return response
 
 
 # Global error handlers
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if isinstance(exc, RateLimitExceeded):
+        return _rate_limit_exceeded_handler(request, exc)
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    logger.exception("Unhandled error: %s", exc)
+    logger.error(
+        "Unhandled error: %s",
+        exc,
+        extra={
+            "error": f"{type(exc).__name__}: {exc}",
+            "stack_trace": traceback.format_exc(),
+        },
+    )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
@@ -83,8 +171,52 @@ app.include_router(patients.router, prefix=API_PREFIX)
 app.include_router(documents.router, prefix=API_PREFIX)
 app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(alerts.router, prefix=API_PREFIX)
+app.include_router(admin.router, prefix=API_PREFIX)
 
 
 @app.get("/health", tags=["health"])
 async def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Prometheus metrics — REQ 18
+# ---------------------------------------------------------------------------
+
+def _verify_metrics_auth(credentials: HTTPBasicCredentials) -> bool:
+    """Return True if credentials match METRICS_AUTH, or if METRICS_AUTH is empty."""
+    auth_cfg = settings.METRICS_AUTH.strip()
+    if not auth_cfg:
+        return True  # dev mode — unauthenticated access allowed
+    if ":" not in auth_cfg:
+        return False
+    expected_user, expected_password = auth_cfg.split(":", 1)
+    return credentials.username == expected_user and credentials.password == expected_password
+
+
+_http_basic = HTTPBasic(auto_error=False)
+
+
+def _metrics_auth_dependency(credentials: HTTPBasicCredentials | None = Depends(_http_basic)):
+    """FastAPI dependency that enforces Basic Auth on /metrics when METRICS_AUTH is set."""
+    auth_cfg = settings.METRICS_AUTH.strip()
+    if not auth_cfg:
+        return  # dev mode — allow all
+    if credentials is None or not _verify_metrics_auth(credentials):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Basic realm=\"Diagno-Pilot Metrics\""},
+        )
+
+
+# Instrument the app — exposes diagno_pilot_http_requests_total and
+# diagno_pilot_http_request_duration_seconds via the /metrics endpoint.
+Instrumentator(
+    excluded_handlers=["/metrics", "/health"],
+).instrument(app).expose(
+    app,
+    endpoint="/metrics",
+    include_in_schema=False,
+    dependencies=[Depends(_metrics_auth_dependency)],
+)

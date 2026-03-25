@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\auth.py
+# hypothesis_version: 6.151.9
+
+['/api/v1/auth/login', 'Bearer', 'WWW-Authenticate', '_id', 'role', 'sub', 'users']

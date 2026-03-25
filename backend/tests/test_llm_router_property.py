@@ -104,11 +104,13 @@ def test_primary_used_when_available(
 @h_settings(max_examples=50)
 def test_error_propagates_when_both_llms_fail(prompt: str, context: list[dict]):
     """
-    **Validates: Requirements REQ-04**
+    **Validates: Requirements REQ-04, 5.5**
 
-    When both primary and fallback raise LLMUnavailableError, the exception
-    propagates to the caller (no silent swallowing).
+    When both primary and fallback raise LLMUnavailableError, the router
+    raises HTTPException(503, "llm_unavailable") — not a raw LLMUnavailableError.
     """
+    from fastapi import HTTPException
+
     router = LLMRouter(
         primary_url="http://primary",
         primary_api_key="key",
@@ -121,5 +123,8 @@ def test_error_propagates_when_both_llms_fail(prompt: str, context: list[dict]):
             with patch.object(router._fallback, "generate", side_effect=LLMUnavailableError("fallback down")):
                 await router.generate(prompt, context)
 
-    with pytest.raises(LLMUnavailableError):
+    with pytest.raises(HTTPException) as exc_info:
         asyncio.run(run())
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "llm_unavailable"

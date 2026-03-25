@@ -18,6 +18,7 @@ from backend.models.patient import Comorbidities, PatientProfile
 from backend.services.alert_service import AlertService
 from backend.services.prescription_service import (
     ANTIBIOTIC_PROTOCOLS,
+    AntibioticProtocol,
     PrescriptionService,
 )
 
@@ -132,10 +133,13 @@ class TestPrescriptionServiceDoseCalculation:
         assert rx.dose_mg == pytest.approx(expected)
 
     def test_unknown_antibiotic_raises_value_error(self):
-        """Unknown antibiotic raises ValueError."""
+        """Unknown antibiotic raises HTTPException 422 with 'unknown_antibiotic'."""
+        from fastapi import HTTPException
         svc = PrescriptionService()
-        with pytest.raises(ValueError, match="Unknown antibiotic"):
+        with pytest.raises(HTTPException) as exc_info:
             svc.calculate_prescription("unknown_drug_xyz", _patient())
+        assert exc_info.value.status_code == 422
+        assert exc_info.value.detail == "unknown_antibiotic"
 
     def test_paediatric_without_weight_raises_value_error(self):
         """Paediatric patient without weight raises ValueError."""
@@ -350,3 +354,75 @@ class TestAlertServiceInteractions:
         alerts = asyncio.run(svc.check_prescription(rx, patient))
         interaction_alerts = [a for a in alerts if a.type == "interaction"]
         assert len(interaction_alerts) == 0
+
+
+# ---------------------------------------------------------------------------
+# Property-based test — P14: PrescriptionService priorité DB sur dict codé en dur
+# ---------------------------------------------------------------------------
+
+from hypothesis import given, settings, HealthCheck
+from hypothesis import strategies as st
+
+settings.register_profile("ci", max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+settings.load_profile("ci")
+
+
+class TestPrescriptionServiceDBPriority:
+    """
+    # Feature: diagno-pilot-improvements, Property 14: PrescriptionService utilise la version DB en priorité sur le dict codé en dur
+    """
+
+    @given(
+        protocol_name=st.sampled_from(sorted(ANTIBIOTIC_PROTOCOLS.keys())),
+        db_adult_max_dose=st.floats(min_value=100.0, max_value=9999.0, allow_nan=False, allow_infinity=False),
+    )
+    def test_db_protocol_takes_priority_over_hardcoded(
+        self,
+        protocol_name: str,
+        db_adult_max_dose: float,
+    ):
+        """
+        **Validates: Requirements 11.4**
+
+        For any antibiotic protocol present in ANTIBIOTIC_PROTOCOLS, if the
+        _protocols_cache is populated with a modified version (different
+        adult_max_dose_mg), calculate_prescription() must use the DB (cache)
+        values rather than the hardcoded dict values.
+        """
+        hardcoded_dose = ANTIBIOTIC_PROTOCOLS[protocol_name].adult_max_dose_mg
+
+        # Ensure the DB dose is meaningfully different from the hardcoded dose
+        # to make the assertion meaningful
+        if abs(db_adult_max_dose - hardcoded_dose) < 1.0:
+            db_adult_max_dose = hardcoded_dose + 500.0
+
+        # Build a modified protocol with the DB dose
+        hardcoded_protocol = ANTIBIOTIC_PROTOCOLS[protocol_name]
+        db_protocol = AntibioticProtocol(
+            name=hardcoded_protocol.name,
+            paediatric_dose_per_kg=hardcoded_protocol.paediatric_dose_per_kg,
+            adult_max_dose_mg=db_adult_max_dose,
+            frequency=hardcoded_protocol.frequency,
+            duration_days=hardcoded_protocol.duration_days,
+            route=hardcoded_protocol.route,
+            renal_adjustment_factor=hardcoded_protocol.renal_adjustment_factor,
+            hepatic_adjustment_factor=hardcoded_protocol.hepatic_adjustment_factor,
+            contraindicated_age_groups=list(hardcoded_protocol.contraindicated_age_groups),
+            alternative=hardcoded_protocol.alternative,
+        )
+
+        # Create a fresh service and populate the cache with the DB version
+        svc = PrescriptionService()
+        svc._protocols_cache = {protocol_name: db_protocol}
+
+        # Use an adult patient (no weight-based calculation, uses adult_max_dose_mg directly)
+        patient = _patient(AgeGroup.ADULT, weight_kg=70.0)
+
+        rx = svc.calculate_prescription(protocol_name, patient)
+
+        # The prescription must use the DB dose, not the hardcoded one
+        assert rx.dose_mg == pytest.approx(round(db_adult_max_dose, 2)), (
+            f"Expected DB dose {db_adult_max_dose} but got {rx.dose_mg} "
+            f"(hardcoded was {hardcoded_dose})"
+        )
+        assert rx.dose_mg != pytest.approx(hardcoded_dose) or abs(db_adult_max_dose - hardcoded_dose) < 0.01

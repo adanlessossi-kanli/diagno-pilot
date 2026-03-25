@@ -1,11 +1,13 @@
-// REQ-01: Authentication context for mobile app
+// REQ-01, REQ-7.4: Authentication context for mobile app with SecureStore persistence
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { AuthUser } from '@diagno-pilot/api-client';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
-const TOKEN_KEY = 'diagno_pilot_token';
+
+// REQ 7.4: token stored under this key in SecureStore
+export const TOKEN_KEY = 'diagno_access_token';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -21,23 +23,31 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  // isLoading stays true until SecureStore + /auth/me resolves
   const [isLoading, setIsLoading] = useState(true);
 
   const apiClient = createApiClient(API_BASE, () => token);
 
+  // REQ 7.4: On startup, read token from SecureStore and restore session
   useEffect(() => {
-    SecureStore.getItemAsync(TOKEN_KEY).then(async (stored) => {
-      if (stored) {
-        setToken(stored);
-        try {
+    (async () => {
+      try {
+        const stored = await SecureStore.getItemAsync(TOKEN_KEY);
+        if (stored) {
+          // Validate the stored token by calling /auth/me
           const me = await createApiClient(API_BASE, () => stored).auth.me();
+          setToken(stored);
           setUser(me);
-        } catch {
-          await SecureStore.deleteItemAsync(TOKEN_KEY);
         }
+      } catch {
+        // Token invalid or /auth/me returned 401 — clear stored token
+        await SecureStore.deleteItemAsync(TOKEN_KEY);
+        setToken(null);
+        setUser(null);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    });
+    })();
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -48,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [apiClient]);
 
   const logout = useCallback(async () => {
-    try { await apiClient.auth.logout(); } catch { /* ignore */ }
+    try { await apiClient.auth.logout(); } catch { /* ignore backend errors */ }
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     setToken(null);
     setUser(null);

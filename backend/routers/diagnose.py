@@ -1,24 +1,21 @@
 """Diagnose router — differential diagnosis and prescription endpoints (REQ-02, REQ-03, REQ-09)."""
-from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from backend.core.auth import get_current_user
 from backend.core.database import db
+from backend.core.rate_limit import limiter
 from backend.models.alert import SafetyAlert
 from backend.models.consultation import Consultation, DifferentialDiagnosis, Prescription, Symptom
 from backend.models.patient import PatientProfile
 from backend.services.alert_service import alert_service
 from backend.services.diagnostic_service import DiagnosticService
-from backend.services.embedding_service import EmbeddingModel
-from backend.services.llm_router import LLMRouter
 from backend.services.prescription_service import prescription_service
-from backend.services.rag_service import RAGService
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/diagnose", tags=["diagnose"])
@@ -43,20 +40,9 @@ class DiagnoseResponse(BaseModel):
 # Dependency: DiagnosticService
 # ---------------------------------------------------------------------------
 
-def get_diagnostic_service() -> DiagnosticService:
-    """Build DiagnosticService from the shared DB connection."""
-    database = db.get_db()
-    # Access the underlying Motor client via the database proxy
-    mongo_client = database.client
-    llm_router = LLMRouter()
-    embedder = EmbeddingModel()
-    rag = RAGService(
-        mongo_client=mongo_client,
-        llm_router=llm_router,
-        embedder=embedder,
-        db_name=database.name,
-    )
-    return DiagnosticService(rag_service=rag)
+def get_diagnostic_service(request: Request) -> DiagnosticService:
+    """Return the DiagnosticService singleton stored in app.state (REQ 6.5)."""
+    return request.app.state.diagnostic_service
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +54,9 @@ def get_diagnostic_service() -> DiagnosticService:
     response_model=DiagnoseResponse,
     status_code=status.HTTP_200_OK,
 )
+@limiter.limit("30/minute")
 async def diagnose_symptoms(
+    request: Request,
     body: DiagnoseRequest,
     current_user: dict = Depends(get_current_user),
     diagnostic_service: DiagnosticService = Depends(get_diagnostic_service),
@@ -85,7 +73,7 @@ async def diagnose_symptoms(
     )
 
     session_id = body.session_id or str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     doc: dict = {
         "_id": ObjectId(),

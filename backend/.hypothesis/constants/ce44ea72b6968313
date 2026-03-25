@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\models\__init__.py
+# hypothesis_version: 6.151.9
+
+['AgeGroup', 'AlertLevel', 'AuditLog', 'Comorbidities', 'Consultation', 'DocumentSource', 'Locale', 'MedicalDocument', 'PatientCreate', 'PatientFile', 'PatientProfile', 'Prescription', 'RAGResponse', 'SafetyAlert', 'Symptom', 'User', 'UserCreate', 'UserRole']

@@ -1,11 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useTranslations } from 'next-intl';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
-import type { PatientProfile, AgeGroup } from '@diagno-pilot/types';
+import type { PatientProfile } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import Pagination from '../../../components/Pagination';
+import { Toast } from '../../../components/Toast';
+import SkeletonLoader from '../../../components/SkeletonLoader';
+import EmptyState from '../../../components/EmptyState';
+import { IMAGES } from '@/lib/images';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -25,6 +33,8 @@ function formatDate(iso?: string): string {
   return new Date(iso).toLocaleDateString('fr-FR');
 }
 
+const PAGE_SIZE = 20;
+
 // ─── Creation form state ──────────────────────────────────────────────────────
 
 interface CreateFormState {
@@ -37,7 +47,27 @@ interface CreateFormState {
   currentMedications: string;
 }
 
-const EMPTY_FORM: CreateFormState = {
+// ─── Zod schema ───────────────────────────────────────────────────────────────
+
+const createPatientSchema = z.object({
+  fullName: z.string().min(1, 'Le nom est obligatoire'),
+  dateOfBirth: z.string().optional(),
+  weightKg: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || parseFloat(val) > 0,
+      { message: 'Le poids doit être un nombre positif' }
+    ),
+  allergies: z.string().optional(),
+  renalFailure: z.boolean(),
+  hepaticFailure: z.boolean(),
+  currentMedications: z.string().optional(),
+});
+
+type CreatePatientFormValues = z.infer<typeof createPatientSchema>;
+
+const EMPTY_FORM: CreatePatientFormValues = {
   fullName: '',
   dateOfBirth: '',
   weightKg: '',
@@ -100,39 +130,48 @@ function CreatePatientModal({
   t: ReturnType<typeof useTranslations<'patients'>>;
   tCommon: ReturnType<typeof useTranslations<'common'>>;
 }) {
-  const [form, setForm] = useState<CreateFormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [apiError, setApiError] = useState('');
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
 
-  function set<K extends keyof CreateFormState>(key: K, value: CreateFormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<CreatePatientFormValues>({
+    resolver: zodResolver(createPatientSchema),
+    mode: 'onChange',
+    defaultValues: EMPTY_FORM,
+  });
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError('');
+  async function onSubmit(data: CreatePatientFormValues) {
+    setApiError('');
     setSubmitting(true);
     try {
       const client = getApiClient();
-      const allergies = form.allergies
-        ? form.allergies.split(',').map((a) => a.trim()).filter(Boolean)
+      const allergies = data.allergies
+        ? data.allergies.split(',').map((a) => a.trim()).filter(Boolean)
         : [];
-      const medications = form.currentMedications
-        ? form.currentMedications.split(',').map((m) => m.trim()).filter(Boolean)
+      const medications = data.currentMedications
+        ? data.currentMedications.split(',').map((m) => m.trim()).filter(Boolean)
         : [];
       const payload: Omit<PatientProfile, 'id'> = {
-        fullName: form.fullName || undefined,
-        dateOfBirth: form.dateOfBirth || undefined,
-        weightKg: form.weightKg ? parseFloat(form.weightKg) : undefined,
+        fullName: data.fullName || undefined,
+        dateOfBirth: data.dateOfBirth || undefined,
+        weightKg: data.weightKg ? parseFloat(data.weightKg) : undefined,
         allergies,
-        renalFailure: form.renalFailure,
-        hepaticFailure: form.hepaticFailure,
+        renalFailure: data.renalFailure,
+        hepaticFailure: data.hepaticFailure,
         currentMedications: medications,
       };
       const created = await client.patients.createPatient(payload);
-      onCreated(created);
+      setShowSuccessToast(true);
+      // Wait at least 2 seconds before closing (REQ 9.5)
+      setTimeout(() => {
+        onCreated(created);
+      }, 2000);
     } catch {
-      setError(t('errorCreate'));
+      setApiError(t('errorCreate'));
     } finally {
       setSubmitting(false);
     }
@@ -145,6 +184,14 @@ function CreatePatientModal({
       aria-modal="true"
       aria-labelledby="modal-title"
     >
+      {showSuccessToast && (
+        <Toast
+          message={t('successCreate')}
+          type="success"
+          duration={2000}
+        />
+      )}
+
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 id="modal-title" className="text-lg font-bold">{t('createTitle')}</h2>
@@ -158,7 +205,7 @@ function CreatePatientModal({
           </button>
         </div>
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="px-6 py-4 space-y-4">
+        <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} className="px-6 py-4 space-y-4">
           {/* Full name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -166,11 +213,12 @@ function CreatePatientModal({
             </label>
             <input
               type="text"
-              required
-              value={form.fullName}
-              onChange={(e) => set('fullName', e.target.value)}
+              {...register('fullName')}
               className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {errors.fullName && (
+              <p role="alert" className="text-xs text-red-600 mt-1">{errors.fullName.message}</p>
+            )}
           </div>
 
           {/* Date of birth + weight */}
@@ -179,8 +227,7 @@ function CreatePatientModal({
               <label className="block text-sm font-medium text-gray-700 mb-1">{t('dateOfBirth')}</label>
               <input
                 type="date"
-                value={form.dateOfBirth}
-                onChange={(e) => set('dateOfBirth', e.target.value)}
+                {...register('dateOfBirth')}
                 className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -190,10 +237,12 @@ function CreatePatientModal({
                 type="number"
                 min={0}
                 step={0.1}
-                value={form.weightKg}
-                onChange={(e) => set('weightKg', e.target.value)}
+                {...register('weightKg')}
                 className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {errors.weightKg && (
+                <p role="alert" className="text-xs text-red-600 mt-1">{errors.weightKg.message}</p>
+              )}
             </div>
           </div>
 
@@ -202,8 +251,7 @@ function CreatePatientModal({
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('allergies')}</label>
             <input
               type="text"
-              value={form.allergies}
-              onChange={(e) => set('allergies', e.target.value)}
+              {...register('allergies')}
               placeholder={t('allergiesPlaceholder')}
               className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -214,8 +262,7 @@ function CreatePatientModal({
             <label className="block text-sm font-medium text-gray-700 mb-1">{t('medications')}</label>
             <input
               type="text"
-              value={form.currentMedications}
-              onChange={(e) => set('currentMedications', e.target.value)}
+              {...register('currentMedications')}
               placeholder={t('medicationsPlaceholder')}
               className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -228,8 +275,7 @@ function CreatePatientModal({
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={form.renalFailure}
-                  onChange={(e) => set('renalFailure', e.target.checked)}
+                  {...register('renalFailure')}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 {t('renalFailure')}
@@ -237,8 +283,7 @@ function CreatePatientModal({
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={form.hepaticFailure}
-                  onChange={(e) => set('hepaticFailure', e.target.checked)}
+                  {...register('hepaticFailure')}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 {t('hepaticFailure')}
@@ -246,10 +291,10 @@ function CreatePatientModal({
             </div>
           </fieldset>
 
-          {/* Error */}
-          {error && (
+          {/* API Error */}
+          {apiError && (
             <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-              {error}
+              {apiError}
             </p>
           )}
 
@@ -265,8 +310,14 @@ function CreatePatientModal({
             <button
               type="submit"
               disabled={submitting}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
             >
+              {submitting && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              )}
               {submitting ? tCommon('loading') : tCommon('save')}
             </button>
           </div>
@@ -283,8 +334,13 @@ export default function PatientsPage() {
   const tCommon = useTranslations('common');
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Lire la page courante depuis le query param URL (?page=N)
+  const currentPage = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
 
   const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -296,13 +352,14 @@ export default function PatientsPage() {
     }
   }, [authLoading, user, router]);
 
-  const fetchPatients = useCallback(async () => {
+  const fetchPatients = useCallback(async (page: number) => {
     setLoading(true);
     setError('');
     try {
       const client = getApiClient();
-      const list = await client.patients.listPatients();
-      setPatients(list);
+      const result = await client.patients.listPatients(page, PAGE_SIZE);
+      setPatients(result.items);
+      setTotal(result.total);
     } catch {
       setError(t('errorFetch'));
     } finally {
@@ -312,12 +369,14 @@ export default function PatientsPage() {
 
   useEffect(() => {
     if (user) {
-      void fetchPatients();
+      void fetchPatients(currentPage);
     }
-  }, [user, fetchPatients]);
+  }, [user, fetchPatients, currentPage]);
 
   function handlePatientCreated(patient: PatientProfile) {
+    // Après création, recharger la page courante pour inclure le nouveau patient
     setPatients((prev) => [patient, ...prev]);
+    setTotal((prev) => prev + 1);
     setShowModal(false);
   }
 
@@ -351,7 +410,7 @@ export default function PatientsPage() {
 
       {/* Loading */}
       {loading && (
-        <p className="text-gray-500 text-sm">{t('loading')}</p>
+        <SkeletonLoader count={5} />
       )}
 
       {/* Error */}
@@ -364,18 +423,30 @@ export default function PatientsPage() {
       {/* Patient list */}
       {!loading && !error && (
         patients.length === 0 ? (
-          <p className="text-gray-500 text-sm">{t('noPatients')}</p>
+          <EmptyState
+            title={t('noPatients')}
+            description="Créez votre premier dossier patient pour commencer."
+            action={{ label: t('new'), onClick: () => setShowModal(true) }}
+            image={IMAGES.patientsEmpty}
+          />
         ) : (
-          <div className="space-y-3">
-            {patients.map((p) => (
-              <PatientCard
-                key={p.id}
-                patient={p}
-                onView={handleViewPatient}
-                t={t}
-              />
-            ))}
-          </div>
+          <>
+            <div className="space-y-3">
+              {patients.map((p) => (
+                <PatientCard
+                  key={p.id}
+                  patient={p}
+                  onView={handleViewPatient}
+                  t={t}
+                />
+              ))}
+            </div>
+            <Pagination
+              page={currentPage}
+              pageSize={PAGE_SIZE}
+              total={total}
+            />
+          </>
         )
       )}
 
