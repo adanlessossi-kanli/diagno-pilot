@@ -4,6 +4,18 @@ const COOKIE_NAME = 'auth_token';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 /**
+ * GET /api/auth/set-cookie
+ * Returns the current auth token from the httpOnly cookie (for client-side hydration).
+ */
+export async function GET(request: NextRequest) {
+  const token = request.cookies.get(COOKIE_NAME)?.value;
+  if (!token) {
+    return NextResponse.json({ token: null }, { status: 200 });
+  }
+  return NextResponse.json({ token });
+}
+
+/**
  * POST /api/auth/set-cookie
  * Body: { token: string }
  * Sets the JWT as an httpOnly cookie.

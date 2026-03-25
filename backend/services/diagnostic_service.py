@@ -124,13 +124,17 @@ class DiagnosticService:
             if not d.condition or not d.condition.strip():
                 _fail(f"diagnosis[{i}].condition is empty")
             if not (0.0 <= d.probability <= 1.0):
-                _fail(
-                    f"diagnosis[{i}].probability={d.probability} is out of [0.0, 1.0]"
+                logger.warning(
+                    "diagnosis[%d].probability=%s out of [0,1] — clamping",
+                    i, d.probability,
                 )
+                d.probability = max(0.0, min(1.0, d.probability))
             if d.icd_code is not None and not _ICD_CODE_RE.match(d.icd_code):
-                _fail(
-                    f"diagnosis[{i}].icd_code={d.icd_code!r} does not match ICD-10 format"
+                logger.warning(
+                    "diagnosis[%d].icd_code=%r does not match ICD-10 format — stripping it",
+                    i, d.icd_code,
                 )
+                d.icd_code = None
 
     def _parse_diagnoses(self, llm_answer: str) -> list[DifferentialDiagnosis]:
         """Extract DifferentialDiagnosis objects from the LLM response."""

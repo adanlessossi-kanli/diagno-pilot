@@ -1,8 +1,11 @@
+// REQ-2.2, REQ-2.4, REQ-2.6: Profile screen with inline language selector
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { useI18n } from '../../src/contexts/I18nContext';
 
 export default function ProfileScreen() {
   const { user, isLoading, logout } = useAuth();
+  const { locale, setLocale } = useI18n();
 
   if (isLoading) {
     return (
@@ -20,6 +23,35 @@ export default function ProfileScreen() {
         <Text style={styles.email}>{user?.email ?? '—'}</Text>
         <View style={styles.roleBadge}>
           <Text style={styles.roleText}>{user?.role ?? '—'}</Text>
+        </View>
+      </View>
+
+      {/* REQ-2.2: Inline language selector */}
+      <View style={styles.langSection}>
+        <Text style={styles.langLabel}>Langue / Language</Text>
+        <View style={styles.langSelector}>
+          <TouchableOpacity
+            style={[styles.langButton, locale === 'fr' && styles.langButtonActive]}
+            onPress={() => void setLocale('fr')}
+            accessibilityRole="button"
+            accessibilityLabel="Français"
+            accessibilityState={{ selected: locale === 'fr' }}
+          >
+            <Text style={[styles.langButtonText, locale === 'fr' && styles.langButtonTextActive]}>
+              FR
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.langButton, locale === 'en' && styles.langButtonActive]}
+            onPress={() => void setLocale('en')}
+            accessibilityRole="button"
+            accessibilityLabel="English"
+            accessibilityState={{ selected: locale === 'en' }}
+          >
+            <Text style={[styles.langButtonText, locale === 'en' && styles.langButtonTextActive]}>
+              EN
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -86,6 +118,49 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1d4ed8',
     textTransform: 'capitalize',
+  },
+  langSection: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    alignItems: 'center',
+  },
+  langLabel: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 12,
+    fontWeight: '500',
+  },
+  langSelector: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  langButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#d1d5db',
+    backgroundColor: '#f9fafb',
+  },
+  langButtonActive: {
+    borderColor: '#2563eb',
+    backgroundColor: '#2563eb',
+  },
+  langButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  langButtonTextActive: {
+    color: '#fff',
   },
   logoutButton: {
     backgroundColor: '#dc2626',

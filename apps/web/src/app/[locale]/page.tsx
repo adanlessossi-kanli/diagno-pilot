@@ -10,8 +10,8 @@ export default function HomePage() {
       {/* Hero image */}
       <div className="relative w-full h-64 mb-8 rounded-xl overflow-hidden bg-gray-100">
         <Image
-          src={IMAGES.heroHome.src}
-          alt={IMAGES.heroHome.alt}
+          src={IMAGES.hero.src}
+          alt={IMAGES.hero.alt}
           fill
           className="object-cover"
           priority

@@ -156,6 +156,22 @@ describe('AuthContext', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
+  /**
+   * Validates: Requirement 9.4
+   * WHEN a user is not authenticated and auth/me returns a 401,
+   * THE system SHALL set user to null (and isLoading becomes false).
+   */
+  it('AuthContext sets user to null on 401 from auth/me', async () => {
+    // Simulate auth/me returning a 401 Unauthorized response
+    mockMe.mockRejectedValue(Object.assign(new Error('Unauthorized'), { status: 401 }));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.user).toBeNull();
+  });
+
   it('f. role-based redirect — admin goes to /fr/admin', async () => {
     mockMe.mockRejectedValue(new Error('no session'));
     mockLogin.mockResolvedValue({

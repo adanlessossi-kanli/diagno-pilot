@@ -73,7 +73,7 @@ class RAGService:
         # Build LLM context from retrieved passages
         llm_context: list[dict] = []
         if context:
-            llm_context.append({"role": "system", "content": f"Patient context: {context.model_dump()}"})
+            llm_context.append({"role": "system", "content": f"Patient context: {context.model_dump_json()}"})
         for c in chunks:
             llm_context.append({"role": "system", "content": c.get("content", "")})
 

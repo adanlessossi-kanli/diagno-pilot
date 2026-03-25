@@ -9,7 +9,8 @@ import type { PrescriptionResponse } from '@diagno-pilot/api-client';
 
 export interface PrescriptionStepProps {
   diagnoses: DifferentialDiagnosis[];
-  onGetPrescription: (diagnosisId: string) => Promise<PrescriptionResponse>;
+  antibiotics: string[];
+  onGetPrescription: (antibiotic: string) => Promise<PrescriptionResponse>;
 }
 
 // ─── Alert level helpers ──────────────────────────────────────────────────────
@@ -92,11 +93,12 @@ function AlertItem({ alert }: { alert: SafetyAlert }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function PrescriptionStep({ diagnoses, onGetPrescription }: PrescriptionStepProps) {
+export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: PrescriptionStepProps) {
   const t = useTranslations('diagnose.prescriptionStep');
   const tCommon = useTranslations('common');
 
   const [selectedDiagnosisIndex, setSelectedDiagnosisIndex] = useState<number>(0);
+  const [selectedAntibiotic, setSelectedAntibiotic] = useState<string>(antibiotics[0] ?? '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [prescriptionData, setPrescriptionData] = useState<PrescriptionResponse | null>(null);
@@ -118,9 +120,7 @@ export function PrescriptionStep({ diagnoses, onGetPrescription }: PrescriptionS
     setCriticalConfirmed(false);
     setLoading(true);
     try {
-      const selected = diagnoses[selectedDiagnosisIndex];
-      // Use condition as diagnosisId (backend may accept condition name or index)
-      const result = await onGetPrescription(selected.icd_code ?? selected.condition);
+      const result = await onGetPrescription(selectedAntibiotic);
       setPrescriptionData(result);
     } catch {
       setError(t('errorPrescription'));
@@ -153,6 +153,25 @@ export function PrescriptionStep({ diagnoses, onGetPrescription }: PrescriptionS
               {' — '}
               {Math.round(diag.probability * 100)}%
             </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Antibiotic selector */}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-700">{t('selectAntibiotic')}</label>
+        <select
+          value={selectedAntibiotic}
+          onChange={(e) => {
+            setSelectedAntibiotic(e.target.value);
+            setPrescriptionData(null);
+            setCriticalConfirmed(false);
+            setError('');
+          }}
+          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {antibiotics.map((ab) => (
+            <option key={ab} value={ab}>{ab}</option>
           ))}
         </select>
       </div>

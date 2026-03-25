@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     LLM_FALLBACK_URL: str | None = None
     LLM_FALLBACK_API_KEY: str | None = None
     EMBED_MODEL: str = "text-embedding-ada-002"
+    LLM_TIMEOUT: int = 60  # seconds
 
     ALLOWED_ORIGINS: str = "*"
     RATE_LIMIT_STORAGE_URI: str = "memory://"
@@ -32,12 +33,25 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
-    def validate_cors_in_production(self) -> "Settings":
-        if self.ENV == "production" and self.ALLOWED_ORIGINS.strip() in ("*", ""):
-            raise ValueError(
-                "ALLOWED_ORIGINS must be an explicit list in production (ENV=production). "
-                "Set ALLOWED_ORIGINS=https://app.example.com,https://api.example.com"
-            )
+    def validate_production_settings(self) -> "Settings":
+        _WEAK_JWT_SECRETS = {
+            "change_me_in_production_use_a_long_secret_key",
+            "change_me_generate_with_openssl_rand_hex_32",
+            "dev_secret_key_change_this_in_production_32chars",
+            "secret",
+            "",
+        }
+        if self.ENV == "production":
+            if self.JWT_SECRET in _WEAK_JWT_SECRETS or len(self.JWT_SECRET) < 32:
+                raise ValueError(
+                    "JWT_SECRET must be a strong random secret (≥32 chars) in production. "
+                    "Generate one with: openssl rand -hex 32"
+                )
+            if self.ALLOWED_ORIGINS.strip() in ("*", ""):
+                raise ValueError(
+                    "ALLOWED_ORIGINS must be an explicit list in production (ENV=production). "
+                    "Set ALLOWED_ORIGINS=https://app.example.com,https://api.example.com"
+                )
         return self
 
     def get_allowed_origins(self) -> list[str]:

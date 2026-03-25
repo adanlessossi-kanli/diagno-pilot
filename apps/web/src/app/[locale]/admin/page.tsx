@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
@@ -8,17 +8,6 @@ import type { PatientDocument } from '@diagno-pilot/api-client';
 import { useAuth } from '../../../contexts/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-let memoryToken: string | null = null;
-
-function getToken(): string | null {
-  return memoryToken;
-}
-
-function getApiClient() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-  return createApiClient(baseUrl, getToken);
-}
 
 function formatDate(iso?: string): string {
   if (!iso) return '—';
@@ -83,8 +72,7 @@ function DocumentRow({
         {formatDate(doc.indexedAt ?? doc.createdAt)}
       </td>
       <td className="px-4 py-3 text-sm text-gray-500 text-right">
-        {/* chunk_count not in PatientDocument type — show size as fallback */}
-        {doc.sizeBytes ? `${Math.round(doc.sizeBytes / 1024)} KB` : '—'}
+        {doc.chunkCount != null && doc.chunkCount > 0 ? doc.chunkCount : (doc.sizeBytes ? `${Math.round(doc.sizeBytes / 1024)} KB` : '—')}
       </td>
       <td className="px-4 py-3 text-sm">
         <button
@@ -107,10 +95,12 @@ function UploadForm({
   onUploaded,
   t,
   tCommon,
+  apiClient,
 }: {
   onUploaded: (doc: PatientDocument) => void;
   t: ReturnType<typeof useTranslations<'admin'>>;
   tCommon: ReturnType<typeof useTranslations<'common'>>;
+  apiClient: ReturnType<typeof createApiClient>;
 }) {
   const [form, setForm] = useState<UploadFormState>(EMPTY_UPLOAD);
   const [submitting, setSubmitting] = useState(false);
@@ -130,8 +120,7 @@ function UploadForm({
     setSuccess('');
     setSubmitting(true);
     try {
-      const client = getApiClient();
-      const result = await client.documents.uploadDocument(form.file, {
+      const result = await apiClient.documents.uploadDocument(form.file, {
         title: form.title || undefined,
         source: form.source || undefined,
       });
@@ -238,8 +227,13 @@ function UploadForm({
 export default function AdminPage() {
   const t = useTranslations('admin');
   const tCommon = useTranslations('common');
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, getToken } = useAuth();
   const router = useRouter();
+
+  const apiClient = useMemo(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    return createApiClient(baseUrl, getToken);
+  }, [getToken]);
 
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -261,15 +255,14 @@ export default function AdminPage() {
     setLoading(true);
     setFetchError('');
     try {
-      const client = getApiClient();
-      const list = await client.documents.listDocuments();
+      const list = await apiClient.documents.listDocuments();
       setDocuments(list);
     } catch {
       setFetchError(t('errorFetch'));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, apiClient]);
 
   useEffect(() => {
     if (user?.role === 'admin') {
@@ -280,8 +273,7 @@ export default function AdminPage() {
   async function handleDelete(id: string) {
     setDeleteError('');
     try {
-      const client = getApiClient();
-      await client.documents.deleteDocument(id);
+      await apiClient.documents.deleteDocument(id);
       setDocuments((prev) => prev.filter((d) => d.id !== id));
     } catch {
       setDeleteError(t('errorDelete'));
@@ -315,7 +307,7 @@ export default function AdminPage() {
       <h1 className="text-2xl font-bold">{t('title')}</h1>
 
       {/* Upload form */}
-      <UploadForm onUploaded={handleUploaded} t={t} tCommon={tCommon} />
+      <UploadForm onUploaded={handleUploaded} t={t} tCommon={tCommon} apiClient={apiClient} />
 
       {/* Document list */}
       <section className="border rounded-lg bg-white overflow-hidden">

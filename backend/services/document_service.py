@@ -145,6 +145,10 @@ class DocumentService:
         filename = file.filename or "unknown"
         extension = filename.rsplit(".", 1)[-1] if "." in filename else "txt"
 
+        # Use filename (without extension) as title if none provided
+        if not title:
+            title = filename.rsplit(".", 1)[0] if "." in filename else filename
+
         # 1. Extract text
         text = extract_text(content, extension)
 

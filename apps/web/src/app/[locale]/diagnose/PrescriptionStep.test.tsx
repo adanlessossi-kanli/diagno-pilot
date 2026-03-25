@@ -3,7 +3,7 @@
  * Validates: Requirements REQ-09 (safety alerts, critical blocking, therapeutic alternatives)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import { PrescriptionStep } from './PrescriptionStep';
 import type { PrescriptionResponse } from '@diagno-pilot/api-client';
@@ -61,7 +61,7 @@ function renderComponent(onGetPrescription: () => Promise<PrescriptionResponse>)
 
 function clickGetPrescription() {
   const btn = screen.getByRole('button', { name: /getPrescription/i });
-  fireEvent.click(btn);
+  act(() => { fireEvent.click(btn); });
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ describe('PrescriptionStep', () => {
     });
 
     const checkbox = screen.getByRole('checkbox');
-    fireEvent.click(checkbox);
+    act(() => { fireEvent.click(checkbox); });
 
     expect(checkbox).toBeChecked();
   });

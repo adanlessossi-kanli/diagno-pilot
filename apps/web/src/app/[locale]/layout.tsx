@@ -4,6 +4,8 @@ import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { routing } from '../../i18n/routing';
 import { AuthProvider } from '../../contexts/AuthContext';
+import NavBar from '../../components/NavBar';
+import Footer from '../../components/Footer';
 import '../globals.css';
 
 export const metadata: Metadata = {
@@ -31,7 +33,9 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
       <body>
         <NextIntlClientProvider messages={messages}>
           <AuthProvider locale={locale}>
-            {children}
+            <NavBar locale={locale} />
+            <main>{children}</main>
+            <Footer />
           </AuthProvider>
         </NextIntlClientProvider>
       </body>

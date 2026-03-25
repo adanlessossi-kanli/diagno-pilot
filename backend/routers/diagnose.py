@@ -149,9 +149,20 @@ class PrescriptionResponse(BaseModel):
 # POST /api/v1/diagnose/prescription
 # ---------------------------------------------------------------------------
 
+@router.get(
+    "/antibiotics",
+    response_model=list[str],
+    status_code=status.HTTP_200_OK,
+)
+async def list_antibiotics(current_user: dict = Depends(get_current_user)):
+    """GET /api/v1/diagnose/antibiotics — list available antibiotic protocol keys."""
+    from backend.services.prescription_service import ANTIBIOTIC_PROTOCOLS
+    keys = list(prescription_service._protocols_cache.keys()) or list(ANTIBIOTIC_PROTOCOLS.keys())
+    return sorted(keys)
+
+
 @router.post(
     "/prescription",
-    response_model=PrescriptionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def create_prescription(

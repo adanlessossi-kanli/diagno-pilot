@@ -13,6 +13,8 @@ import time
 from enum import Enum, auto
 from typing import Any, Awaitable, Callable, TypeVar
 
+from backend.core.metrics import circuit_breaker_open_total
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -166,7 +168,6 @@ class CircuitBreaker:
         )
         # Increment Prometheus counter (REQ 18.4)
         try:
-            from backend.core.metrics import circuit_breaker_open_total
             circuit_breaker_open_total.labels(service="llm_primary").inc()
         except Exception:
             pass  # Never let metrics errors affect circuit breaker logic

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,17 +16,6 @@ import EmptyState from '../../../components/EmptyState';
 import { IMAGES } from '@/lib/images';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-let memoryToken: string | null = null;
-
-function getToken(): string | null {
-  return memoryToken;
-}
-
-function getApiClient() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-  return createApiClient(baseUrl, getToken);
-}
 
 function formatDate(iso?: string): string {
   if (!iso) return '—';
@@ -130,6 +119,11 @@ function CreatePatientModal({
   t: ReturnType<typeof useTranslations<'patients'>>;
   tCommon: ReturnType<typeof useTranslations<'common'>>;
 }) {
+  const { getToken } = useAuth();
+  const apiClient = useMemo(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    return createApiClient(baseUrl, getToken);
+  }, [getToken]);
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState('');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -148,7 +142,6 @@ function CreatePatientModal({
     setApiError('');
     setSubmitting(true);
     try {
-      const client = getApiClient();
       const allergies = data.allergies
         ? data.allergies.split(',').map((a) => a.trim()).filter(Boolean)
         : [];
@@ -164,7 +157,7 @@ function CreatePatientModal({
         hepaticFailure: data.hepaticFailure,
         currentMedications: medications,
       };
-      const created = await client.patients.createPatient(payload);
+      const created = await apiClient.patients.createPatient(payload);
       setShowSuccessToast(true);
       // Wait at least 2 seconds before closing (REQ 9.5)
       setTimeout(() => {
@@ -332,9 +325,14 @@ function CreatePatientModal({
 export default function PatientsPage() {
   const t = useTranslations('patients');
   const tCommon = useTranslations('common');
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, getToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const apiClient = useMemo(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    return createApiClient(baseUrl, getToken);
+  }, [getToken]);
 
   // Lire la page courante depuis le query param URL (?page=N)
   const currentPage = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
@@ -356,8 +354,7 @@ export default function PatientsPage() {
     setLoading(true);
     setError('');
     try {
-      const client = getApiClient();
-      const result = await client.patients.listPatients(page, PAGE_SIZE);
+      const result = await apiClient.patients.listPatients(page, PAGE_SIZE);
       setPatients(result.items);
       setTotal(result.total);
     } catch {
@@ -365,7 +362,7 @@ export default function PatientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, apiClient]);
 
   useEffect(() => {
     if (user) {

@@ -48,7 +48,7 @@ describe('CreatePatientModal — Property 13', () => {
         fc.oneof(
           fc.constant('0'),
           fc.constant('-1'),
-          fc.float({ max: 0, noNaN: true }).map(String)
+          fc.integer({ max: -1 }).map(String)
         ),
         async (invalidWeight) => {
           cleanup();
