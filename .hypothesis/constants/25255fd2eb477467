@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\main.py
+# hypothesis_version: 6.151.9
+
+[401, 429, 500, 1000, '%s %s %s', '*', '/api/v1', '/health', '/metrics', '0.1.0', '60', ':', 'Diagno-Pilot API', 'MongoDB connected', 'MongoDB disconnected', 'Retry-After', 'Unauthorized', 'Unhandled error: %s', 'WWW-Authenticate', 'detail', 'duration_ms', 'error', 'health', 'http', 'method', 'ok', 'path', 'stack_trace', 'status', 'status_code', 'view_rate_limit']

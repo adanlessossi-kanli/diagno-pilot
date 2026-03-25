@@ -1,16 +1,18 @@
 """
 File endpoints — upload clinical files to S3 and retrieve presigned URLs.
-Implements REQ-07 (clinical file management).
+Implements REQ-07 (clinical file management) and REQ-3 (file validation).
 """
 from __future__ import annotations
 
-from datetime import datetime
+import io
+from datetime import datetime, timezone
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, status
 
 from backend.core.auth import get_current_user
 from backend.core.database import db
+from backend.core.file_validator import file_validator
 from backend.models.patient_file import PatientFile
 from backend.services.s3_service import s3_service
 
@@ -23,6 +25,7 @@ class PatientFileResponse(PatientFile):
 
 @router.post("/upload", response_model=PatientFileResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
+    request: Request,
     file: UploadFile,
     patient_id: str = Form(...),
     consultation_id: str | None = Form(default=None),
@@ -30,18 +33,26 @@ async def upload_file(
     current_user: dict = Depends(get_current_user),
 ):
     """POST /api/v1/files/upload — upload a clinical file to S3 and persist metadata."""
+    # Validate file (size, MIME type, filename) — raises HTTP 400/413/415 on failure
+    filename = file.filename or "unknown"
+    client_ip: str = request.client.host if request.client else "unknown"
+    content = await file_validator.validate(file=file, filename=filename, ip=client_ip)
+
+    # Reset file stream so s3_service can read it
+    file.file = io.BytesIO(content)  # type: ignore[assignment]
+
     # Upload to S3
     s3_key = await s3_service.upload(file=file, patient_id=patient_id)
 
     # Persist metadata to MongoDB
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     doc = {
         "patient_id": ObjectId(patient_id),
         "consultation_id": ObjectId(consultation_id) if consultation_id else None,
         "file_type": file_type,
         "s3_key": s3_key,
-        "original_name": file.filename or "unknown",
-        "size_bytes": file.size or 0,
+        "original_name": filename,
+        "size_bytes": len(content),
         "uploaded_by": ObjectId(str(current_user["_id"])),
         "created_at": now,
     }

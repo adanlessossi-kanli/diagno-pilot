@@ -93,6 +93,13 @@ export interface AlertCheckResponse {
   alerts: SafetyAlert[];
 }
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface ApiError {
   status: number;
   message: string;
@@ -250,9 +257,11 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
   // ─── Patients (/api/v1/patients) ────────────────────────────────────────────
 
   const patients = {
-    /** REQ-06 — List all patients accessible to the current user */
-    listPatients(): Promise<PatientProfile[]> {
-      return get<PatientProfile[]>('/api/v1/patients');
+    /** REQ-06 — List patients with pagination (REQ 8.1, 8.2, 8.3) */
+    listPatients(page = 1, pageSize = 20): Promise<PaginatedResponse<PatientProfile>> {
+      return get<PaginatedResponse<PatientProfile>>(
+        `/api/v1/patients?page=${page}&page_size=${pageSize}`,
+      );
     },
 
     /** REQ-06 — Create a new patient record */

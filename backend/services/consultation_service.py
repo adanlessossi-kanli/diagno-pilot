@@ -4,7 +4,7 @@ Implements REQ-07 (patient dossier and consultation history).
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import HTTPException, status
@@ -49,7 +49,7 @@ async def create_consultation(
     user_id: str,
 ) -> Consultation:
     """Insert a new consultation document and return it."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     is_one_shot = patient_id is None
 
     doc: dict = {

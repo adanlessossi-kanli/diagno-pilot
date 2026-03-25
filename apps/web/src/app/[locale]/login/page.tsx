@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { useAuth } from '../../../contexts/AuthContext';
+import { IMAGES } from '@/lib/images';
 
 export default function LoginPage() {
   const t = useTranslations('auth');
@@ -42,6 +44,18 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-50">
+      {/* Side image — hidden on small screens */}
+      <div className="hidden lg:block relative w-96 h-screen bg-gray-100 shrink-0">
+        <Image
+          src={IMAGES.loginSide.src}
+          alt={IMAGES.loginSide.alt}
+          fill
+          className="object-cover"
+          priority
+          sizes="384px"
+        />
+      </div>
+
       <div className="w-full max-w-md p-8 bg-white rounded-lg shadow">
         <h1 className="text-2xl font-bold mb-6">{t('login')}</h1>
 

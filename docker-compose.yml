@@ -1,13 +1,18 @@
 services:
   frontend:
-    build: ./apps/web
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
     ports:
       - "3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     volumes:
-      - ./apps/web:/app
-      - /app/node_modules
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/public:/app/apps/web/public
+      - ./packages:/app/packages
+      - web_node_modules:/app/node_modules
+      - web_next_cache:/app/apps/web/.next
     depends_on:
       - backend
 
@@ -29,7 +34,7 @@ services:
       - EMBED_MODEL=${EMBED_MODEL}
       - JWT_SECRET=${JWT_SECRET}
     volumes:
-      - ./backend:/app
+      - ./backend:/workspace/backend
     depends_on:
       - mongo
       - localstack
@@ -55,3 +60,5 @@ services:
 volumes:
   mongo_data:
   localstack_data:
+  web_node_modules:
+  web_next_cache:

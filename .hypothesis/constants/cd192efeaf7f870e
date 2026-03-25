@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\auth.py
+# hypothesis_version: 6.151.9
+
+['$set', '/api/v1/auth/login', '/auth', '/login', '/logout', '/me', '/refresh', '10/minute', 'Bearer', 'WWW-Authenticate', '_id', 'auth', 'auto', 'bcrypt', 'bearer', 'detail', 'email', 'exp', 'expires_at', 'full_name', 'last_login', 'locale', 'login', 'logout', 'password_hash', 'refresh_tokens', 'revoked', 'role', 'sub', 'token', 'user_id', 'users']

@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\circuit_breaker.py
+# hypothesis_version: 6.151.9
+
+[120.0, '%Y-%m-%dT%H:%M:%SZ', 'T', 'close', 'llm_primary']

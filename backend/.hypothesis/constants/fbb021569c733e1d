@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\diagnose.py
+# hypothesis_version: 6.151.9
+
+['/diagnose', '/prescription', '/symptoms', '30/minute', 'Session not found', '_id', 'alerts', 'consultations', 'created_at', 'diagnose', 'diagnoses', 'is_one_shot', 'llm_used', 'patient_id', 'prescription', 'session_id', 'symptoms', 'user_id']

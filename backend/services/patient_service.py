@@ -4,7 +4,7 @@ Implements REQ-06 (patient profiles) and REQ-08 (paediatric age groups).
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -51,17 +51,33 @@ def _doc_to_profile(doc: dict) -> PatientProfile:
     )
 
 
-async def list_patients(created_by: str) -> list[PatientProfile]:
-    """Return all patients created by the given user."""
+async def list_patients(
+    created_by: str,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[PatientProfile], int]:
+    """Retourne les patients paginés créés par l'utilisateur donné.
+
+    Retourne un tuple (items, total) où items est la page demandée et total
+    est le nombre total de patients.
+    """
     database = db.get_db()
-    cursor = database["patients"].find({"created_by": ObjectId(created_by)})
-    docs = await cursor.to_list(length=None)
-    return [_doc_to_profile(d) for d in docs]
+    query = {"created_by": ObjectId(created_by)}
+    total = await database["patients"].count_documents(query)
+
+    skip = (page - 1) * page_size
+    # Si la page demandée dépasse le total, retourner une liste vide (REQ 8.3)
+    if total == 0 or skip >= total:
+        return [], total
+
+    cursor = database["patients"].find(query).skip(skip).limit(page_size)
+    docs = await cursor.to_list(length=page_size)
+    return [_doc_to_profile(d) for d in docs], total
 
 
 async def create_patient(data: PatientCreate, created_by: str) -> PatientProfile:
     """Insert a new patient document and return the created profile."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     age_group: Optional[AgeGroup] = None
     if data.date_of_birth:
         age_group = _compute_age_group(data.date_of_birth)
@@ -110,7 +126,7 @@ async def update_patient(patient_id: str, data: PatientCreate, created_by: str) 
     except Exception:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     age_group: Optional[AgeGroup] = None
     if data.date_of_birth:
         age_group = _compute_age_group(data.date_of_birth)

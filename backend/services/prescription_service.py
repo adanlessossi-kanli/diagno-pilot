@@ -1,18 +1,25 @@
 """
-PrescriptionService — antibiotic prescription calculation (REQ-03, REQ-08).
+PrescriptionService — antibiotic prescription calculation (REQ-03, REQ-08, REQ-11).
 
 Handles:
 - Weight-based dose calculation (mg/kg) for paediatric age groups
 - Capping to adult maximum dose (is_capped_to_adult_dose)
 - Automatic adjustments for renal / hepatic failure
+- Loading protocols from MongoDB with fallback to built-in dict (REQ 11.4, 11.5)
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+from typing import Any
+
+from fastapi import HTTPException, status
 
 from backend.models.common import AgeGroup
 from backend.models.consultation import Prescription
 from backend.models.patient import PatientProfile
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -143,8 +150,97 @@ ANTIBIOTIC_PROTOCOLS: dict[str, AntibioticProtocol] = {
 _PAEDIATRIC_GROUPS = {AgeGroup.NEONATAL, AgeGroup.INFANT, AgeGroup.CHILD}
 
 
+def _doc_to_protocol(doc: dict[str, Any]) -> AntibioticProtocol:
+    """Convert a MongoDB document to an AntibioticProtocol dataclass."""
+    contraindicated_raw = doc.get("contraindicated_age_groups", [])
+    contraindicated = []
+    for ag in contraindicated_raw:
+        try:
+            contraindicated.append(AgeGroup(ag))
+        except ValueError:
+            pass
+    return AntibioticProtocol(
+        name=doc["name"],
+        paediatric_dose_per_kg=float(doc["paediatric_dose_per_kg"]),
+        adult_max_dose_mg=float(doc["adult_max_dose_mg"]),
+        frequency=doc["frequency"],
+        duration_days=int(doc["duration_days"]),
+        route=doc["route"],
+        renal_adjustment_factor=float(doc.get("renal_adjustment_factor", 1.0)),
+        hepatic_adjustment_factor=float(doc.get("hepatic_adjustment_factor", 1.0)),
+        contraindicated_age_groups=contraindicated,
+        alternative=doc.get("alternative"),
+    )
+
+
 class PrescriptionService:
-    """Calculates antibiotic prescriptions adapted to the patient profile."""
+    """Calculates antibiotic prescriptions adapted to the patient profile.
+
+    Protocols are loaded from MongoDB at startup (REQ 11.4) with fallback to
+    the built-in ANTIBIOTIC_PROTOCOLS dict if the collection is empty (REQ 11.5).
+    """
+
+    def __init__(self) -> None:
+        # In-memory cache: name → AntibioticProtocol (populated from DB or fallback)
+        self._protocols_cache: dict[str, AntibioticProtocol] = {}
+
+    async def load_protocols_from_db(self) -> None:
+        """Load antibiotic protocols from MongoDB into the in-memory cache.
+
+        Falls back to the built-in ANTIBIOTIC_PROTOCOLS dict if the collection
+        is empty (REQ 11.5).
+        """
+        from backend.core.database import db
+
+        try:
+            database = db.get_db()
+            cursor = database["antibiotic_protocols"].find({})
+            docs = await cursor.to_list(length=None)
+        except Exception:
+            logger.warning(
+                "Failed to load protocols from MongoDB; using built-in fallback",
+                exc_info=True,
+            )
+            docs = []
+
+        if docs:
+            self._protocols_cache = {doc["name"]: _doc_to_protocol(doc) for doc in docs}
+            logger.info(
+                "PrescriptionService: loaded %d protocols from MongoDB",
+                len(self._protocols_cache),
+            )
+        else:
+            self._protocols_cache = dict(ANTIBIOTIC_PROTOCOLS)
+            logger.warning(
+                "PrescriptionService: antibiotic_protocols collection is empty; "
+                "using built-in fallback (%d protocols)",
+                len(self._protocols_cache),
+            )
+
+    async def reload_protocols(self) -> None:
+        """Refresh the in-memory cache from MongoDB.
+
+        Called after each PUT/POST admin operation (REQ 11.4).
+        """
+        await self.load_protocols_from_db()
+
+    def _get_protocol(self, key: str) -> AntibioticProtocol:
+        """Look up a protocol: DB cache first, then built-in dict.
+
+        Raises HTTPException 422 with 'unknown_antibiotic' if not found (REQ 11.5).
+        """
+        # DB cache (populated at startup or after reload)
+        protocol = self._protocols_cache.get(key)
+        if protocol is not None:
+            return protocol
+        # Fallback to built-in dict (in case cache was never loaded)
+        protocol = ANTIBIOTIC_PROTOCOLS.get(key)
+        if protocol is not None:
+            return protocol
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="unknown_antibiotic",
+        )
 
     def calculate_prescription(
         self,
@@ -155,7 +251,7 @@ class PrescriptionService:
         and comorbidities.
 
         Args:
-            antibiotic: Antibiotic name (case-insensitive key in ANTIBIOTIC_PROTOCOLS).
+            antibiotic: Antibiotic name (case-insensitive key).
             patient: Patient profile with weight, age group, and comorbidities.
 
         Returns:
@@ -163,14 +259,11 @@ class PrescriptionService:
             is_capped_to_adult_dose, frequency, duration_days, and route.
 
         Raises:
-            ValueError: If the antibiotic is unknown or weight is required but missing.
+            HTTPException 422: If the antibiotic is unknown (REQ 11.5).
+            ValueError: If weight is required but missing.
         """
         key = antibiotic.lower()
-        protocol = ANTIBIOTIC_PROTOCOLS.get(key)
-        if protocol is None:
-            # Unknown antibiotic — use a generic adult dose of 0 as placeholder
-            # so callers can still handle the response; raise for strict usage.
-            raise ValueError(f"Unknown antibiotic: {antibiotic!r}")
+        protocol = self._get_protocol(key)
 
         age_group = patient.age_group
         is_paediatric = age_group in _PAEDIATRIC_GROUPS

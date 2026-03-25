@@ -6,8 +6,12 @@ Checks:
 - Drug interactions with current medications (warning)
 - Age-based contraindications (critical)
 - Organ failure contraindications (warning)
+
+REQ 12: Drug interactions loaded from MongoDB `drug_interactions` collection at startup.
 """
 from __future__ import annotations
+
+import logging
 
 from backend.models.alert import SafetyAlert
 from backend.models.common import AgeGroup, AlertLevel
@@ -15,9 +19,11 @@ from backend.models.consultation import Prescription
 from backend.models.patient import PatientProfile
 from backend.services.prescription_service import ANTIBIOTIC_PROTOCOLS
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
-# Known drug interaction pairs (symmetric)
-# Each entry: (drug_a_lower, drug_b_lower) → warning message
+# Known drug interaction pairs (symmetric) — hardcoded fallback (REQ 12.5)
+# Each entry: (drug_a_lower, drug_b_lower, message)
 # ---------------------------------------------------------------------------
 
 _DRUG_INTERACTIONS: list[tuple[str, str, str]] = [
@@ -69,6 +75,50 @@ _PAEDIATRIC_GROUPS = {AgeGroup.NEONATAL, AgeGroup.INFANT, AgeGroup.CHILD}
 
 class AlertService:
     """Checks a prescription against a patient profile and returns safety alerts."""
+
+    def __init__(self) -> None:
+        # In-memory cache of interactions: list of (drug_a, drug_b, message)
+        self._interactions_cache: list[tuple[str, str, str]] = list(_DRUG_INTERACTIONS)
+
+    async def load_interactions_from_db(self) -> None:
+        """Load drug interactions from MongoDB `drug_interactions` collection.
+
+        Falls back to the built-in _DRUG_INTERACTIONS list if the collection
+        is empty (REQ 12.5).
+        """
+        from backend.core.database import db
+
+        try:
+            database = db.get_db()
+            cursor = database["drug_interactions"].find({})
+            docs = await cursor.to_list(length=None)
+        except Exception:
+            logger.warning(
+                "Failed to load drug interactions from MongoDB; using built-in fallback",
+                exc_info=True,
+            )
+            docs = []
+
+        if docs:
+            self._interactions_cache = [
+                (doc["drug_a"].lower(), doc["drug_b"].lower(), doc["message"])
+                for doc in docs
+            ]
+            logger.info(
+                "AlertService: loaded %d drug interactions from MongoDB",
+                len(self._interactions_cache),
+            )
+        else:
+            self._interactions_cache = list(_DRUG_INTERACTIONS)
+            logger.warning(
+                "AlertService: drug_interactions collection is empty; "
+                "using built-in fallback (%d interactions)",
+                len(self._interactions_cache),
+            )
+
+    async def reload_interactions(self) -> None:
+        """Hot-reload drug interactions from MongoDB without restarting the service (REQ 12.3)."""
+        await self.load_interactions_from_db()
 
     async def check_prescription(
         self,
@@ -130,13 +180,18 @@ class AlertService:
         prescription: Prescription,
         patient: PatientProfile,
     ) -> list[SafetyAlert]:
-        """Generate WARNING alerts for known drug interactions with current medications."""
+        """Generate WARNING alerts for known drug interactions with current medications.
+
+        Checks symmetrically: (A prescribed, B in medications) == (B prescribed, A in medications)
+        (REQ 12.4).
+        """
         alerts: list[SafetyAlert] = []
         drug_lower = prescription.antibiotic.lower()
 
         for med in patient.current_medications:
             med_lower = med.lower()
-            for drug_a, drug_b, message in _DRUG_INTERACTIONS:
+            for drug_a, drug_b, message in self._interactions_cache:
+                # Symmetric check: match regardless of which is drug_a or drug_b
                 if (drug_lower == drug_a and drug_b in med_lower) or (
                     drug_lower == drug_b and drug_a in med_lower
                 ):

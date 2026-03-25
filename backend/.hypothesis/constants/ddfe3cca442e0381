@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\admin.py
+# hypothesis_version: 6.151.9
+
+[0.0, 1.0, '$set', '/admin', '/drug-interactions', '/protocols', '/protocols/{name}', '^(critical|warning)$', '_id', 'admin', 'adult_max_dose_mg', 'after', 'alternative', 'antibiotic_protocols', 'before', 'create_protocol', 'created_at', 'created_by', 'drug_a', 'drug_b', 'drug_interactions', 'duration_days', 'frequency', 'level', 'message', 'name', 'route', 'update_protocol', 'updated_at', 'updated_by']

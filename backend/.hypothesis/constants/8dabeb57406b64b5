@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\patient_service.py
+# hypothesis_version: 6.151.9
+
+['$set', 'Patient not found', '_id', 'age_group', 'allergies', 'comorbidities', 'created_at', 'created_by', 'current_medications', 'date_of_birth', 'full_name', 'hepatic_failure', 'patients', 'renal_failure', 'updated_at', 'weight_kg']

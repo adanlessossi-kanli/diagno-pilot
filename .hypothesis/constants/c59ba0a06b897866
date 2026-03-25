@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\config.py
+# hypothesis_version: 6.151.9
+
+['*', ',', '.env', 'HS256', 'INFO', 'Settings', 'after', 'development', 'diagno-pilot-files', 'env_file', 'extra', 'ignore', 'json', 'memory://', 'production', 'us-east-1']

@@ -1,4 +1,17 @@
 from enum import Enum
+from typing import Generic, TypeVar
+
+from pydantic import BaseModel
+
+T = TypeVar("T")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Réponse paginée générique — REQ 8.1, 8.2, 8.3"""
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
 
 
 class AgeGroup(str, Enum):

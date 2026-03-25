@@ -1,5 +1,6 @@
 import { getRequestConfig } from 'next-intl/server';
 import { routing } from './routing';
+import { getMessages } from '@diagno-pilot/i18n';
 
 export default getRequestConfig(async ({ requestLocale }) => {
   let locale = await requestLocale;
@@ -9,8 +10,7 @@ export default getRequestConfig(async ({ requestLocale }) => {
     locale = routing.defaultLocale;
   }
 
-  // Load translations from packages/i18n
-  const messages = (await import(`../../../packages/i18n/locales/${locale}.json`)).default;
+  const messages = await getMessages(locale as 'fr' | 'en');
 
   return {
     locale,
