@@ -18,6 +18,10 @@ from backend.core.config import settings
 from backend.core.database import db
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+# Rétrocompatibilité : rôles hérités mappés vers les rôles actuels (REQ 6.3, 6.4)
+LEGACY_ROLE_MAP = {"pharmacien": "guest"}
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
@@ -45,7 +49,29 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     if user_doc is None:
         raise credentials_exc
 
+    # Mapper les rôles hérités (ex. pharmacien → guest) pour rétrocompatibilité (REQ 6.3, 6.4)
+    role = user_doc.get("role")
+    effective_role = LEGACY_ROLE_MAP.get(role, role)
+    if effective_role != role:
+        user_doc = {**user_doc, "role": effective_role}
+
     return user_doc
+
+
+async def get_current_user_optional(
+    token: str | None = Depends(oauth2_scheme_optional),
+) -> dict | None:
+    """Retourne l'utilisateur ou None si pas de token (pour les routes publiques).
+
+    Utilisé pour les routes comme /api/v1/qa qui sont accessibles sans authentification.
+    REQ 2.4, 9.2, 9.3
+    """
+    if token is None:
+        return None
+    try:
+        return await get_current_user(token)
+    except HTTPException:
+        return None
 
 
 def require_role(roles: list[str]):

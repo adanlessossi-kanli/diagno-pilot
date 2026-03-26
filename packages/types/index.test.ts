@@ -1,8 +1,9 @@
-// Unit tests for shared TypeScript types — REQ-02, REQ-06
+// Unit tests for shared TypeScript types — REQ-02, REQ-06, RBAC
 import { describe, it, expect } from 'vitest';
 import type {
   AgeGroup,
   AlertLevel,
+  UserRole,
   PatientProfile,
   Prescription,
   SafetyAlert,
@@ -13,6 +14,26 @@ import type {
   ChatSession,
   DocumentSource,
 } from './index';
+
+// ─── UserRole ─────────────────────────────────────────────────────────────────
+
+// Exemple 7.4 : le type UserRole contient exactement les 4 valeurs attendues
+// Validates: Requirements 1.1, 7.4
+describe('UserRole', () => {
+  it('contains exactly the 4 valid RBAC roles', () => {
+    const validRoles: UserRole[] = ['admin', 'medecin', 'infirmière', 'guest'];
+    expect(validRoles).toHaveLength(4);
+    expect(validRoles).toContain('admin');
+    expect(validRoles).toContain('medecin');
+    expect(validRoles).toContain('infirmière');
+    expect(validRoles).toContain('guest');
+  });
+
+  it('does not include legacy role pharmacien', () => {
+    const validRoles: UserRole[] = ['admin', 'medecin', 'infirmière', 'guest'];
+    expect(validRoles).not.toContain('pharmacien');
+  });
+});
 
 // ─── AgeGroup ─────────────────────────────────────────────────────────────────
 

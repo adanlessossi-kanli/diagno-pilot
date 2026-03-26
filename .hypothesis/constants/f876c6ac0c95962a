@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\models\common.py
+# hypothesis_version: 6.151.9
+
+['T', 'admin', 'adult', 'child', 'critical', 'en', 'fr', 'guest', 'infant', 'infirmière', 'info', 'medecin', 'neonatal', 'warning']

@@ -22,7 +22,7 @@ from backend.core.config import settings
 from backend.core.database import db
 from backend.core.logging_config import request_id_var, setup_logging
 from backend.core.rate_limit import limiter
-from backend.routers import admin, alerts, auth, chat, diagnose, documents, files, patients
+from backend.routers import admin, alerts, auth, chat, diagnose, documents, files, patients, qa
 from backend.services.diagnostic_service import DiagnosticService
 from backend.services.embedding_service import EmbeddingModel
 from backend.services.llm_router import LLMRouter
@@ -208,6 +208,7 @@ app.include_router(documents.router, prefix=API_PREFIX)
 app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(alerts.router, prefix=API_PREFIX)
 app.include_router(admin.router, prefix=API_PREFIX)
+app.include_router(qa.router, prefix=API_PREFIX)
 
 
 @app.get("/health", tags=["health"])

@@ -1,13 +1,17 @@
 """
-Router admin — Protocoles antibiotiques configurables (REQ 11)
+Router admin — Protocoles antibiotiques configurables (REQ 11) + Gestion des utilisateurs (RBAC)
 
 Endpoints:
   GET  /api/v1/admin/protocols          — liste complète (authentifié)
   POST /api/v1/admin/protocols          — création (rôle admin requis)
   PUT  /api/v1/admin/protocols/{name}   — mise à jour (rôle admin requis)
+  GET  /api/v1/admin/users              — liste des utilisateurs (admin)
+  POST /api/v1/admin/users              — création d'utilisateur (admin)
+  PUT  /api/v1/admin/users/{id}         — mise à jour d'utilisateur (admin)
+  GET  /api/v1/admin/stats              — statistiques globales (admin)
 
 Chaque modification est journalisée dans le journal d'audit avec :
-  user_id, action, valeurs avant/après (REQ 11.6)
+  user_id, action, valeurs avant/après (REQ 11.6, 5.4)
 """
 from __future__ import annotations
 
@@ -15,11 +19,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+import bcrypt
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user, require_role
 from backend.core.database import db
+from backend.models.common import UserRole
 from backend.services.alert_service import alert_service
 from backend.services.audit_service import audit_service
 from backend.services.prescription_service import prescription_service
@@ -277,3 +284,213 @@ async def create_drug_interaction(
     await alert_service.reload_interactions()
 
     return DrugInteractionResponse(**doc)
+
+
+# ---------------------------------------------------------------------------
+# User management schemas (Task 4.1)
+# ---------------------------------------------------------------------------
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    role: UserRole = UserRole.GUEST
+    locale: str = "fr"
+
+
+class UserUpdate(BaseModel):
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    role: UserRole
+    full_name: str
+    is_active: bool
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# User management endpoints (Task 4.1)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/users",
+    response_model=list[UserResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Liste de tous les utilisateurs (admin)",
+)
+async def list_users(
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """GET /api/v1/admin/users — retourne tous les utilisateurs (sans password_hash)."""
+    database = db.get_db()
+    cursor = database["users"].find({}, {"password_hash": 0})
+    docs = await cursor.to_list(length=None)
+    return [
+        UserResponse(
+            id=str(doc["_id"]),
+            email=doc["email"],
+            role=doc["role"],
+            full_name=doc.get("full_name", ""),
+            is_active=doc.get("is_active", True),
+            created_at=doc.get("created_at", datetime.now(timezone.utc)),
+        )
+        for doc in docs
+    ]
+
+
+@router.post(
+    "/users",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Créer un nouvel utilisateur (admin)",
+)
+async def create_user(
+    data: UserCreate,
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """POST /api/v1/admin/users — crée un utilisateur. Rôle admin requis."""
+    database = db.get_db()
+
+    existing = await database["users"].find_one({"email": data.email})
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User with email '{data.email}' already exists",
+        )
+
+    password_hash = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
+    now = datetime.now(timezone.utc)
+
+    doc = {
+        "email": data.email,
+        "password_hash": password_hash,
+        "full_name": data.full_name,
+        "role": data.role.value,
+        "locale": data.locale,
+        "is_active": True,
+        "created_at": now,
+    }
+
+    result = await database["users"].insert_one(doc)
+    logger.info("User '%s' created by admin %s", data.email, str(current_user["_id"]))
+
+    return UserResponse(
+        id=str(result.inserted_id),
+        email=doc["email"],
+        role=doc["role"],
+        full_name=doc["full_name"],
+        is_active=doc["is_active"],
+        created_at=doc["created_at"],
+    )
+
+
+@router.put(
+    "/users/{user_id}",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mettre à jour un utilisateur (admin)",
+)
+async def update_user(
+    user_id: str,
+    request: Request,
+    data: UserUpdate,
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """PUT /api/v1/admin/users/{id} — met à jour role/is_active. Rôle admin requis."""
+    database = db.get_db()
+
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    existing = await database["users"].find_one({"_id": oid})
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Capture before state (Task 4.3)
+    old_role = existing.get("role")
+    old_is_active = existing.get("is_active", True)
+
+    update_fields: dict[str, Any] = {}
+    if data.role is not None:
+        update_fields["role"] = data.role.value
+    if data.is_active is not None:
+        update_fields["is_active"] = data.is_active
+
+    if update_fields:
+        await database["users"].update_one({"_id": oid}, {"$set": update_fields})
+
+    updated = await database["users"].find_one({"_id": oid})
+
+    new_role = updated.get("role")
+    new_is_active = updated.get("is_active", True)
+
+    # Audit log with before/after (Task 4.3)
+    ip = request.client.host if request.client else None
+    admin_id = str(current_user["_id"])
+    await audit_service.log_action(
+        user_id=admin_id,
+        action="update_user_role",
+        resource="users",
+        resource_id=user_id,
+        details={
+            "before": {"role": old_role, "is_active": old_is_active},
+            "after": {"role": new_role, "is_active": new_is_active},
+        },
+        ip_address=ip,
+    )
+
+    logger.info("User '%s' updated by admin %s", user_id, admin_id)
+
+    return UserResponse(
+        id=str(updated["_id"]),
+        email=updated["email"],
+        role=updated["role"],
+        full_name=updated.get("full_name", ""),
+        is_active=updated.get("is_active", True),
+        created_at=updated.get("created_at", datetime.now(timezone.utc)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stats endpoint (Task 4.2)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/stats",
+    status_code=status.HTTP_200_OK,
+    summary="Statistiques globales (admin)",
+)
+async def get_stats(
+    request: Request,
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """GET /api/v1/admin/stats — retourne les statistiques globales. Rôle admin requis."""
+    database = db.get_db()
+
+    total_users = await database["users"].count_documents({})
+    total_patients = await database["patients"].count_documents({})
+
+    users_by_role: dict[str, int] = {}
+    for role in ["admin", "medecin", "infirmière", "guest"]:
+        users_by_role[role] = await database["users"].count_documents({"role": role})
+
+    # Audit log (Task 4.2)
+    ip = request.client.host if request.client else None
+    await audit_service.log_action(
+        user_id=str(current_user["_id"]),
+        action="view_stats",
+        resource="admin_stats",
+        ip_address=ip,
+    )
+
+    return {
+        "total_users": total_users,
+        "users_by_role": users_by_role,
+        "total_patients": total_patients,
+    }

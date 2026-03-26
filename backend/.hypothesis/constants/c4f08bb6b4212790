@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\patients.py
+# hypothesis_version: 6.151.9
+
+[100, '/patients', '/{patient_id}', 'Numéro de page (≥ 1)', '_id', 'admin', 'infirmière', 'medecin', 'patients']

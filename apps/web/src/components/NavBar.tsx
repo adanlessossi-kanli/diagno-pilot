@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '../contexts/AuthContext';
 import { usePathname } from '../i18n/navigation';
+import type { UserRole } from '@diagno-pilot/types';
 import LanguageSwitcher from './LanguageSwitcher';
 
 interface NavBarProps {
