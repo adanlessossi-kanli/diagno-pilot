@@ -7,7 +7,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from backend.core.auth import get_current_user
+from backend.core.auth import require_role
 from backend.core.database import db
 from backend.core.rate_limit import limiter
 from backend.models.alert import SafetyAlert
@@ -58,7 +58,7 @@ def get_diagnostic_service(request: Request) -> DiagnosticService:
 async def diagnose_symptoms(
     request: Request,
     body: DiagnoseRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"])),
     diagnostic_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """POST /api/v1/diagnose/symptoms
@@ -102,7 +102,7 @@ async def diagnose_symptoms(
 )
 async def get_diagnosis_session(
     session_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"])),
 ):
     """GET /api/v1/diagnose/session/{session_id}
 
@@ -154,7 +154,7 @@ class PrescriptionResponse(BaseModel):
     response_model=list[str],
     status_code=status.HTTP_200_OK,
 )
-async def list_antibiotics(current_user: dict = Depends(get_current_user)):
+async def list_antibiotics(current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"]))):
     """GET /api/v1/diagnose/antibiotics — list available antibiotic protocol keys."""
     from backend.services.prescription_service import ANTIBIOTIC_PROTOCOLS
     keys = list(prescription_service._protocols_cache.keys()) or list(ANTIBIOTIC_PROTOCOLS.keys())
@@ -167,7 +167,7 @@ async def list_antibiotics(current_user: dict = Depends(get_current_user)):
 )
 async def create_prescription(
     body: PrescriptionRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"])),
 ):
     """POST /api/v1/diagnose/prescription
 

@@ -9,8 +9,8 @@ export type AgeGroup = 'neonatal' | 'infant' | 'child' | 'adult';
 /** Severity level for safety alerts (REQ-09) */
 export type AlertLevel = 'critical' | 'warning' | 'info';
 
-/** User roles controlling feature access (REQ-01) */
-export type UserRole = 'medecin' | 'pharmacien' | 'admin';
+/** User roles controlling feature access (REQ-01, RBAC) */
+export type UserRole = 'admin' | 'medecin' | 'infirmière' | 'guest';
 
 /** Supported application locales (REQ-12) */
 export type Locale = 'fr' | 'en';

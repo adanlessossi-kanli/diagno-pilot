@@ -133,3 +133,51 @@ describe('AuthContext mobile — session restoration', () => {
     expect(result.current.token).toBeNull();
   });
 });
+
+// ─── Property 11 (RBAC) ───────────────────────────────────────────────────────
+
+import * as fc from 'fast-check';
+
+// Feature: role-based-access-control, Property 11: useAuth retourne un UserRole valide
+describe('Property 11 — useAuth retourne un UserRole valide (mobile)', () => {
+  it('user.role must belong to the valid UserRole union or be null when not authenticated', async () => {
+    jest.setTimeout(60000);
+    // Validates: Requirements 7.2
+    const VALID_ROLES = ['admin', 'medecin', 'infirmière', 'guest'] as const;
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.option(fc.constantFrom(...VALID_ROLES), { nil: null }),
+        async (role) => {
+          jest.clearAllMocks();
+          mockSetItemAsync.mockResolvedValue(undefined);
+          mockDeleteItemAsync.mockResolvedValue(undefined);
+
+          if (role !== null) {
+            const user = { id: 'u1', email: 'user@example.com', fullName: 'Test User', role };
+            mockGetItemAsync.mockResolvedValue('stored-token');
+            mockMe.mockResolvedValue(user);
+          } else {
+            mockGetItemAsync.mockResolvedValue(null);
+            mockMe.mockRejectedValue(new Error('Unauthorized'));
+          }
+
+          const { result } = renderHook(() => useAuth(), { wrapper });
+          await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+          const userRole = result.current.user?.role ?? null;
+
+          // user.role must be null (unauthenticated) or a valid UserRole
+          if (userRole !== null) {
+            expect(VALID_ROLES).toContain(userRole);
+          } else {
+            expect(userRole).toBeNull();
+          }
+
+          return true;
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});

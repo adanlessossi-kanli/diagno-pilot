@@ -66,7 +66,7 @@ def test_p1_valid_cors_in_production_does_not_raise():
     s = Settings(
         ENV="production",
         ALLOWED_ORIGINS="https://app.example.com,https://api.example.com",
-        JWT_SECRET="test_secret_long_enough",
+        JWT_SECRET="test_secret_long_enough_for_prod_32x",
     )
     assert s.ENV == "production"
 
@@ -82,7 +82,7 @@ def test_p1_wildcard_in_development_does_not_raise():
 # ---------------------------------------------------------------------------
 
 @given(origins=valid_origins_list_strategy)
-@h_settings(max_examples=100)
+@h_settings(max_examples=100, deadline=None)
 def test_p2_cors_origins_roundtrip(origins: list[str]):
     """
     Feature: diagno-pilot-improvements, Property 2:

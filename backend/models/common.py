@@ -33,6 +33,7 @@ class Locale(str, Enum):
 
 
 class UserRole(str, Enum):
-    MEDECIN = "medecin"
-    PHARMACIEN = "pharmacien"
-    ADMIN = "admin"
+    ADMIN      = "admin"
+    MEDECIN    = "medecin"
+    INFIRMIERE = "infirmière"
+    GUEST      = "guest"

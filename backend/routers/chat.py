@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from backend.core.auth import get_current_user
+from backend.core.auth import require_role
 from backend.core.database import db
 from backend.core.rate_limit import limiter
 from backend.models.document import DocumentSource, RAGResponse
@@ -72,7 +72,7 @@ def get_chat_service() -> ChatService:
 async def send_message(
     request: Request,
     body: ChatMessageRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"])),
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """POST /api/v1/chat/message
@@ -102,7 +102,7 @@ async def send_message(
 )
 async def get_chat_history(
     session_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"])),
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """GET /api/v1/chat/history/{session_id}

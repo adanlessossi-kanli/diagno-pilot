@@ -489,3 +489,88 @@ describe('P1 — Loading indicator present during async operations', () => {
     );
   });
 });
+
+// ─── Property 11 (RBAC) ───────────────────────────────────────────────────────
+
+// Feature: role-based-access-control, Property 11: useAuth retourne un UserRole valide
+describe('Property 11 — useAuth retourne un UserRole valide', () => {
+  it('user.role must belong to the valid UserRole union or be null when not authenticated', { timeout: 60000 }, async () => {
+    // Validates: Requirements 7.2
+    const VALID_ROLES = ['admin', 'medecin', 'infirmière', 'guest'] as const;
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.option(fc.constantFrom(...VALID_ROLES), { nil: null }),
+        async (role) => {
+          vi.resetAllMocks();
+          global.fetch = makeFetchMock(role !== null ? 'tok123' : null);
+
+          if (role !== null) {
+            const user = { id: 'u1', email: 'user@example.com', fullName: 'Test User', role };
+            mockMe.mockResolvedValue(user);
+          } else {
+            mockMe.mockRejectedValue(new Error('Unauthorized'));
+          }
+
+          const { result } = renderHook(() => useAuth(), { wrapper });
+          await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+          const userRole = result.current.user?.role ?? null;
+
+          // user.role must be null (unauthenticated) or a valid UserRole
+          if (userRole !== null) {
+            expect(VALID_ROLES).toContain(userRole);
+          } else {
+            expect(userRole).toBeNull();
+          }
+
+          return true;
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// ─── Unit Test 12.4 — Session invalidation after role change ─────────────────
+
+describe('Example 7.3 — Session invalidated after role change by admin', () => {
+  it('when role changes (401 on refresh), user is forced to re-login', async () => {
+    // Validates: Requirements 7.3
+    // Simulates: admin modifies a user's role → backend invalidates the session
+    // → next request returns 401 → refresh also fails → user is logged out
+    resetMocks(null);
+    mockLogin.mockResolvedValue(makeLoginResponse(fakeUser));
+    mockLogout.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Login as medecin
+    await act(async () => {
+      await result.current.login('doc@example.com', 'password');
+    });
+    expect(result.current.user).not.toBeNull();
+    expect(result.current.user?.role).toBe('medecin');
+
+    // Simulate: admin changed the role → backend invalidates the token
+    // Next API call returns 401, and the refresh token is also invalidated
+    const mockFetch = vi.fn()
+      // First request returns 401 (token invalidated due to role change)
+      .mockResolvedValueOnce({ status: 401, ok: false } as Response)
+      // Refresh attempt also fails (session fully invalidated)
+      .mockResolvedValueOnce({ ok: false, status: 401 } as Response)
+      // Cookie deletion
+      .mockResolvedValueOnce({ ok: true } as Response);
+
+    global.fetch = mockFetch;
+
+    await act(async () => {
+      await result.current.fetchWithRefresh('http://localhost:8000/api/v1/patients');
+    });
+
+    // Session must be invalidated: user is null and redirected to login
+    expect(result.current.user).toBeNull();
+    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/login'));
+  });
+});
