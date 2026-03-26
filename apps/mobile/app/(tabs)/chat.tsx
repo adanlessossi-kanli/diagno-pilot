@@ -66,7 +66,7 @@ export default function ChatScreen() {
           <View style={styles.sources}>
             <Text style={styles.sourcesLabel}>Sources :</Text>
             {item.sources.map((s, i) => (
-              <MobileSourceCitation key={i} source={s} />
+              <MobileSourceCitation key={`${s.title}-${i}`} source={s} />
             ))}
           </View>
         )}

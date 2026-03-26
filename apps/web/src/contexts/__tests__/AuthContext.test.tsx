@@ -62,7 +62,17 @@ function resetMocks(userForMe?: { id: string; email: string; fullName: string; r
   } else {
     mockMe.mockRejectedValue(new Error('Unauthorized'));
   }
-  global.fetch = vi.fn().mockResolvedValue({ ok: true });
+  // Mock fetch: first call is GET /api/auth/set-cookie (returns token or null),
+  // subsequent calls are POST/DELETE /api/auth/set-cookie (returns ok: true)
+  global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    if (typeof url === 'string' && url.includes('/api/auth/set-cookie') && (!init?.method || init.method === 'GET')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ token: null }),
+      });
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) });
+  });
 }
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
@@ -70,6 +80,19 @@ function resetMocks(userForMe?: { id: string; email: string; fullName: string; r
 beforeEach(() => {
   resetMocks(null);
 });
+
+// Helper to create a fetch mock that handles the cookie GET endpoint
+function makeFetchMock(cookieToken: string | null = null) {
+  return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    if (typeof url === 'string' && url.includes('/api/auth/set-cookie') && (!init?.method || init.method === 'GET')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ token: cookieToken }),
+      });
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) });
+  });
+}
 
 // ─── Unit Tests (8.2) ─────────────────────────────────────────────────────────
 
@@ -165,6 +188,8 @@ describe('AuthContext — Unit Tests', () => {
 
   it('session persistence — user restored from auth.me() on mount (httpOnly cookie)', async () => {
     mockMe.mockResolvedValue(fakeUser);
+    // Provide a token so restoreSession proceeds to call auth.me()
+    global.fetch = makeFetchMock('tok123');
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -394,7 +419,8 @@ describe('P13 — After page reload, session restored without new login', () => 
         fc.uuid(),
         async (role, id) => {
           vi.resetAllMocks();
-          global.fetch = vi.fn().mockResolvedValue({ ok: true });
+          // Provide a token so restoreSession proceeds to call auth.me()
+          global.fetch = makeFetchMock('tok123');
 
           const user = { id, email: `user-${id.slice(0, 8)}@example.com`, fullName: 'Test User', role };
           mockMe.mockResolvedValue(user);
@@ -432,7 +458,8 @@ describe('P1 — Loading indicator present during async operations', () => {
         fc.integer({ min: 10, max: 50 }),
         async (role, id, delayMs) => {
           vi.resetAllMocks();
-          global.fetch = vi.fn().mockResolvedValue({ ok: true });
+          // Provide a token so restoreSession proceeds to call auth.me()
+          global.fetch = makeFetchMock('tok123');
 
           const user = { id, email: `user-${id.slice(0, 8)}@example.com`, fullName: 'Test User', role };
 

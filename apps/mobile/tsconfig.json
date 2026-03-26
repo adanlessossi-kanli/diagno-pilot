@@ -3,6 +3,7 @@
   "compilerOptions": {
     "strict": true,
     "baseUrl": ".",
+    "types": ["jest"],
     "paths": {
       "@diagno-pilot/types": ["../../packages/types/index.ts"],
       "@diagno-pilot/api-client": ["../../packages/api-client/index.ts"],

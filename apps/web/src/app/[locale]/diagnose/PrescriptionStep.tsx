@@ -147,7 +147,7 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
           className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {diagnoses.map((diag, i) => (
-            <option key={i} value={i}>
+            <option key={`${diag.condition}-${i}`} value={i}>
               {diag.condition}
               {diag.icd_code ? ` (${diag.icd_code})` : ''}
               {' — '}
@@ -212,7 +212,7 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
 
               <div className="space-y-2">
                 {criticalAlerts.map((alert, i) => (
-                  <AlertItem key={i} alert={alert} />
+                  <AlertItem key={`critical-${alert.type}-${i}`} alert={alert} />
                 ))}
               </div>
 
@@ -224,7 +224,7 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
                   </p>
                   <ul className="list-disc list-inside space-y-0.5">
                     {alternatives.map((alt, i) => (
-                      <li key={i} className="text-sm text-gray-800">{alt}</li>
+                      <li key={`alt-${alt}-${i}`} className="text-sm text-gray-800">{alt}</li>
                     ))}
                   </ul>
                 </div>
@@ -255,7 +255,7 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
             <div className="space-y-2">
               <h4 className="text-sm font-semibold text-amber-800">{t('warningAlertsTitle')}</h4>
               {warningAlerts.map((alert, i) => (
-                <AlertItem key={i} alert={alert} />
+                <AlertItem key={`warning-${alert.type}-${i}`} alert={alert} />
               ))}
             </div>
           )}
@@ -265,7 +265,7 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
             <div className="space-y-2">
               <h4 className="text-sm font-semibold text-blue-800">{t('infoAlertsTitle')}</h4>
               {infoAlerts.map((alert, i) => (
-                <AlertItem key={i} alert={alert} />
+                <AlertItem key={`info-${alert.type}-${i}`} alert={alert} />
               ))}
             </div>
           )}

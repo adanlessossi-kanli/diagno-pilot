@@ -12,3 +12,6 @@ export type { PrescriptionCardProps } from './src/PrescriptionCard';
 
 export { SourceCitation } from './src/SourceCitation';
 export type { SourceCitationProps } from './src/SourceCitation';
+
+export { buttonVariants } from './src/buttonVariants';
+export type { ButtonVariant } from './src/buttonVariants';

@@ -3,29 +3,33 @@ import type { SafetyAlert } from '@diagno-pilot/types';
 
 // REQ-09: AlertBanner must clearly distinguish critical vs warning alerts
 
-const styles: Record<string, React.CSSProperties> = {
-  critical: {
-    backgroundColor: '#fee2e2',
-    borderLeft: '4px solid #dc2626',
-    color: '#7f1d1d',
-  },
-  warning: {
-    backgroundColor: '#fef3c7',
-    borderLeft: '4px solid #d97706',
-    color: '#78350f',
-  },
-  info: {
-    backgroundColor: '#dbeafe',
-    borderLeft: '4px solid #2563eb',
-    color: '#1e3a5f',
-  },
+const levelClasses: Record<string, string> = {
+  critical: 'bg-error-bg border-l-4 border-error-border text-error-text',
+  warning:  'bg-warning-bg border-l-4 border-warning-border text-warning-text',
+  info:     'bg-info-bg border-l-4 border-info-border text-info-text',
 };
 
-const icons: Record<string, string> = {
-  critical: '🚨',
-  warning: '⚠️',
-  info: 'ℹ️',
-};
+function AlertIcon({ level }: { level: string }) {
+  if (level === 'critical') {
+    return (
+      <svg aria-hidden="true" className="w-4 h-4 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+      </svg>
+    );
+  }
+  if (level === 'warning') {
+    return (
+      <svg aria-hidden="true" className="w-4 h-4 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+        <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+      </svg>
+    );
+  }
+  return (
+    <svg aria-hidden="true" className="w-4 h-4 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+    </svg>
+  );
+}
 
 export interface AlertBannerProps {
   alert: SafetyAlert;
@@ -33,48 +37,31 @@ export interface AlertBannerProps {
 }
 
 export function AlertBanner({ alert, onDismiss }: AlertBannerProps) {
-  const levelStyle = styles[alert.level] ?? styles.info;
+  const classes = levelClasses[alert.level] ?? levelClasses.info;
 
   return (
     <div
       role="alert"
       aria-live={alert.level === 'critical' ? 'assertive' : 'polite'}
-      style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        padding: '12px 16px',
-        borderRadius: '4px',
-        marginBottom: '8px',
-        ...levelStyle,
-      }}
+      className={`flex items-start justify-between px-4 py-3 rounded-sm mb-2 ${classes}`}
     >
-      <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
-        <span aria-hidden="true">{icons[alert.level]}</span>
+      <div className="flex gap-2 flex-1">
+        <AlertIcon level={alert.level} />
         <div>
-          <strong style={{ textTransform: 'uppercase', fontSize: '12px', letterSpacing: '0.05em' }}>
+          <strong className="uppercase text-xs tracking-wide font-semibold">
             {alert.level}
           </strong>
           {alert.affected_drug && (
-            <span style={{ marginLeft: '8px', fontWeight: 600 }}>{alert.affected_drug}</span>
+            <span className="ml-2 font-semibold">{alert.affected_drug}</span>
           )}
-          <p style={{ margin: '4px 0 0', fontSize: '14px' }}>{alert.message}</p>
+          <p className="mt-1 text-sm">{alert.message}</p>
         </div>
       </div>
       {onDismiss && (
         <button
           onClick={onDismiss}
           aria-label="Dismiss alert"
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            fontSize: '16px',
-            lineHeight: 1,
-            padding: '0 0 0 8px',
-            color: 'inherit',
-            opacity: 0.7,
-          }}
+          className="bg-transparent border-0 cursor-pointer text-base leading-none pl-2 text-inherit opacity-70 hover:opacity-100"
         >
           ×
         </button>

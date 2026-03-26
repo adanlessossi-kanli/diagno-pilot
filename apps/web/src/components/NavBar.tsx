@@ -41,12 +41,17 @@ export default function NavBar({ locale }: NavBarProps) {
   function linkClass(path: string) {
     const isActive = path === '/' ? pathname === '/' : pathname.startsWith(path);
     return isActive
-      ? 'text-sm font-semibold text-blue-700 border-b-2 border-blue-700'
-      : 'text-sm font-medium text-gray-700 hover:text-blue-600';
+      ? 'text-sm font-semibold text-blue-700 border-b-2 border-blue-700 transition-colors duration-150'
+      : 'text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors duration-150';
   }
 
   return (
     <nav aria-label="Main navigation" className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between relative">
+      {/* Wordmark */}
+      <span className="text-base font-bold text-primary-600 tracking-tight select-none">
+        Diagno-Pilot
+      </span>
+
       {/* Desktop links */}
       <div className="hidden md:flex items-center gap-6">
         {links.map((link) => (
@@ -81,7 +86,7 @@ export default function NavBar({ locale }: NavBarProps) {
         <button
           type="button"
           onClick={() => void logout()}
-          className="text-sm font-medium text-red-600 hover:text-red-800"
+          className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors duration-150"
         >
           {t('logout')}
         </button>
@@ -97,14 +102,14 @@ export default function NavBar({ locale }: NavBarProps) {
       )}
       {/* Mobile drawer */}
       {isOpen && (
-        <div className="fixed top-0 left-0 z-50 h-full w-64 bg-white shadow-xl flex flex-col md:hidden">
+        <div className="drawer-slide-in fixed top-0 left-0 z-50 h-full w-64 bg-white shadow-xl flex flex-col md:hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <span className="font-semibold text-gray-800">Menu</span>
             <button
               type="button"
               aria-label="Close menu"
               onClick={() => setIsOpen(false)}
-              className="text-gray-500 hover:text-gray-800"
+              className="text-gray-500 hover:text-gray-800 transition-colors duration-150"
             >
               {/* Close icon — X */}
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -129,7 +134,7 @@ export default function NavBar({ locale }: NavBarProps) {
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="text-sm font-medium text-red-600 hover:text-red-800"
+                className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors duration-150"
               >
                 {t('logout')}
               </button>

@@ -9,25 +9,27 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../src/contexts/AuthContext';
+import { colors, spacing, radius, shadow } from '@diagno-pilot/ui/src/tokens';
 
 export default function LoginScreen() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleLogin() {
+    setError(null);
     if (!email.trim() || !password) return;
     setLoading(true);
     try {
       await login(email.trim(), password);
       router.replace('/(tabs)/diagnose');
     } catch {
-      Alert.alert('Erreur', 'Identifiants invalides. Veuillez réessayer.');
+      setError('Identifiants invalides. Veuillez réessayer.');
     } finally {
       setLoading(false);
     }
@@ -60,6 +62,12 @@ export default function LoginScreen() {
           accessibilityLabel="Mot de passe"
         />
 
+        {error && (
+          <View style={styles.errorBlock}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
         <TouchableOpacity
           style={[styles.button, (!email.trim() || !password) && styles.buttonDisabled]}
           onPress={handleLogin}
@@ -81,44 +89,44 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: colors.neutral[50],
     justifyContent: 'center',
-    padding: 24,
+    padding: spacing[6],
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 24,
+    borderRadius: radius.lg,
+    padding: spacing[6],
     shadowColor: '#000',
     shadowOpacity: 0.08,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: shadow.mobile.md,
   },
   title: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '700',
-    color: '#2563eb',
+    color: colors.primary[600],
     textAlign: 'center',
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 16,
-    color: '#6b7280',
+    color: colors.neutral[500],
     textAlign: 'center',
     marginBottom: 24,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderColor: colors.neutral[200],
+    borderRadius: radius.md,
     padding: 12,
     fontSize: 15,
     marginBottom: 12,
-    color: '#111827',
+    color: colors.neutral[900],
   },
   button: {
-    backgroundColor: '#2563eb',
-    borderRadius: 8,
+    backgroundColor: colors.primary[600],
+    borderRadius: radius.md,
     padding: 14,
     alignItems: 'center',
     marginTop: 8,
@@ -130,5 +138,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  errorBlock: {
+    backgroundColor: colors.error.bg,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.error.border,
+    borderRadius: radius.sm,
+    padding: spacing[3],
+    marginBottom: spacing[3],
+  },
+  errorText: {
+    color: colors.error.text,
+    fontSize: 14,
   },
 });

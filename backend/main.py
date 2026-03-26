@@ -37,7 +37,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await db.connect()
+    try:
+        await db.connect()
+    except RuntimeError as exc:
+        # Log clearly and re-raise so uvicorn exits instead of serving a broken app
+        logger.critical("Startup failed — %s", exc)
+        raise
     logger.info("MongoDB connected")
     from backend.routers.auth import ensure_refresh_token_indexes
     await ensure_refresh_token_indexes()
@@ -207,7 +212,12 @@ app.include_router(admin.router, prefix=API_PREFIX)
 
 @app.get("/health", tags=["health"])
 async def health():
-    return {"status": "ok"}
+    try:
+        await db.get_db().client.admin.command("ping")
+        db_status = "ok"
+    except Exception as exc:
+        db_status = f"unreachable: {exc}"
+    return {"status": "ok" if db_status == "ok" else "degraded", "db": db_status}
 
 
 # ---------------------------------------------------------------------------

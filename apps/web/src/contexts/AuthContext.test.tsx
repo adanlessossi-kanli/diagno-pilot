@@ -57,8 +57,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: no active session on mount
   mockMe.mockRejectedValue(new Error('Unauthorized'));
-  // Default: fetch succeeds (cookie API route)
-  global.fetch = vi.fn().mockResolvedValue({ ok: true });
+  // Default: fetch handles cookie GET (returns null token) and other calls (returns ok: true)
+  global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+    if (typeof url === 'string' && url.includes('/api/auth/set-cookie') && (!init?.method || init.method === 'GET')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ token: null }),
+      });
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) });
+  });
 });
 
 describe('AuthContext', () => {
@@ -132,6 +140,13 @@ describe('AuthContext', () => {
 
   it('d. session persistence on mount — user populated from auth.me()', async () => {
     mockMe.mockResolvedValue(fakeUser);
+    // Provide a token so restoreSession proceeds to call auth.me()
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/api/auth/set-cookie') && (!init?.method || init.method === 'GET')) {
+        return Promise.resolve({ ok: true, json: async () => ({ token: 'tok123' }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
 
     const { result } = renderHook(() => useAuth(), { wrapper });
 

@@ -87,7 +87,7 @@ export function MobileSymptomInput({ symptoms, onAdd, onRemove }: MobileSymptomI
       {symptoms.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tagScroll}>
           {symptoms.map((s, i) => (
-            <View key={i} style={styles.tag}>
+            <View key={`${s.name}-${i}`} style={styles.tag}>
               <Text style={styles.tagText}>
                 {s.name}
                 {s.severity ? ` · ${s.severity}` : ''}

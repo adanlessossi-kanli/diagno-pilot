@@ -14,6 +14,7 @@ import { MobileSymptomInput } from '../../src/components/MobileSymptomInput';
 import { MobilePrescriptionCard } from '../../src/components/MobilePrescriptionCard';
 import { MobileAlertBanner } from '../../src/components/MobileAlertBanner';
 import type { Symptom, DifferentialDiagnosis, Prescription, SafetyAlert } from '@diagno-pilot/types';
+import { getProbabilityColor } from '../../src/utils/probabilityColor';
 
 type Step = 'symptoms' | 'differential' | 'prescription';
 
@@ -118,7 +119,7 @@ export default function DiagnoseScreen() {
           <Text style={styles.sectionTitle}>Diagnostics différentiels</Text>
           {diagnoses.map((d, i) => (
             <TouchableOpacity
-              key={i}
+              key={`${d.condition}-${i}`}
               style={styles.diagnosisCard}
               onPress={() => handleGetPrescription(d)}
               accessibilityRole="button"
@@ -126,7 +127,7 @@ export default function DiagnoseScreen() {
             >
               <View style={styles.diagnosisHeader}>
                 <Text style={styles.diagnosisName}>{d.condition}</Text>
-                <View style={[styles.probBadge, { backgroundColor: probColor(d.probability) }]}>
+                <View style={[styles.probBadge, { backgroundColor: getProbabilityColor(d.probability) }]}>
                   <Text style={styles.probText}>{Math.round(d.probability * 100)}%</Text>
                 </View>
               </View>
@@ -158,14 +159,14 @@ export default function DiagnoseScreen() {
             <View style={styles.criticalBlock}>
               <Text style={styles.criticalBlockTitle}>⛔ Alertes critiques</Text>
               {criticalAlerts.map((a, i) => (
-                <MobileAlertBanner key={i} alert={a} />
+                <MobileAlertBanner key={`critical-${a.type}-${i}`} alert={a} />
               ))}
             </View>
           )}
 
           {/* Non-critical alerts */}
           {alerts.filter((a) => a.level !== 'critical').map((a, i) => (
-            <MobileAlertBanner key={i} alert={a} />
+            <MobileAlertBanner key={`alert-${a.type}-${i}`} alert={a} />
           ))}
 
           <MobilePrescriptionCard prescription={prescription} />
@@ -180,12 +181,6 @@ export default function DiagnoseScreen() {
       )}
     </ScrollView>
   );
-}
-
-function probColor(p: number): string {
-  if (p >= 0.7) return '#dcfce7';
-  if (p >= 0.4) return '#fef3c7';
-  return '#fee2e2';
 }
 
 const styles = StyleSheet.create({

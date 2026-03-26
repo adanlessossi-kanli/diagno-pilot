@@ -1,6 +1,7 @@
 // REQ-03: PrescriptionCard adapté React Native
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { colors, spacing, radius, typography, shadow } from '@diagno-pilot/ui/src/tokens';
 import type { Prescription } from '@diagno-pilot/types';
 
 export interface MobilePrescriptionCardProps {
@@ -48,22 +49,32 @@ export function MobilePrescriptionCard({ prescription: rx }: MobilePrescriptionC
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff', borderRadius: 10, padding: 14,
-    marginBottom: 10, borderWidth: 1, borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+    borderRadius: radius.lg,
+    padding: spacing[4],
+    marginBottom: spacing[2],
+    borderWidth: 1,
+    borderColor: colors.neutral[200],
+    elevation: shadow.mobile.sm,
   },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing[3],
   },
-  antibiotic: { fontSize: 16, fontWeight: '700', color: '#111827', flex: 1 },
+  antibiotic: { fontSize: typography.base, fontWeight: '700', color: colors.neutral[900], flex: 1 },
   cappedBadge: {
-    backgroundColor: '#fef3c7', borderRadius: 12,
-    paddingHorizontal: 8, paddingVertical: 3,
-    borderWidth: 1, borderColor: '#fcd34d',
+    backgroundColor: colors.warning.bg,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing[2],
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: colors.warning.border,
   },
-  cappedText: { fontSize: 11, fontWeight: '600', color: '#92400e' },
+  cappedText: { fontSize: typography.xs, fontWeight: '600', color: colors.warning.text },
   grid: {},
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  label: { fontSize: 12, color: '#6b7280', fontWeight: '500' },
-  value: { fontSize: 13, color: '#111827' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing[1] },
+  label: { fontSize: typography.xs, color: colors.neutral[500], fontWeight: '500' },
+  value: { fontSize: typography.sm, color: colors.neutral[900] },
 });

@@ -35,45 +35,14 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
   // In-memory token — scoped to this provider instance (no module-level mutable)
   const memoryTokenRef = useRef<string | null>(null);
 
-  function getToken(): string | null {
+  const getToken = useCallback((): string | null => {
     return memoryTokenRef.current;
-  }
+  }, []); // stable — memoryTokenRef never changes
 
   const apiClient = React.useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
     return createApiClient(baseUrl, getToken);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-detect existing session on mount (REQ 7.1)
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/auth/set-cookie')
-      .then((r) => r.json())
-      .then(({ token }: { token: string | null }) => {
-        if (token) {
-          memoryTokenRef.current = token;
-        }
-        return apiClient.auth.me();
-      })
-      .then((apiUser) => {
-        if (cancelled) return;
-        setUser({
-          id: apiUser.id,
-          email: apiUser.email,
-          role: apiUser.role as UserRole,
-          fullName: apiUser.fullName,
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setUser(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [apiClient]);
+  }, [getToken]);
 
   /**
    * Attempt a silent token refresh.
@@ -104,6 +73,69 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
       isRefreshing.current = false;
     }
   }, []);
+
+  // Auto-detect existing session on mount (REQ 7.1)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSession() {
+      // 1. Try to read the access token from the httpOnly cookie
+      const cookieRes = await fetch('/api/auth/set-cookie');
+      const { token } = (await cookieRes.json()) as { token: string | null };
+
+      if (token) {
+        memoryTokenRef.current = token;
+      }
+
+      // 2. No token at all — skip the /auth/me call entirely (avoids a noisy 401)
+      if (!memoryTokenRef.current) {
+        return;
+      }
+
+      // 3. Try /auth/me with the stored access token
+      try {
+        const apiUser = await apiClient.auth.me();
+        if (cancelled) return;
+        setUser({
+          id: apiUser.id,
+          email: apiUser.email,
+          role: apiUser.role as UserRole,
+          fullName: apiUser.fullName,
+        });
+        return;
+      } catch (err) {
+        // Access token may be expired — fall through to refresh attempt
+        if ((err as { status?: number })?.status !== 401) throw err;
+      }
+
+      // 4. Access token expired — attempt silent refresh before giving up
+      memoryTokenRef.current = null;
+      const refreshed = await tryRefresh();
+      if (cancelled) return;
+
+      if (refreshed) {
+        try {
+          const apiUser = await apiClient.auth.me();
+          if (cancelled) return;
+          setUser({
+            id: apiUser.id,
+            email: apiUser.email,
+            role: apiUser.role as UserRole,
+            fullName: apiUser.fullName,
+          });
+        } catch {
+          if (!cancelled) setUser(null);
+        }
+      }
+      // if refresh also failed, user stays null (not logged in)
+    }
+
+    restoreSession()
+      .catch(() => { if (!cancelled) setUser(null); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [apiClient, tryRefresh]);
 
   /**
    * Wrapper around fetch that intercepts 401 responses, attempts a silent
@@ -157,14 +189,24 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
         body: JSON.stringify({ token: response.access_token }),
       });
 
-      // Fetch user details now that the token is set
-      const apiUser = await apiClient.auth.me();
-      const authUser: AuthUser = {
-        id: apiUser.id,
-        email: apiUser.email,
-        role: apiUser.role as UserRole,
-        fullName: apiUser.fullName,
-      };
+      // Use the user from the login response, or fall back to /auth/me
+      let authUser: AuthUser;
+      if (response.user) {
+        authUser = {
+          id: response.user.id,
+          email: response.user.email,
+          role: response.user.role as UserRole,
+          fullName: response.user.fullName,
+        };
+      } else {
+        const apiUser = await apiClient.auth.me();
+        authUser = {
+          id: apiUser.id,
+          email: apiUser.email,
+          role: apiUser.role as UserRole,
+          fullName: apiUser.fullName,
+        };
+      }
       setUser(authUser);
 
       // Role-based redirect

@@ -14,6 +14,7 @@ import { Toast } from '../../../components/Toast';
 import SkeletonLoader from '../../../components/SkeletonLoader';
 import EmptyState from '../../../components/EmptyState';
 import { IMAGES } from '@/lib/images';
+import { buttonVariants } from '@diagno-pilot/ui';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ function PatientCard({
     : '—';
 
   return (
-    <div className="border rounded-lg p-4 bg-white hover:shadow-sm transition-shadow flex items-center justify-between gap-4">
+    <div className="border rounded-lg shadow-sm p-4 bg-white hover:shadow-md transition-shadow duration-200 flex items-center justify-between gap-4">
       <div className="min-w-0 flex-1 space-y-1">
         <p className="font-semibold text-gray-900 truncate">{patient.fullName ?? '—'}</p>
         <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-gray-500">
@@ -296,14 +297,14 @@ function CreatePatientModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm border rounded hover:bg-gray-50 transition-colors"
+              className={buttonVariants.secondary}
             >
               {tCommon('cancel')}
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              className={`${buttonVariants.primary} flex items-center gap-2`}
             >
               {submitting && (
                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
@@ -399,7 +400,7 @@ export default function PatientsPage() {
         <button
           type="button"
           onClick={() => setShowModal(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 transition-colors"
+          className={buttonVariants.primary}
         >
           + {t('new')}
         </button>

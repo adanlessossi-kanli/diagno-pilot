@@ -15,36 +15,36 @@ describe('IMAGES registry — tests unitaires', () => {
   });
 
   it('chaque entrée possède src, alt, source et licence non vides', () => {
-    for (const [key, entry] of Object.entries(IMAGES)) {
-      expect(typeof entry.src, `${key}.src doit être une chaîne`).toBe('string');
-      expect(entry.src.trim().length, `${key}.src ne doit pas être vide`).toBeGreaterThan(0);
+    for (const [, entry] of Object.entries(IMAGES)) {
+      expect(typeof entry.src).toBe('string');
+      expect(entry.src.trim().length).toBeGreaterThan(0);
 
-      expect(typeof entry.alt, `${key}.alt doit être une chaîne`).toBe('string');
-      expect(entry.alt.trim().length, `${key}.alt ne doit pas être vide`).toBeGreaterThan(0);
+      expect(typeof entry.alt).toBe('string');
+      expect(entry.alt.trim().length).toBeGreaterThan(0);
 
-      expect(typeof entry.source, `${key}.source doit être une chaîne`).toBe('string');
-      expect(entry.source.trim().length, `${key}.source ne doit pas être vide`).toBeGreaterThan(0);
+      expect(typeof entry.source).toBe('string');
+      expect(entry.source.trim().length).toBeGreaterThan(0);
 
-      expect(typeof entry.licence, `${key}.licence doit être une chaîne`).toBe('string');
-      expect(entry.licence.trim().length, `${key}.licence ne doit pas être vide`).toBeGreaterThan(0);
+      expect(typeof entry.licence).toBe('string');
+      expect(entry.licence.trim().length).toBeGreaterThan(0);
     }
   });
 
   it('chaque valeur src est une URL valide commençant par https://', () => {
-    for (const [key, entry] of Object.entries(IMAGES)) {
-      expect(entry.src, `${key}.src doit commencer par https://`).toMatch(/^https:\/\//);
+    for (const [, entry] of Object.entries(IMAGES)) {
+      expect(entry.src).toMatch(/^https:\/\//);
     }
   });
 
   it('chaque valeur source est une URL valide commençant par https://', () => {
-    for (const [key, entry] of Object.entries(IMAGES)) {
-      expect(entry.source, `${key}.source doit commencer par https://`).toMatch(/^https:\/\//);
+    for (const [, entry] of Object.entries(IMAGES)) {
+      expect(entry.source).toMatch(/^https:\/\//);
     }
   });
 
   it('chaque texte alt a une longueur significative (> 5 caractères)', () => {
-    for (const [key, entry] of Object.entries(IMAGES)) {
-      expect(entry.alt.length, `${key}.alt doit avoir plus de 5 caractères`).toBeGreaterThan(5);
+    for (const [, entry] of Object.entries(IMAGES)) {
+      expect(entry.alt.length).toBeGreaterThan(5);
     }
   });
 });
@@ -56,11 +56,11 @@ describe('IMAGES registry — tests de propriétés', () => {
     const entries = Object.entries(IMAGES);
 
     // Static check: every known entry satisfies the property
-    for (const [key, value] of entries) {
-      expect(value.src, `${key}.src should be non-empty`).toBeTruthy();
-      expect(value.alt, `${key}.alt should be non-empty`).toBeTruthy();
-      expect(value.source, `${key}.source should be non-empty`).toBeTruthy();
-      expect(value.licence, `${key}.licence should be non-empty`).toBeTruthy();
+    for (const [, value] of entries) {
+      expect(value.src).toBeTruthy();
+      expect(value.alt).toBeTruthy();
+      expect(value.source).toBeTruthy();
+      expect(value.licence).toBeTruthy();
     }
 
     // Property: for any key drawn from the IMAGES object, all four fields are non-empty strings
@@ -84,8 +84,8 @@ describe('IMAGES registry — tests de propriétés', () => {
 
   it('alt text is in French (contains at least one French word or accented character)', () => {
     const entries = Object.entries(IMAGES);
-    for (const [key, value] of entries) {
-      expect(value.alt.length, `${key}.alt should have meaningful length`).toBeGreaterThan(5);
+    for (const [, value] of entries) {
+      expect(value.alt.length).toBeGreaterThan(5);
     }
   });
 

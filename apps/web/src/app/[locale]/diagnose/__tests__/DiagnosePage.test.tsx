@@ -48,6 +48,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
     diagnose: {
       getSymptomsDiagnosis: vi.fn().mockResolvedValue({ diagnoses: [], sources: [] }),
       getPrescription: vi.fn().mockResolvedValue({ prescription: null, alerts: [] }),
+      listAntibiotics: vi.fn().mockResolvedValue([]),
     },
     patients: {
       listPatients: vi.fn().mockResolvedValue([]),

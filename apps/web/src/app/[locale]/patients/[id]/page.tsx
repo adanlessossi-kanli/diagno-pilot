@@ -151,9 +151,11 @@ function ConsultationCard({
 
 function FileRow({
   file,
+  apiClient,
   t,
 }: {
   file: PatientFile;
+  apiClient: ReturnType<typeof createApiClient>;
   t: ReturnType<typeof useTranslations<'patientDetail'>>;
 }) {
   const [downloading, setDownloading] = useState(false);
@@ -163,8 +165,7 @@ function FileRow({
     setDlError('');
     setDownloading(true);
     try {
-      const client = getApiClient();
-      const { url } = await client.files.getFileUrl(file.id);
+      const { url } = await apiClient.files.getFileUrl(file.id);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch {
       setDlError(t('errorDownload'));
@@ -470,7 +471,7 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
               {!loadingFiles && files.length > 0 && (
                 <div>
                   {files.map((f) => (
-                    <FileRow key={f.id} file={f} t={t} />
+                    <FileRow key={f.id} file={f} apiClient={apiClient} t={t} />
                   ))}
                 </div>
               )}

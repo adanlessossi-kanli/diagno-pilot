@@ -132,6 +132,88 @@ describe('NavBar — unit tests', () => {
   });
 });
 
+// ─── Property 5 ───────────────────────────────────────────────────────────────
+
+// Feature: ui-professional-refactor, Property 5: NavBar accessibility attributes preserved
+describe('NavBar — Property 5: Accessibility attributes preserved', () => {
+  /**
+   * **Validates: Requirements 3.7, 15.6**
+   * Property 5: For any combination of isOpen (boolean) and active path, all original
+   * aria-* attributes must be present with their original values.
+   *
+   * Aria attributes tested:
+   * - aria-label="Main navigation" on <nav>
+   * - aria-label="Open menu" on hamburger button
+   * - aria-expanded={isOpen} on hamburger button
+   * - aria-hidden="true" on hamburger SVG icon
+   * - aria-label="Close menu" on close button (when drawer open)
+   * - aria-hidden="true" on overlay div (when drawer open)
+   * - aria-hidden="true" on close SVG icon (when drawer open)
+   */
+  it('preserves all aria-* attributes for any isOpen state and active path', () => {
+    const paths = ['/', '/chat', '/diagnose', '/patients'] as const;
+
+    fc.assert(
+      fc.property(
+        fc.boolean(),
+        fc.constantFrom(...paths),
+        (openState, activePath) => {
+          cleanup();
+          mockPathname = activePath;
+          mockAuthValue.user = { id: '1', email: 'doc@test.com', role: 'medecin', fullName: 'Dr Test' };
+          mockAuthValue.isLoading = false;
+
+          const { container } = render(<NavBar locale="fr" />);
+
+          // 1. <nav> must have aria-label="Main navigation"
+          const nav = container.querySelector('nav[aria-label="Main navigation"]');
+          if (!nav) { cleanup(); return false; }
+
+          // 2. Hamburger button must have aria-label="Open menu"
+          const hamburger = container.querySelector('button[aria-label="Open menu"]');
+          if (!hamburger) { cleanup(); return false; }
+
+          // 3. Hamburger button must have aria-expanded (false initially)
+          const ariaExpanded = hamburger.getAttribute('aria-expanded');
+          if (ariaExpanded === null) { cleanup(); return false; }
+
+          // 4. Hamburger SVG must have aria-hidden="true"
+          const hamburgerSvg = hamburger.querySelector('svg[aria-hidden="true"]');
+          if (!hamburgerSvg) { cleanup(); return false; }
+
+          if (openState) {
+            // Simulate opening the drawer
+            fireEvent.click(hamburger);
+
+            // 5. Close button must have aria-label="Close menu"
+            const closeBtn = container.querySelector('button[aria-label="Close menu"]');
+            if (!closeBtn) { cleanup(); return false; }
+
+            // 6. Close button SVG must have aria-hidden="true"
+            const closeSvg = closeBtn.querySelector('svg[aria-hidden="true"]');
+            if (!closeSvg) { cleanup(); return false; }
+
+            // 7. Overlay div must have aria-hidden="true"
+            const overlay = container.querySelector('div[aria-hidden="true"]');
+            if (!overlay) { cleanup(); return false; }
+
+            // 8. aria-expanded on hamburger must be "true" after opening
+            const expandedAfterOpen = hamburger.getAttribute('aria-expanded');
+            if (expandedAfterOpen !== 'true') { cleanup(); return false; }
+          } else {
+            // When closed: aria-expanded must be "false"
+            if (ariaExpanded !== 'false') { cleanup(); return false; }
+          }
+
+          cleanup();
+          return true;
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
 // ─── Property 7 ───────────────────────────────────────────────────────────────
 
 // Feature: app-consistency, Property 7: Pour toute page auth, NavBar est présente

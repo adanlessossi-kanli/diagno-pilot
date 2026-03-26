@@ -24,16 +24,16 @@ export function Toast({ message, type = 'success', duration = 3000, onClose }: T
 
   const colorClass =
     type === 'success'
-      ? 'bg-green-600 text-white'
+      ? 'bg-success-border text-white'
       : type === 'error'
-        ? 'bg-red-600 text-white'
-        : 'bg-blue-600 text-white';
+        ? 'bg-error-border text-white'
+        : 'bg-info-border text-white';
 
   return (
     <div
       role="status"
       aria-live="polite"
-      className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-opacity ${colorClass}`}
+      className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-opacity animate-slide-in-top ${colorClass}`}
     >
       {message}
     </div>

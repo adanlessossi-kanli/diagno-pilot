@@ -52,6 +52,34 @@ class Settings(BaseSettings):
                     "ALLOWED_ORIGINS must be an explicit list in production (ENV=production). "
                     "Set ALLOWED_ORIGINS=https://app.example.com,https://api.example.com"
                 )
+
+        # Warn early when the URI looks like a Docker service name but we're
+        # not explicitly running in a container environment.  This won't block
+        # startup (the ping in database.py will do that), but it surfaces the
+        # misconfiguration in the logs before any connection is attempted.
+        import socket
+        from urllib.parse import urlparse
+        try:
+            host = urlparse(self.MONGODB_URI).hostname or ""
+            # Docker service names are single-label hostnames (no dots, not localhost/127.x)
+            is_docker_hostname = (
+                host
+                and "." not in host
+                and host not in ("localhost", "127.0.0.1", "::1")
+            )
+            if is_docker_hostname:
+                try:
+                    socket.getaddrinfo(host, None)
+                except socket.gaierror:
+                    import warnings
+                    warnings.warn(
+                        f"MONGODB_URI host '{host}' cannot be resolved. "
+                        "If you are running outside Docker, set MONGODB_URI=mongodb://localhost:27017/diagno_pilot",
+                        stacklevel=2,
+                    )
+        except Exception:
+            pass  # never block startup from a validation side-effect
+
         return self
 
     def get_allowed_origins(self) -> list[str]:
