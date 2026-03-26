@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { buttonVariants } from '@diagno-pilot/ui';
 
 interface EmptyStateProps {
   title: string;
@@ -23,7 +24,7 @@ export default function EmptyState({ title, description, action, image }: EmptyS
       ) : (
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="h-16 w-16 text-primary-100 mb-4"
+          className="h-16 w-16 text-primary-600 mb-4"
           fill="none"
           viewBox="0 0 64 64"
           aria-hidden="true"
@@ -45,7 +46,7 @@ export default function EmptyState({ title, description, action, image }: EmptyS
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-2 px-5 py-2 bg-primary-600 text-white text-sm font-medium rounded hover:bg-primary-700 transition-colors"
+          className={`mt-2 ${buttonVariants.primary}`}
         >
           {action.label}
         </button>

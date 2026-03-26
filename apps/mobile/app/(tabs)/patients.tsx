@@ -23,7 +23,7 @@ export default function PatientsScreen() {
 
   const fetchPatients = useCallback(async () => {
     try {
-      const data = await apiClient.patients.listPatients();
+      const data = await apiClient.patients.listAllPatients();
       setPatients(data);
     } catch {
       Alert.alert('Erreur', 'Impossible de charger les patients.');

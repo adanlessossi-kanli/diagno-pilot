@@ -1,4 +1,5 @@
 import { getRequestConfig } from 'next-intl/server';
+import type { AbstractIntlMessages } from 'next-intl';
 import { routing } from './routing';
 import { getMessages } from '@diagno-pilot/i18n';
 
@@ -14,6 +15,6 @@ export default getRequestConfig(async ({ requestLocale }) => {
 
   return {
     locale,
-    messages,
+    messages: messages as AbstractIntlMessages,
   };
 });

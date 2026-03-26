@@ -1,5 +1,5 @@
 /**
- * Unit tests for MobilePatientCard (REQ 10.2)
+ * Unit tests for MobilePatientCard (REQ 10.2, 12.1, 12.2)
  *
  * Covers:
  *  a. Renders the patient's full name
@@ -11,10 +11,13 @@
  *  g. Renders allergy count when allergies are present
  *  h. Renders comorbidities when renal/hepatic failure flags are set
  *  i. Renders current medications count when present
+ *  j. Renders initials avatar (not emoji) — REQ 12.2
+ *  k. Avatar uses primary[600] token background color — REQ 12.2
  */
 import React from 'react';
 import { render, screen } from '@testing-library/react-native';
 import { MobilePatientCard } from '../MobilePatientCard';
+import { colors } from '@diagno-pilot/ui/src/tokens';
 import type { PatientProfile } from '@diagno-pilot/types';
 
 const basePatient: PatientProfile = {
@@ -104,5 +107,34 @@ describe('MobilePatientCard', () => {
       />
     );
     expect(screen.getByText('2 en cours')).toBeTruthy();
+  });
+
+  it('j. renders initials avatar instead of emoji — REQ 12.2', () => {
+    render(<MobilePatientCard patient={{ ...basePatient, fullName: 'Kofi Mensah' }} />);
+    // Initials "KM" should be rendered as text
+    expect(screen.getByText('KM')).toBeTruthy();
+    // No emoji avatar text should be present
+    expect(screen.queryByText('👤')).toBeNull();
+  });
+
+  it('j. derives single initial when only one name part', () => {
+    render(<MobilePatientCard patient={{ ...basePatient, fullName: 'Amara' }} />);
+    expect(screen.getByText('A')).toBeTruthy();
+  });
+
+  it('j. renders "?" initials when fullName is absent', () => {
+    render(<MobilePatientCard patient={{ ...basePatient, fullName: undefined }} />);
+    expect(screen.getByText('?')).toBeTruthy();
+  });
+
+  it('k. avatar container uses primary[600] token as background color — REQ 12.2', () => {
+    render(<MobilePatientCard patient={basePatient} />);
+    const avatar = screen.getByLabelText('Avatar de Kofi Mensah');
+    const style = avatar.props.style;
+    const flatStyle: Record<string, unknown> = {};
+    (Array.isArray(style) ? style : [style]).forEach((s: unknown) => {
+      if (s && typeof s === 'object') Object.assign(flatStyle, s);
+    });
+    expect(flatStyle.backgroundColor).toBe(colors.primary[600]);
   });
 });

@@ -57,11 +57,12 @@ export default function LoginPage() {
         />
       </div>
 
-      <div className="w-full max-w-md p-8 bg-white rounded-lg shadow">
+      <div className="w-full max-w-md p-8 bg-white rounded-xl shadow-md">
+        <p className="text-primary-600 font-bold text-2xl mb-2">Diagno-Pilot</p>
         <h1 className="text-2xl font-bold mb-6">{t('login')}</h1>
 
         {error && (
-          <div role="alert" aria-live="assertive" className="mb-4 rounded bg-red-50 px-4 py-3 text-sm text-red-700 border border-red-200">
+          <div role="alert" aria-live="assertive" className="mb-4 border-l-4 border-error-border bg-error-bg px-4 py-3 text-sm text-error-text">
             {error}
           </div>
         )}
@@ -106,7 +107,7 @@ export default function LoginPage() {
             type="submit"
             disabled={submitting}
             aria-busy={submitting}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            className={`w-full bg-primary-600 text-white hover:bg-primary-700 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {submitting ? '…' : t('submit')}
           </button>

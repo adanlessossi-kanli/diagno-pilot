@@ -30,11 +30,13 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
 
   return (
     <html lang={locale}>
-      <body>
+      <body className="font-sans bg-gray-50">
         <NextIntlClientProvider messages={messages}>
           <AuthProvider locale={locale}>
             <NavBar locale={locale} />
-            <main>{children}</main>
+            <div className="max-w-[1280px] mx-auto px-4 pt-6">
+              <main>{children}</main>
+            </div>
             <Footer />
           </AuthProvider>
         </NextIntlClientProvider>

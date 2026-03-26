@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await apiClient.auth.login(email, password);
     await SecureStore.setItemAsync(TOKEN_KEY, res.access_token);
     setToken(res.access_token);
-    setUser(res.user);
+    setUser(res.user as AuthUser);
   }, [apiClient]);
 
   const logout = useCallback(async () => {

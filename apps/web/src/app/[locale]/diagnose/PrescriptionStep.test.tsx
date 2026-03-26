@@ -54,6 +54,7 @@ function renderComponent(onGetPrescription: () => Promise<PrescriptionResponse>)
   return render(
     <PrescriptionStep
       diagnoses={mockDiagnoses}
+      antibiotics={['Amoxicillin', 'Azithromycin']}
       onGetPrescription={onGetPrescription}
     />,
   );

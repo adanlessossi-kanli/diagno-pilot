@@ -12,6 +12,7 @@
     "@diagno-pilot/api-client": "*",
     "@diagno-pilot/i18n": "*",
     "@diagno-pilot/types": "*",
+    "@diagno-pilot/ui": "*",
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
@@ -33,6 +34,7 @@
       "./jest.setup.js"
     ],
     "moduleNameMapper": {
+      "^@diagno-pilot/ui/src/(.*)$": "<rootDir>/../../packages/ui/src/$1",
       "^react-native/Libraries/BatchedBridge/NativeModules$": "<rootDir>/__mocks__/NativeModules.js",
       "^react-native/Libraries/TurboModule/TurboModuleRegistry$": "<rootDir>/__mocks__/TurboModuleRegistry.js",
       "^expo-modules-core/src/(.*)$": "<rootDir>/node_modules/expo-modules-core/src/$1",
@@ -52,8 +54,10 @@
     "@babel/core": "^7.25.0",
     "@testing-library/jest-native": "^5.4.3",
     "@testing-library/react-native": "^12.0.0",
+    "@types/jest": "^30.0.0",
     "@types/react": "~18.3.12",
     "@types/react-native": "~0.73.0",
+    "fast-check": "^4.6.0",
     "jest": "^29.0.0",
     "jest-expo": "~52.0.0",
     "react-test-renderer": "^18.3.1",

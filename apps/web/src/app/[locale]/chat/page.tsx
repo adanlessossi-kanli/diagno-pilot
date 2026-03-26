@@ -38,7 +38,7 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
       {open && (
         <ul className="mt-1.5 space-y-1.5">
           {sources.map((src, i) => (
-            <li key={i} className="text-xs bg-blue-50 border border-blue-100 rounded px-3 py-2 space-y-0.5">
+            <li key={`${src.title}-${i}`} className="text-xs bg-blue-50 border border-blue-100 rounded px-3 py-2 space-y-0.5">
               <p className="font-semibold text-blue-800">{src.title}</p>
               {src.section && (
                 <p className="text-blue-600">
@@ -273,7 +273,7 @@ export default function ChatPage() {
     setLoadingPatients(true);
     setPatientsError('');
     try {
-      const list = await apiClient.patients.listPatients();
+      const list = await apiClient.patients.listAllPatients();
       setPatients(list);
     } catch {
       setPatientsError(t('errorFetch'));
@@ -401,8 +401,8 @@ export default function ChatPage() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        {loading && <ThinkingBubble />}
-        <div ref={bottomRef} />
+        {loading && <ThinkingBubble key="thinking" />}
+        <div key="scroll-anchor" ref={bottomRef} />
       </div>
 
       {/* Error */}

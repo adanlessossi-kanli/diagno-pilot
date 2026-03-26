@@ -25,12 +25,22 @@ export interface LoginResponse {
   refresh_token: string;
   token_type: string;
   expires_in: number;
+  user: {
+    id: string;
+    email: string;
+    fullName: string;
+    role: string;
+    locale?: string;
+  };
 }
 
 export interface DiagnosisResponse {
+  session_id: string;
   diagnoses: DifferentialDiagnosis[];
-  llmUsed: string;
-  sources: DocumentSource[];
+  // llmUsed and sources are not returned by /diagnose/symptoms — they come
+  // from the RAG chat endpoint. Kept optional so UI code can guard safely.
+  llmUsed?: string;
+  sources?: DocumentSource[];
 }
 
 export interface PrescriptionResponse {
@@ -240,17 +250,29 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
 
   const chat = {
     /** REQ-04 — Send a message in a chat session */
-    sendMessage(
+    async sendMessage(
       sessionId: string,
       content: string,
       patientContext?: PatientProfile,
       signal?: AbortSignal,
     ): Promise<ChatMessage> {
-      return post<ChatMessage>('/api/v1/chat/message', {
-        session_id: sessionId,
-        content,
-        patient_context: serializePatientProfile(patientContext),
-      }, signal);
+      // Backend returns { session_id, answer, sources, llm_used } — map to ChatMessage
+      const raw = await post<{ session_id: string; answer: string; sources: DocumentSource[]; llm_used: string }>(
+        '/api/v1/chat/message',
+        {
+          session_id: sessionId,
+          message: content,
+          patient_context: serializePatientProfile(patientContext),
+        },
+        signal,
+      );
+      return {
+        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        role: 'assistant',
+        content: raw.answer,
+        sources: raw.sources,
+        timestamp: new Date().toISOString(),
+      };
     },
 
     /** REQ-04 — Retrieve the full message history for a session */
@@ -268,6 +290,7 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
       patientProfile?: PatientProfile,
       signal?: AbortSignal,
     ): Promise<DiagnosisResponse> {
+      // Backend returns { session_id, diagnoses } — no llmUsed/sources at this endpoint
       return post<DiagnosisResponse>('/api/v1/diagnose/symptoms', {
         symptoms,
         patient_profile: serializePatientProfile(patientProfile),
@@ -306,6 +329,15 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
         `/api/v1/patients?page=${page}&page_size=${pageSize}`,
         signal,
       );
+    },
+
+    /** Convenience: fetch all patients from page 1 and return the items array directly. */
+    async listAllPatients(signal?: AbortSignal): Promise<PatientProfile[]> {
+      const result = await get<PaginatedResponse<PatientProfile>>(
+        `/api/v1/patients?page=1&page_size=100`,
+        signal,
+      );
+      return result.items;
     },
 
     /** REQ-06 — Create a new patient record */
@@ -410,10 +442,11 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
     /**
      * REQ-09 — Check a prescription for safety alerts (allergies, interactions,
      * contraindications) against a patient profile.
+     * Backend expects: ?antibiotic=<name>&patient_id=<id>
      */
-    checkAlerts(prescriptionId: string, patientId: string, signal?: AbortSignal): Promise<AlertCheckResponse> {
+    checkAlerts(antibiotic: string, patientId: string, signal?: AbortSignal): Promise<AlertCheckResponse> {
       return get<AlertCheckResponse>(
-        `/api/v1/alerts/check?prescription_id=${encodeURIComponent(prescriptionId)}&patient_id=${encodeURIComponent(patientId)}`,
+        `/api/v1/alerts/check?antibiotic=${encodeURIComponent(antibiotic)}&patient_id=${encodeURIComponent(patientId)}`,
         signal,
       );
     },

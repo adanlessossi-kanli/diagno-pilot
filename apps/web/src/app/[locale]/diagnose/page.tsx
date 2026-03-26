@@ -102,7 +102,7 @@ export default function DiagnosePage() {
     setLoadingPatients(true);
     setPatientsError('');
     try {
-      const list = await apiClient.patients.listPatients();
+      const list = await apiClient.patients.listAllPatients();
       setPatients(list);
     } catch {
       setPatientsError(t('errorFetch'));
@@ -294,7 +294,7 @@ export default function DiagnosePage() {
               {structuredSymptoms.length > 0 && (
                 <ul className="space-y-2">
                   {structuredSymptoms.map((s, i) => (
-                    <li key={i} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
+                    <li key={`${s.name}-${i}`} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
                       <span>
                         <span className="font-medium">{s.name}</span>
                         {' — '}
@@ -443,7 +443,7 @@ export default function DiagnosePage() {
 
         {/* ── Error ── */}
         {error && (
-          <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+          <p role="alert" className="text-sm text-error-text bg-error-bg border border-error-border border-l-4 rounded px-3 py-2">
             {error}
           </p>
         )}
@@ -475,8 +475,16 @@ export default function DiagnosePage() {
             )}
 
             <div className="space-y-3">
-              {results.diagnoses.map((diag, i) => (
-                <div key={i} className="border rounded-lg p-4 space-y-2">
+              {results.diagnoses.map((diag, i) => {
+                const pct = diag.probability;
+                const borderAccent =
+                  pct >= 0.7
+                    ? 'border-l-4 border-l-success-border'
+                    : pct >= 0.4
+                    ? 'border-l-4 border-l-warning-border'
+                    : 'border-l-4 border-l-error-border';
+                return (
+                <div key={`${diag.condition}-${i}`} className={`border rounded-lg p-4 space-y-2 ${borderAccent}`}>
                   <div className="flex items-center justify-between gap-4">
                     <h3 className="font-semibold text-gray-900">{diag.condition}</h3>
                     {diag.icd_code && (
@@ -494,7 +502,7 @@ export default function DiagnosePage() {
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
-                        className="bg-blue-500 h-2 rounded-full transition-all"
+                        className="bg-primary-600 h-2 rounded-full transition-all"
                         style={{ width: `${Math.round(diag.probability * 100)}%` }}
                         role="progressbar"
                         aria-valuenow={Math.round(diag.probability * 100)}
@@ -510,7 +518,7 @@ export default function DiagnosePage() {
                       <p className="text-xs font-medium text-gray-500 mb-1">{t('matchingSymptoms')}</p>
                       <div className="flex flex-wrap gap-1">
                         {diag.concordant_symptoms.map((s, j) => (
-                          <span key={j} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                          <span key={`${s}-${j}`} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
                             {s}
                           </span>
                         ))}
@@ -518,7 +526,8 @@ export default function DiagnosePage() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Sources */}
@@ -527,7 +536,7 @@ export default function DiagnosePage() {
                 <p className="text-xs font-medium text-gray-500 mb-2">{t('sources')}</p>
                 <ul className="space-y-1">
                   {results.sources.map((src, i) => (
-                    <li key={i} className="text-xs text-gray-600 bg-gray-50 rounded px-3 py-1.5">
+                    <li key={`${src.title}-${i}`} className="text-xs text-gray-600 bg-gray-50 rounded px-3 py-1.5">
                       <span className="font-medium">{src.title}</span>
                       {src.section && <span className="text-gray-400"> — {src.section}</span>}
                     </li>
