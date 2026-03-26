@@ -5,41 +5,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field, model_validator
 
 from .common import AgeGroup
-
-
-def _compute_age_group(dob: date) -> AgeGroup:
-    """Calcule le groupe d'âge depuis la date de naissance.
-
-    Règles :
-    - 0–28 jours      → neonatal
-    - 29 jours–23 mois → infant
-    - 2–17 ans         → child
-    - 18 ans et plus   → adult
-    """
-    today = date.today()
-    delta_days = (today - dob).days
-
-    if delta_days <= 28:
-        return AgeGroup.NEONATAL
-
-    # 29 jours–23 mois : moins de 2 ans complets
-    # Handle leap day birthdays (Feb 29) in non-leap years → use Feb 28
-    try:
-        two_years_later = date(dob.year + 2, dob.month, dob.day)
-    except ValueError:
-        two_years_later = date(dob.year + 2, dob.month, 28)
-    if today < two_years_later:
-        return AgeGroup.INFANT
-
-    # 2–17 ans : moins de 18 ans complets
-    try:
-        eighteen_years_later = date(dob.year + 18, dob.month, dob.day)
-    except ValueError:
-        eighteen_years_later = date(dob.year + 18, dob.month, 28)
-    if today < eighteen_years_later:
-        return AgeGroup.CHILD
-
-    return AgeGroup.ADULT
+from backend.utils.age import compute_age_group as _compute_age_group
 
 
 class Comorbidities(BaseModel):
@@ -49,7 +15,7 @@ class Comorbidities(BaseModel):
 
 class PatientProfile(BaseModel):
     id: str | None = None
-    full_name: str
+    full_name: str | None = None
     date_of_birth: date | None = None
     weight_kg: float | None = Field(default=None, gt=0)
     age_group: AgeGroup | None = None

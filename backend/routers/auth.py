@@ -1,16 +1,17 @@
 from datetime import datetime, timedelta, timezone
 import uuid
 
+import bcrypt
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import jwt
-from jwt import InvalidTokenError
-from passlib.context import CryptContext
 from pydantic import BaseModel
 
 from backend.core.config import settings
 from backend.core.database import db
 from backend.core.rate_limit import limiter
+from backend.core.auth import get_current_user
 from backend.models.common import Locale, UserRole
 from backend.services.audit_service import audit_service
 
@@ -18,16 +19,15 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # --- Security helpers ---
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
 
 def create_access_token(user_id: str, role: str) -> str:
@@ -43,35 +43,6 @@ def create_access_token(user_id: str, role: str) -> str:
 def create_refresh_token() -> str:
     """Generate an opaque UUID refresh token."""
     return str(uuid.uuid4())
-
-
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    credentials_exc = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-        user_id: str | None = payload.get("sub")
-        if user_id is None:
-            raise credentials_exc
-    except InvalidTokenError:
-        raise credentials_exc
-
-    database = db.get_db()
-    from bson import ObjectId
-
-    try:
-        oid = ObjectId(user_id)
-    except Exception:
-        raise credentials_exc
-
-    user_doc = await database["users"].find_one({"_id": oid})
-    if user_doc is None:
-        raise credentials_exc
-
-    return user_doc
 
 
 async def ensure_refresh_token_indexes() -> None:
@@ -188,7 +159,6 @@ async def refresh(body: RefreshRequest):
 
     # Issue new tokens
     user_id = token_doc["user_id"]
-    from bson import ObjectId
     try:
         oid = ObjectId(user_id)
     except Exception:

@@ -44,8 +44,8 @@ def _get_document_service() -> DocumentService:
 )
 async def upload_document(
     file: UploadFile = File(...),
-    title: str = Form(...),
-    source: str = Form(...),
+    title: str = Form(""),
+    source: str = Form(""),
     svc: DocumentService = Depends(_get_document_service),
 ) -> MedicalDocument:
     """Ingest a PDF, DOCX, TXT or CSV document into the medical knowledge base."""

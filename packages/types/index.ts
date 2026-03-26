@@ -15,6 +15,16 @@ export type UserRole = 'medecin' | 'pharmacien' | 'admin';
 /** Supported application locales (REQ-12) */
 export type Locale = 'fr' | 'en';
 
+/** Authenticated user returned by /auth/me and stored in AuthContext */
+export interface AuthUser {
+  id: string;
+  email: string;
+  /** Display name */
+  fullName: string;
+  role: UserRole;
+  locale?: Locale;
+}
+
 // ─── Clinical entities ────────────────────────────────────────────────────────
 
 /** A clinical symptom reported by or observed in the patient (REQ-02) */

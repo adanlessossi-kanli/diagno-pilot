@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, use } from 'react';
+import { useState, useEffect, useCallback, use, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
@@ -9,17 +9,6 @@ import type { PatientProfile, Consultation } from '@diagno-pilot/types';
 import { useAuth } from '../../../../contexts/AuthContext';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-let memoryToken: string | null = null;
-
-function getToken(): string | null {
-  return memoryToken;
-}
-
-function getApiClient() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-  return createApiClient(baseUrl, getToken);
-}
 
 function formatDate(iso?: string): string {
   if (!iso) return '—';
@@ -215,8 +204,13 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
   const { id } = use(params);
   const t = useTranslations('patientDetail');
   const tCommon = useTranslations('common');
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, getToken } = useAuth();
   const router = useRouter();
+
+  const apiClient = useMemo(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    return createApiClient(baseUrl, getToken);
+  }, [getToken]);
 
   const [patient, setPatient] = useState<PatientProfile | null>(null);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
@@ -246,30 +240,28 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
     setLoadingPatient(true);
     setErrorPatient('');
     try {
-      const client = getApiClient();
-      const p = await client.patients.getPatient(id);
+      const p = await apiClient.patients.getPatient(id);
       setPatient(p);
     } catch {
       setErrorPatient(t('errorFetch'));
     } finally {
       setLoadingPatient(false);
     }
-  }, [id, t]);
+  }, [id, t, apiClient]);
 
   // Fetch consultations
   const fetchConsultations = useCallback(async () => {
     setLoadingConsultations(true);
     setErrorConsultations('');
     try {
-      const client = getApiClient();
-      const list = await client.patients.listConsultations(id);
+      const list = await apiClient.patients.listConsultations(id);
       setConsultations(list);
     } catch {
       setErrorConsultations(t('errorFetchConsultations'));
     } finally {
       setLoadingConsultations(false);
     }
-  }, [id, t]);
+  }, [id, t, apiClient]);
 
   // Fetch files — call the files endpoint directly since api-client doesn't have listFiles
   const fetchFiles = useCallback(async () => {
@@ -290,7 +282,7 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
     } finally {
       setLoadingFiles(false);
     }
-  }, [id, t]);
+  }, [id, t, getToken]);
 
   useEffect(() => {
     if (user) {
@@ -310,8 +302,7 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
     setUploading(true);
 
     try {
-      const client = getApiClient();
-      await client.files.uploadFile(file, id);
+      await apiClient.files.uploadFile(file, id);
       setUploadSuccess(true);
       // Reset input
       e.target.value = '';

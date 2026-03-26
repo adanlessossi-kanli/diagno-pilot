@@ -4,7 +4,7 @@ Implements REQ-06 (patient profiles) and REQ-08 (paediatric age groups).
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Optional
 
 from bson import ObjectId
@@ -13,20 +13,7 @@ from fastapi import HTTPException, status
 from backend.core.database import db
 from backend.models.common import AgeGroup
 from backend.models.patient import PatientCreate, PatientProfile, Comorbidities
-
-
-def _compute_age_group(dob: date) -> AgeGroup:
-    today = date.today()
-    delta_days = (today - dob).days
-    if delta_days <= 28:
-        return AgeGroup.NEONATAL
-    delta_months = (today.year - dob.year) * 12 + (today.month - dob.month)
-    if delta_months < 24:
-        return AgeGroup.INFANT
-    delta_years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-    if delta_years < 18:
-        return AgeGroup.CHILD
-    return AgeGroup.ADULT
+from backend.utils.age import compute_age_group as _compute_age_group
 
 
 def _doc_to_profile(doc: dict) -> PatientProfile:
@@ -84,7 +71,7 @@ async def create_patient(data: PatientCreate, created_by: str) -> PatientProfile
 
     doc = {
         "full_name": data.full_name,
-        "date_of_birth": datetime.combine(data.date_of_birth, datetime.min.time()) if data.date_of_birth else None,
+        "date_of_birth": datetime.combine(data.date_of_birth, time.min) if data.date_of_birth else None,
         "weight_kg": data.weight_kg,
         "age_group": age_group.value if age_group else None,
         "allergies": data.allergies,
@@ -133,7 +120,7 @@ async def update_patient(patient_id: str, data: PatientCreate, created_by: str) 
 
     update_fields = {
         "full_name": data.full_name,
-        "date_of_birth": datetime.combine(data.date_of_birth, datetime.min.time()) if data.date_of_birth else None,
+        "date_of_birth": datetime.combine(data.date_of_birth, time.min) if data.date_of_birth else None,
         "weight_kg": data.weight_kg,
         "age_group": age_group.value if age_group else None,
         "allergies": data.allergies,

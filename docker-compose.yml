@@ -15,6 +15,12 @@ services:
       - web_next_cache:/app/apps/web/.next
     depends_on:
       - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   backend:
     build: ./backend
@@ -33,11 +39,35 @@ services:
       - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
       - EMBED_MODEL=${EMBED_MODEL}
       - JWT_SECRET=${JWT_SECRET}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
     volumes:
       - ./backend:/workspace/backend
     depends_on:
-      - mongo
-      - localstack
+      mongo:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  seed:
+    build: ./backend
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+    volumes:
+      - ./backend:/workspace/backend
+      - ./scripts:/workspace/scripts
+    command: python /workspace/scripts/seed.py
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
 
   mongo:
     image: mongodb/mongodb-atlas-local:latest
@@ -45,17 +75,22 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping').ok", "--quiet"]
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
 
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3
     ports:
       - "4566:4566"
     environment:
       - SERVICES=s3
-      - DEFAULT_REGION=us-east-1
     volumes:
       - localstack_data:/var/lib/localstack
-      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh:ro
 
 volumes:
   mongo_data:

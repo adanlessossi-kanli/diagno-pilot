@@ -43,6 +43,37 @@ async def lifespan(app: FastAPI):
     await ensure_refresh_token_indexes()
     logger.info("refresh_tokens indexes ensured")
 
+    # Ensure query indexes (background=True avoids blocking startup)
+    _db = db.get_db()
+    await _db["patients"].create_index("created_by", background=True)
+    await _db["patients"].create_index(
+        [("created_by", 1), ("created_at", -1)], background=True
+    )
+    logger.info("patients indexes ensured")
+
+    # Ensure vector search index on document_chunks for RAG
+    try:
+        await _db.create_collection("document_chunks")
+    except Exception:
+        pass  # collection already exists
+    existing = await _db["document_chunks"].list_search_indexes("embedding_index").to_list(1)
+    if not existing:
+        await _db["document_chunks"].create_search_index({
+            "name": "embedding_index",
+            "type": "vectorSearch",
+            "definition": {
+                "fields": [{
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 1536,
+                    "similarity": "cosine",
+                }]
+            },
+        })
+        logger.info("embedding_index vector search index created")
+    else:
+        logger.info("embedding_index vector search index already exists")
+
     # Singleton DiagnosticService (REQ 6.5)
     database = db.get_db()
     mongo_client = database.client

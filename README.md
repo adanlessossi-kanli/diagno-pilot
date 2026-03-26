@@ -101,6 +101,15 @@ start.bat
 | MongoDB | mongodb://localhost:27017 |
 | LocalStack (S3) | http://localhost:4566 |
 
+### 4. Comptes par défaut
+
+| Email | Mot de passe | Rôle |
+|---|---|---|
+| admin@diagno-pilot.com | Admin1234! | admin |
+| medecin@diagno-pilot.com | Medecin1234! | medecin |
+
+> Le script de seed crée ces comptes automatiquement au premier démarrage. Relancer manuellement : `python scripts/seed.py`
+
 ### 4. Arrêter l'application
 
 ```bash

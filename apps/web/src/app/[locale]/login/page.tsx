@@ -31,8 +31,9 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-    } catch {
-      setError(tErrors('unauthorized'));
+    } catch (err) {
+      const msg = (err as { message?: string })?.message;
+      setError(msg && msg !== 'undefined' ? msg : tErrors('unauthorized'));
     } finally {
       setSubmitting(false);
     }

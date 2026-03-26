@@ -3,16 +3,12 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
-import type { UserRole } from '@diagno-pilot/types';
+import type { AuthUser, UserRole } from '@diagno-pilot/types';
+
+// Re-export so existing imports of AuthUser from this module continue to work
+export type { AuthUser } from '@diagno-pilot/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface AuthUser {
-  id: string;
-  email: string;
-  role: UserRole;
-  fullName: string;
-}
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -20,24 +16,12 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   fetchWithRefresh: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
+  getToken: () => string | null;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-// ─── Token management (in-memory, cookie set server-side) ────────────────────
-
-let memoryToken: string | null = null;
-
-function getToken(): string | null {
-  return memoryToken;
-}
-
-function createClient() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-  return createApiClient(baseUrl, getToken);
-}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -48,13 +32,32 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
   const router = useRouter();
   // Prevent concurrent refresh attempts
   const isRefreshing = useRef(false);
+  // In-memory token — scoped to this provider instance (no module-level mutable)
+  const memoryTokenRef = useRef<string | null>(null);
+
+  function getToken(): string | null {
+    return memoryTokenRef.current;
+  }
+
+  const apiClient = React.useMemo(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    return createApiClient(baseUrl, getToken);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-detect existing session on mount (REQ 7.1)
   useEffect(() => {
-    const client = createClient();
-    client.auth
-      .me()
+    let cancelled = false;
+    fetch('/api/auth/set-cookie')
+      .then((r) => r.json())
+      .then(({ token }: { token: string | null }) => {
+        if (token) {
+          memoryTokenRef.current = token;
+        }
+        return apiClient.auth.me();
+      })
       .then((apiUser) => {
+        if (cancelled) return;
         setUser({
           id: apiUser.id,
           email: apiUser.email,
@@ -63,13 +66,14 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
         });
       })
       .catch(() => {
-        // No active session — that's fine
+        if (cancelled) return;
         setUser(null);
       })
       .finally(() => {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       });
-  }, []);
+    return () => { cancelled = true; };
+  }, [apiClient]);
 
   /**
    * Attempt a silent token refresh.
@@ -86,7 +90,7 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
       });
       if (!res.ok) return false;
       const data = (await res.json()) as { access_token: string };
-      memoryToken = data.access_token;
+      memoryTokenRef.current = data.access_token;
       // Update the httpOnly cookie with the new access token
       await fetch('/api/auth/set-cookie', {
         method: 'POST',
@@ -110,8 +114,8 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
     async (input: RequestInfo, init?: RequestInit): Promise<Response> => {
       // Inject current token into Authorization header
       const headers = new Headers(init?.headers);
-      if (memoryToken) {
-        headers.set('Authorization', `Bearer ${memoryToken}`);
+      if (memoryTokenRef.current) {
+        headers.set('Authorization', `Bearer ${memoryTokenRef.current}`);
       }
 
       const response = await fetch(input, { ...init, headers });
@@ -122,7 +126,7 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
       const refreshed = await tryRefresh();
       if (!refreshed) {
         // Refresh failed — clear state and redirect to login (REQ 7.3)
-        memoryToken = null;
+        memoryTokenRef.current = null;
         setUser(null);
         await fetch('/api/auth/set-cookie', { method: 'DELETE' });
         router.push(`/${locale}/login`);
@@ -131,8 +135,8 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
 
       // Replay the original request with the new token
       const retryHeaders = new Headers(init?.headers);
-      if (memoryToken) {
-        retryHeaders.set('Authorization', `Bearer ${memoryToken}`);
+      if (memoryTokenRef.current) {
+        retryHeaders.set('Authorization', `Bearer ${memoryTokenRef.current}`);
       }
       return fetch(input, { ...init, headers: retryHeaders });
     },
@@ -141,11 +145,10 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const client = createClient();
-      const response = await client.auth.login(email, password);
+      const response = await apiClient.auth.login(email, password);
 
       // Store token in memory for subsequent API calls
-      memoryToken = response.access_token;
+      memoryTokenRef.current = response.access_token;
 
       // Persist token in httpOnly cookie via Next.js API route
       await fetch('/api/auth/set-cookie', {
@@ -154,11 +157,13 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
         body: JSON.stringify({ token: response.access_token }),
       });
 
+      // Fetch user details now that the token is set
+      const apiUser = await apiClient.auth.me();
       const authUser: AuthUser = {
-        id: response.user.id,
-        email: response.user.email,
-        role: response.user.role as UserRole,
-        fullName: response.user.fullName,
+        id: apiUser.id,
+        email: apiUser.email,
+        role: apiUser.role as UserRole,
+        fullName: apiUser.fullName,
       };
       setUser(authUser);
 
@@ -169,17 +174,16 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
         router.push(`/${locale}`);
       }
     },
-    [locale, router],
+    [apiClient, locale, router],
   );
 
   const logout = useCallback(async () => {
     try {
-      const client = createClient();
-      await client.auth.logout();
+      await apiClient.auth.logout();
     } catch {
       // Ignore backend errors on logout
     } finally {
-      memoryToken = null;
+      memoryTokenRef.current = null;
       setUser(null);
 
       // Clear the httpOnly cookie
@@ -187,10 +191,10 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
 
       router.push(`/${locale}/login`);
     }
-  }, [locale, router]);
+  }, [apiClient, locale, router]);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, fetchWithRefresh }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, fetchWithRefresh, getToken }}>
       {children}
     </AuthContext.Provider>
   );

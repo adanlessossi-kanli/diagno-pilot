@@ -15,7 +15,6 @@ from fastapi import HTTPException
 from backend.core.circuit_breaker import CircuitBreaker, CircuitOpenError
 from backend.core.config import settings
 from backend.core.metrics import llm_duration_seconds, llm_requests_total
-
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +38,7 @@ class _LLMClient:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
                 resp = await client.post(
                     f"{self.base_url}/chat/completions",
                     json=payload,

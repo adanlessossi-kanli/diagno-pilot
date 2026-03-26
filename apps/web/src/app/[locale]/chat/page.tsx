@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { ChatMessage, PatientProfile, DocumentSource } from '@diagno-pilot/types';
@@ -11,17 +11,6 @@ import { useAuth } from '../../../contexts/AuthContext';
 type PatientMode = 'none' | 'select' | 'oneshot';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-let memoryToken: string | null = null;
-
-function getToken(): string | null {
-  return memoryToken;
-}
-
-function getApiClient() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-  return createApiClient(baseUrl, getToken);
-}
 
 function generateSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -242,7 +231,12 @@ function PatientContextPanel({
 
 export default function ChatPage() {
   const t = useTranslations('chat');
-  const { user } = useAuth();
+  const { user, getToken } = useAuth();
+
+  const apiClient = useMemo(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    return createApiClient(baseUrl, getToken);
+  }, [getToken]);
 
   // Session
   const [sessionId, setSessionId] = useState<string>(() => generateSessionId());
@@ -279,15 +273,14 @@ export default function ChatPage() {
     setLoadingPatients(true);
     setPatientsError('');
     try {
-      const client = getApiClient();
-      const list = await client.patients.listPatients();
+      const list = await apiClient.patients.listPatients();
       setPatients(list);
     } catch {
       setPatientsError(t('errorFetch'));
     } finally {
       setLoadingPatients(false);
     }
-  }, [t]);
+  }, [t, apiClient]);
 
   useEffect(() => {
     if (patientMode === 'select') {
@@ -348,9 +341,8 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
-      const client = getApiClient();
       const patientContext = buildPatientProfile();
-      const assistantMsg = await client.chat.sendMessage(sessionId, content, patientContext);
+      const assistantMsg = await apiClient.chat.sendMessage(sessionId, content, patientContext);
       setMessages((prev) => [...prev, assistantMsg]);
     } catch {
       setError(t('errorSend'));

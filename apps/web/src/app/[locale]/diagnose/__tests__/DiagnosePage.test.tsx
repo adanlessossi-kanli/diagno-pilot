@@ -6,11 +6,29 @@
  */
 import fc from 'fast-check';
 import { describe, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import React from 'react';
 import DiagnosePage from '../page';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
+
+vi.mock('@/lib/images', () => ({
+  IMAGES: {
+    diagnoseHeader: {
+      src: '/test-image.jpg',
+      alt: 'Test image',
+      source: 'https://example.com',
+      licence: 'Test',
+    },
+  },
+}));
+
+vi.mock('next/image', () => ({
+  default: ({ src, alt }: { src: string; alt: string }) => {
+    // eslint-disable-next-line @next/next/no-img-element
+    return React.createElement('img', { src, alt });
+  },
+}));
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -53,7 +71,7 @@ describe('DiagnosePage — Property 12', () => {
           render(<DiagnosePage />);
 
           const textarea = screen.getByRole('textbox');
-          fireEvent.change(textarea, { target: { value: shortText } });
+          act(() => { fireEvent.change(textarea, { target: { value: shortText } }); });
 
           const submitButton = screen.getByRole('button', { name: /analyze/i });
           return (submitButton as HTMLButtonElement).disabled === true;

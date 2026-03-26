@@ -2,7 +2,20 @@
 REM start.bat — Start Diagno-Pilot locally
 
 echo Starting Diagno-Pilot...
+
 docker compose up --build -d
+IF %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ERROR: docker compose up failed ^(exit code %ERRORLEVEL%^).
+    echo.
+    echo Checking for failed services...
+    FOR /F "tokens=*" %%S IN ('docker compose ps --status exited --format "{{.Service}}" 2^>nul') DO (
+        echo   - %%S
+    )
+    echo.
+    echo Run 'docker compose logs ^<service^>' for details.
+    exit /b 1
+)
 
 echo.
 echo Services:

@@ -3,6 +3,7 @@
 // REQ-01 through REQ-09
 
 import type {
+  AuthUser,
   PatientProfile,
   Consultation,
   ChatMessage,
@@ -16,18 +17,14 @@ import type {
 
 // ─── Response types ───────────────────────────────────────────────────────────
 
-export interface AuthUser {
-  id: string;
-  email: string;
-  fullName: string;
-  role: string;
-  locale: string;
-}
+// Re-export AuthUser from @diagno-pilot/types for consumers of this package
+export type { AuthUser } from '@diagno-pilot/types';
 
 export interface LoginResponse {
   access_token: string;
+  refresh_token: string;
   token_type: string;
-  user: AuthUser;
+  expires_in: number;
 }
 
 export interface DiagnosisResponse {
@@ -61,6 +58,7 @@ export interface PatientDocument {
   sizeBytes: number;
   indexedAt?: string;
   createdAt: string;
+  chunkCount?: number;
 }
 
 export interface UploadDocumentResponse {
@@ -131,6 +129,23 @@ async function parseResponse<T>(res: Response): Promise<T> {
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
+/** Serialize a frontend PatientProfile to the backend snake_case shape. */
+function serializePatientProfile(p: PatientProfile | null | undefined): Record<string, unknown> | null {
+  if (!p) return null;
+  return {
+    full_name: p.fullName ?? null,
+    date_of_birth: (p as unknown as { dateOfBirth?: string }).dateOfBirth ?? null,
+    weight_kg: (p as unknown as { weightKg?: number }).weightKg ?? null,
+    age_group: (p as unknown as { ageGroup?: string }).ageGroup ?? null,
+    allergies: p.allergies ?? [],
+    comorbidities: {
+      renal_failure: (p as unknown as { renalFailure?: boolean }).renalFailure ?? false,
+      hepatic_failure: (p as unknown as { hepaticFailure?: boolean }).hepaticFailure ?? false,
+    },
+    current_medications: (p as unknown as { currentMedications?: string[] }).currentMedications ?? [],
+  };
+}
+
 /**
  * Creates a typed API client bound to a base URL and an optional token provider.
  *
@@ -149,36 +164,42 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
     };
   }
 
-  function get<T>(path: string): Promise<T> {
-    return fetch(`${base}${path}`, { method: 'GET', headers: headers() }).then(parseResponse<T>);
+  function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+    return fetch(`${base}${path}`, { method: 'GET', headers: headers(), credentials: 'include', signal }).then(parseResponse<T>);
   }
 
-  function post<T>(path: string, body?: unknown): Promise<T> {
+  function post<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     return fetch(`${base}${path}`, {
       method: 'POST',
       headers: headers(),
+      credentials: 'include',
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     }).then(parseResponse<T>);
   }
 
-  function put<T>(path: string, body?: unknown): Promise<T> {
+  function put<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     return fetch(`${base}${path}`, {
       method: 'PUT',
       headers: headers(),
+      credentials: 'include',
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     }).then(parseResponse<T>);
   }
 
-  function del<T>(path: string): Promise<T> {
-    return fetch(`${base}${path}`, { method: 'DELETE', headers: headers() }).then(parseResponse<T>);
+  function del<T>(path: string, signal?: AbortSignal): Promise<T> {
+    return fetch(`${base}${path}`, { method: 'DELETE', headers: headers(), credentials: 'include', signal }).then(parseResponse<T>);
   }
 
-  function postForm<T>(path: string, formData: FormData): Promise<T> {
+  function postForm<T>(path: string, formData: FormData, signal?: AbortSignal): Promise<T> {
     const token = getToken();
     return fetch(`${base}${path}`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
       body: formData,
+      signal,
     }).then(parseResponse<T>);
   }
 
@@ -186,18 +207,32 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
 
   const auth = {
     /** REQ-01 — Authenticate and receive a JWT token */
-    login(email: string, password: string): Promise<LoginResponse> {
-      return post<LoginResponse>('/api/v1/auth/login', { email, password });
+    login(email: string, password: string, signal?: AbortSignal): Promise<LoginResponse> {
+      const form = new URLSearchParams();
+      form.append('username', email);
+      form.append('password', password);
+      return fetch(`${base}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
+        signal,
+      }).then(parseResponse<LoginResponse>);
     },
 
     /** REQ-01 — Invalidate the current session */
-    logout(): Promise<void> {
-      return post<void>('/api/v1/auth/logout');
+    logout(signal?: AbortSignal): Promise<void> {
+      return post<void>('/api/v1/auth/logout', undefined, signal);
     },
 
     /** REQ-01 — Retrieve the currently authenticated user */
-    me(): Promise<AuthUser> {
-      return get<AuthUser>('/api/v1/auth/me');
+    me(signal?: AbortSignal): Promise<AuthUser> {
+      return get<Record<string, unknown>>('/api/v1/auth/me', signal).then((raw) => ({
+        id: raw['id'] as string,
+        email: raw['email'] as string,
+        role: raw['role'] as AuthUser['role'],
+        fullName: (raw['fullName'] ?? raw['full_name']) as string,
+        locale: raw['locale'] as AuthUser['locale'],
+      }));
     },
   };
 
@@ -209,17 +244,18 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
       sessionId: string,
       content: string,
       patientContext?: PatientProfile,
+      signal?: AbortSignal,
     ): Promise<ChatMessage> {
       return post<ChatMessage>('/api/v1/chat/message', {
         session_id: sessionId,
         content,
-        patient_context: patientContext ?? null,
-      });
+        patient_context: serializePatientProfile(patientContext),
+      }, signal);
     },
 
     /** REQ-04 — Retrieve the full message history for a session */
-    getHistory(sessionId: string): Promise<ChatSession> {
-      return get<ChatSession>(`/api/v1/chat/history/${encodeURIComponent(sessionId)}`);
+    getHistory(sessionId: string, signal?: AbortSignal): Promise<ChatSession> {
+      return get<ChatSession>(`/api/v1/chat/history/${encodeURIComponent(sessionId)}`, signal);
     },
   };
 
@@ -230,27 +266,34 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
     getSymptomsDiagnosis(
       symptoms: Symptom[],
       patientProfile?: PatientProfile,
+      signal?: AbortSignal,
     ): Promise<DiagnosisResponse> {
       return post<DiagnosisResponse>('/api/v1/diagnose/symptoms', {
         symptoms,
-        patient_profile: patientProfile ?? null,
-      });
+        patient_profile: serializePatientProfile(patientProfile),
+      }, signal);
     },
 
     /** REQ-03 — Request an antibiotic prescription for a given diagnosis */
     getPrescription(
       diagnosisId: string,
       patientProfile: PatientProfile,
+      signal?: AbortSignal,
     ): Promise<PrescriptionResponse> {
       return post<PrescriptionResponse>('/api/v1/diagnose/prescription', {
-        diagnosis_id: diagnosisId,
-        patient_profile: patientProfile,
-      });
+        antibiotic: diagnosisId,
+        patient_profile: serializePatientProfile(patientProfile),
+      }, signal);
+    },
+
+    /** REQ-03 — List available antibiotic protocol keys */
+    listAntibiotics(signal?: AbortSignal): Promise<string[]> {
+      return get<string[]>('/api/v1/diagnose/antibiotics', signal);
     },
 
     /** REQ-02, REQ-03 — Retrieve a full diagnose session by ID */
-    getSession(sessionId: string): Promise<DiagnoseSession> {
-      return get<DiagnoseSession>(`/api/v1/diagnose/session/${encodeURIComponent(sessionId)}`);
+    getSession(sessionId: string, signal?: AbortSignal): Promise<DiagnoseSession> {
+      return get<DiagnoseSession>(`/api/v1/diagnose/session/${encodeURIComponent(sessionId)}`, signal);
     },
   };
 
@@ -258,40 +301,43 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
 
   const patients = {
     /** REQ-06 — List patients with pagination (REQ 8.1, 8.2, 8.3) */
-    listPatients(page = 1, pageSize = 20): Promise<PaginatedResponse<PatientProfile>> {
+    listPatients(page = 1, pageSize = 20, signal?: AbortSignal): Promise<PaginatedResponse<PatientProfile>> {
       return get<PaginatedResponse<PatientProfile>>(
         `/api/v1/patients?page=${page}&page_size=${pageSize}`,
+        signal,
       );
     },
 
     /** REQ-06 — Create a new patient record */
-    createPatient(data: Omit<PatientProfile, 'id'>): Promise<PatientProfile> {
-      return post<PatientProfile>('/api/v1/patients', data);
+    createPatient(data: Omit<PatientProfile, 'id'>, signal?: AbortSignal): Promise<PatientProfile> {
+      return post<PatientProfile>('/api/v1/patients', data, signal);
     },
 
     /** REQ-06 — Retrieve a single patient by ID */
-    getPatient(id: string): Promise<PatientProfile> {
-      return get<PatientProfile>(`/api/v1/patients/${encodeURIComponent(id)}`);
+    getPatient(id: string, signal?: AbortSignal): Promise<PatientProfile> {
+      return get<PatientProfile>(`/api/v1/patients/${encodeURIComponent(id)}`, signal);
     },
 
     /** REQ-06 — Update an existing patient record */
-    updatePatient(id: string, data: Partial<PatientProfile>): Promise<PatientProfile> {
-      return put<PatientProfile>(`/api/v1/patients/${encodeURIComponent(id)}`, data);
+    updatePatient(id: string, data: Partial<PatientProfile>, signal?: AbortSignal): Promise<PatientProfile> {
+      return put<PatientProfile>(`/api/v1/patients/${encodeURIComponent(id)}`, data, signal);
     },
 
     /** REQ-07 — List all consultations for a patient */
-    listConsultations(patientId: string): Promise<Consultation[]> {
-      return get<Consultation[]>(`/api/v1/patients/${encodeURIComponent(patientId)}/consultations`);
+    listConsultations(patientId: string, signal?: AbortSignal): Promise<Consultation[]> {
+      return get<Consultation[]>(`/api/v1/patients/${encodeURIComponent(patientId)}/consultations`, signal);
     },
 
     /** REQ-07 — Create a new consultation linked to a patient */
     createConsultation(
       patientId: string,
       data: Omit<Consultation, 'id' | 'createdAt'>,
+      signal?: AbortSignal,
     ): Promise<Consultation> {
       return post<Consultation>(
         `/api/v1/patients/${encodeURIComponent(patientId)}/consultations`,
         data,
+        signal,
       );
     },
   };
@@ -307,22 +353,35 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
     uploadDocument(
       file: File,
       metadata?: { title?: string; source?: string },
+      signal?: AbortSignal,
     ): Promise<UploadDocumentResponse> {
       const form = new FormData();
       form.append('file', file);
       if (metadata?.title) form.append('title', metadata.title);
       if (metadata?.source) form.append('source', metadata.source);
-      return postForm<UploadDocumentResponse>('/api/v1/documents/upload', form);
+      return postForm<UploadDocumentResponse>('/api/v1/documents/upload', form, signal);
     },
 
     /** REQ-05 — List all indexed medical documents */
-    listDocuments(): Promise<PatientDocument[]> {
-      return get<PatientDocument[]>('/api/v1/documents');
+    listDocuments(signal?: AbortSignal): Promise<PatientDocument[]> {
+      return get<Record<string, unknown>[]>('/api/v1/documents', signal).then((docs) =>
+        docs.map((d) => ({
+          id: d['id'] as string,
+          title: (d['title'] as string) || (d['original_name'] as string) || '',
+          source: d['source'] as string,
+          s3Key: (d['s3_key'] ?? d['s3Key']) as string,
+          originalName: (d['original_name'] ?? d['originalName']) as string,
+          sizeBytes: (d['size_bytes'] ?? d['sizeBytes'] ?? 0) as number,
+          indexedAt: (d['indexed_at'] ?? d['indexedAt']) as string | undefined,
+          createdAt: (d['created_at'] ?? d['createdAt']) as string,
+          chunkCount: (d['chunk_count'] ?? d['chunkCount'] ?? 0) as number,
+        }))
+      );
     },
 
     /** REQ-05 — Delete an indexed document by ID */
-    deleteDocument(id: string): Promise<void> {
-      return del<void>(`/api/v1/documents/${encodeURIComponent(id)}`);
+    deleteDocument(id: string, signal?: AbortSignal): Promise<void> {
+      return del<void>(`/api/v1/documents/${encodeURIComponent(id)}`, signal);
     },
   };
 
@@ -334,29 +393,28 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
      * @param file      - The file to upload (lab result, imaging, PDF, CSV)
      * @param patientId - ID of the patient this file belongs to
      */
-    uploadFile(file: File, patientId: string): Promise<UploadFileResponse> {
+    uploadFile(file: File, patientId: string, signal?: AbortSignal): Promise<UploadFileResponse> {
       const form = new FormData();
       form.append('file', file);
       form.append('patient_id', patientId);
-      return postForm<UploadFileResponse>('/api/v1/files/upload', form);
+      return postForm<UploadFileResponse>('/api/v1/files/upload', form, signal);
     },
 
     /** REQ-07 — Get a pre-signed S3 URL for a patient file */
-    getFileUrl(fileId: string): Promise<FileUrlResponse> {
-      return get<FileUrlResponse>(`/api/v1/files/${encodeURIComponent(fileId)}`);
+    getFileUrl(fileId: string, signal?: AbortSignal): Promise<FileUrlResponse> {
+      return get<FileUrlResponse>(`/api/v1/files/${encodeURIComponent(fileId)}`, signal);
     },
   };
-
-  // ─── Alerts (/api/v1/alerts) ────────────────────────────────────────────────
 
   const alerts = {
     /**
      * REQ-09 — Check a prescription for safety alerts (allergies, interactions,
      * contraindications) against a patient profile.
      */
-    checkAlerts(prescriptionId: string, patientId: string): Promise<AlertCheckResponse> {
+    checkAlerts(prescriptionId: string, patientId: string, signal?: AbortSignal): Promise<AlertCheckResponse> {
       return get<AlertCheckResponse>(
         `/api/v1/alerts/check?prescription_id=${encodeURIComponent(prescriptionId)}&patient_id=${encodeURIComponent(patientId)}`,
+        signal,
       );
     },
   };

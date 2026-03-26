@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -33,25 +33,17 @@ const diagnoseSchema = z.object({
 
 type DiagnoseFormValues = z.infer<typeof diagnoseSchema>;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-let memoryToken: string | null = null;
-
-function getToken(): string | null {
-  return memoryToken;
-}
-
-function getApiClient() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-  return createApiClient(baseUrl, getToken);
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DiagnosePage() {
   const t = useTranslations('diagnose');
   const tCommon = useTranslations('common');
-  const { user } = useAuth();
+  const { user, getToken } = useAuth();
+
+  const apiClient = useMemo(() => {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+    return createApiClient(baseUrl, getToken);
+  }, [getToken]);
 
   // Symptom input state
   const [inputMode, setInputMode] = useState<InputMode>('freeText');
@@ -76,6 +68,7 @@ export default function DiagnosePage() {
   const [error, setError] = useState('');
   const [results, setResults] = useState<DiagnosisResponse | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [antibiotics, setAntibiotics] = useState<string[]>([]);
 
   // react-hook-form for free text mode
   const {
@@ -97,20 +90,26 @@ export default function DiagnosePage() {
     }
   }, [user]);
 
+  // Fetch available antibiotics on mount
+  useEffect(() => {
+    apiClient.diagnose.listAntibiotics()
+      .then(setAntibiotics)
+      .catch(() => {/* non-critical */});
+  }, [apiClient]);
+
   // Fetch patients when "select" mode is chosen
   const fetchPatients = useCallback(async () => {
     setLoadingPatients(true);
     setPatientsError('');
     try {
-      const client = getApiClient();
-      const list = await client.patients.listPatients();
+      const list = await apiClient.patients.listPatients();
       setPatients(list);
     } catch {
       setPatientsError(t('errorFetch'));
     } finally {
       setLoadingPatients(false);
     }
-  }, [t]);
+  }, [t, apiClient]);
 
   useEffect(() => {
     if (patientMode === 'select') {
@@ -191,9 +190,8 @@ export default function DiagnosePage() {
 
     setLoading(true);
     try {
-      const client = getApiClient();
       const patientProfile = buildPatientProfile();
-      const response = await client.diagnose.getSymptomsDiagnosis(symptoms, patientProfile);
+      const response = await apiClient.diagnose.getSymptomsDiagnosis(symptoms, patientProfile);
       setResults(response);
       setShowSuccessToast(true);
     } catch {
@@ -205,15 +203,14 @@ export default function DiagnosePage() {
 
   // ─── Prescription handler ────────────────────────────────────────────────────
 
-  async function handleGetPrescription(diagnosisId: string): Promise<PrescriptionResponse> {
-    const client = getApiClient();
+  async function handleGetPrescription(antibiotic: string): Promise<PrescriptionResponse> {
     const patientProfile = buildPatientProfile() ?? {
       allergies: [],
       renalFailure: false,
       hepaticFailure: false,
       currentMedications: [],
     };
-    return client.diagnose.getPrescription(diagnosisId, patientProfile);
+    return apiClient.diagnose.getPrescription(antibiotic, patientProfile);
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -544,7 +541,8 @@ export default function DiagnosePage() {
           {results.diagnoses.length > 0 && (
             <PrescriptionStep
               diagnoses={results.diagnoses}
-              onGetPrescription={(diagnosisId) => handleGetPrescription(diagnosisId)}
+              antibiotics={antibiotics}
+              onGetPrescription={(antibiotic) => handleGetPrescription(antibiotic)}
             />
           )}
         </div>

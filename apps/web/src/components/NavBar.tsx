@@ -19,9 +19,12 @@ interface NavLink {
 
 export default function NavBar({ locale }: NavBarProps) {
   const t = useTranslations('nav');
-  const { user, logout } = useAuth();
+  const { user, isLoading, logout } = useAuth();
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+
+  // Hide NavBar for unauthenticated users (Req 3.6)
+  if (!user && !isLoading) return null;
 
   const base = `/${locale}`;
 
@@ -56,12 +59,17 @@ export default function NavBar({ locale }: NavBarProps) {
       {/* Mobile hamburger button */}
       <button
         type="button"
-        className="md:hidden text-gray-700 text-xl leading-none"
+        className="md:hidden text-gray-700"
         aria-label="Open menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen(true)}
       >
-        ☰
+        {/* Hamburger icon — three horizontal lines */}
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
       </button>
 
       {/* Right side */}
@@ -96,9 +104,13 @@ export default function NavBar({ locale }: NavBarProps) {
               type="button"
               aria-label="Close menu"
               onClick={() => setIsOpen(false)}
-              className="text-gray-500 hover:text-gray-800 text-xl leading-none"
+              className="text-gray-500 hover:text-gray-800"
             >
-              ✕
+              {/* Close icon — X */}
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
           <div className="flex flex-col gap-1 p-4">
@@ -112,6 +124,16 @@ export default function NavBar({ locale }: NavBarProps) {
                 {link.label}
               </Link>
             ))}
+            <div className="mt-4 pt-4 border-t flex items-center justify-between">
+              <LanguageSwitcher />
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="text-sm font-medium text-red-600 hover:text-red-800"
+              >
+                {t('logout')}
+              </button>
+            </div>
           </div>
         </div>
       )}

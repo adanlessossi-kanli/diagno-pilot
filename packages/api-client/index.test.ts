@@ -1,5 +1,6 @@
 // Unit tests for the API client — REQ-02, REQ-06
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as fc from 'fast-check';
 import { createApiClient } from './index';
 import type { ApiError } from './index';
 
@@ -53,7 +54,11 @@ describe('auth.login', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${BASE_URL}/api/v1/auth/login`);
     expect(init?.method).toBe('POST');
-    expect(JSON.parse(init?.body as string)).toEqual({ email: 'doc@example.com', password: 'secret' });
+    // Login uses application/x-www-form-urlencoded with username/password fields
+    const body = init?.body as string;
+    const params = new URLSearchParams(body);
+    expect(params.get('username')).toBe('doc@example.com');
+    expect(params.get('password')).toBe('secret');
     expect(result.access_token).toBe('tok123');
   });
 });
@@ -134,26 +139,29 @@ describe('diagnose.getSymptomsDiagnosis', () => {
 // ─── patients.listPatients ────────────────────────────────────────────────────
 
 describe('patients.listPatients', () => {
-  it('sends GET to /api/v1/patients', async () => {
-    mockFetch(200, []);
+  it('sends GET to /api/v1/patients with default pagination params', async () => {
+    mockFetch(200, { items: [], total: 0, page: 1, page_size: 20 });
 
     await client.patients.listPatients();
 
     const fetchMock = getFetchMock();
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${BASE_URL}/api/v1/patients`);
+    expect(url).toBe(`${BASE_URL}/api/v1/patients?page=1&page_size=20`);
     expect(init?.method).toBe('GET');
   });
 
-  it('returns parsed patient array', async () => {
-    const patients = [
-      { id: 'p1', allergies: [], renalFailure: false, hepaticFailure: false, currentMedications: [] },
-    ];
-    mockFetch(200, patients);
+  it('returns parsed paginated response', async () => {
+    const paginatedResponse = {
+      items: [{ id: 'p1', allergies: [], renalFailure: false, hepaticFailure: false, currentMedications: [] }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    };
+    mockFetch(200, paginatedResponse);
 
     const result = await client.patients.listPatients();
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('p1');
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe('p1');
   });
 });
 
@@ -268,5 +276,38 @@ describe('files.uploadFile', () => {
     const formData = init?.body as FormData;
     expect(formData.get('patient_id')).toBe('p2');
     expect(formData.get('file')).toBe(file);
+  });
+});
+
+// ─── Property 4: All fetch helpers include credentials ────────────────────────
+
+describe('Property 4: All API client fetch helpers include credentials', () => {
+  it('every helper passes credentials: include to fetch', async () => {
+    // Feature: african-image-representation, Property 4: All API client fetch helpers include credentials
+    // Validates: Requirements 9.2, 9.3
+
+    // Map each internal helper to a representative domain call that exercises it
+    const helperCalls: Record<string, (client: ReturnType<typeof createApiClient>) => Promise<unknown>> = {
+      get:      (c) => c.auth.me(),
+      post:     (c) => c.auth.logout(),
+      put:      (c) => c.patients.updatePatient('id', {}),
+      del:      (c) => c.documents.deleteDocument('id'),
+      postForm: (c) => c.files.uploadFile(new File(['x'], 'f.pdf'), 'pid'),
+    };
+
+    await fc.assert(
+      fc.asyncProperty(fc.constantFrom('get', 'post', 'put', 'del', 'postForm'), async (method) => {
+        const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+        vi.stubGlobal('fetch', fetchSpy);
+        const client = createApiClient('http://localhost', () => null);
+        try { await helperCalls[method](client); } catch {}
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({ credentials: 'include' }),
+        );
+        vi.unstubAllGlobals();
+      }),
+      { numRuns: 100 },
+    );
   });
 });

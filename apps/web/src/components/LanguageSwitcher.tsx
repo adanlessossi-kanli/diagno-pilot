@@ -4,12 +4,18 @@ import { useLocale } from 'next-intl';
 import { usePathname, useRouter } from '../i18n/navigation';
 import { routing } from '../i18n/routing';
 
+const COOKIE_NAME = 'NEXT_LOCALE';
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year in seconds
+
 export default function LanguageSwitcher() {
   const locale = useLocale();
   const pathname = usePathname();
   const router = useRouter();
 
   const handleSwitch = (newLocale: string) => {
+    // Persist the locale choice via cookie (1 year duration)
+    document.cookie = `${COOKIE_NAME}=${newLocale}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`;
+    // Update the interface without full page reload via next-intl router
     router.replace(pathname, { locale: newLocale });
   };
 
@@ -22,10 +28,10 @@ export default function LanguageSwitcher() {
           onClick={() => handleSwitch(loc)}
           aria-label={`Switch to ${loc === 'fr' ? 'French' : 'English'}`}
           aria-current={locale === loc ? 'true' : undefined}
-          className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${
+          className={`text-xs font-semibold px-2.5 py-1 rounded border transition-colors ${
             locale === loc
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-500 hover:text-blue-600'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'text-gray-500 border-gray-300 hover:text-blue-600 hover:border-blue-400'
           }`}
         >
           {loc.toUpperCase()}
