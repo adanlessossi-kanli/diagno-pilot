@@ -4,8 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from bson import ObjectId
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.core.auth import require_role
 from backend.core.database import db

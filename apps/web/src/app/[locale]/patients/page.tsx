@@ -120,11 +120,10 @@ function CreatePatientModal({
   t: ReturnType<typeof useTranslations<'patients'>>;
   tCommon: ReturnType<typeof useTranslations<'common'>>;
 }) {
-  const { getToken } = useAuth();
   const apiClient = useMemo(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-    return createApiClient(baseUrl, getToken);
-  }, [getToken]);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+    return createApiClient(baseUrl);
+  }, []);
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState('');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -326,14 +325,14 @@ function CreatePatientModal({
 export default function PatientsPage() {
   const t = useTranslations('patients');
   const tCommon = useTranslations('common');
-  const { user, isLoading: authLoading, getToken } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const apiClient = useMemo(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-    return createApiClient(baseUrl, getToken);
-  }, [getToken]);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+    return createApiClient(baseUrl);
+  }, []);
 
   // Lire la page courante depuis le query param URL (?page=N)
   const currentPage = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);

@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-from backend.models.common import AlertLevel
 from backend.models.consultation import Prescription
 from backend.models.patient import PatientProfile
 from backend.services.alert_service import AlertService, _DRUG_INTERACTIONS
@@ -122,7 +121,7 @@ class TestReloadInteractions:
     async def test_reload_updates_cache(self):
         """REQ 12.3 — reload_interactions() updates the in-memory cache."""
         service = AlertService()
-        original_count = len(service._interactions_cache)
+        # original_count not needed; we verify the final count directly
 
         new_docs = [
             {"drug_a": "drug_x", "drug_b": "drug_y", "message": "New interaction"},

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 import jwt

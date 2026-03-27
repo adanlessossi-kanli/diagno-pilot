@@ -24,13 +24,7 @@ function getFetchMock() {
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
 const BASE_URL = 'http://localhost:8000';
-let token: string | null = null;
-const client = createApiClient(BASE_URL, () => token);
-
-beforeEach(() => {
-  token = null;
-  vi.restoreAllMocks();
-});
+const client = createApiClient(BASE_URL);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,8 +35,8 @@ afterEach(() => {
 describe('auth.login', () => {
   it('sends POST to /api/v1/auth/login with email and password', async () => {
     const loginResponse = {
-      access_token: 'tok123',
       token_type: 'bearer',
+      expires_in: 900,
       user: { id: 'u1', email: 'doc@example.com', fullName: 'Dr. Smith', role: 'medecin', locale: 'fr' },
     };
     mockFetch(200, loginResponse);
@@ -54,20 +48,28 @@ describe('auth.login', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${BASE_URL}/api/v1/auth/login`);
     expect(init?.method).toBe('POST');
-    // Login uses application/x-www-form-urlencoded with username/password fields
     const body = init?.body as string;
     const params = new URLSearchParams(body);
     expect(params.get('username')).toBe('doc@example.com');
     expect(params.get('password')).toBe('secret');
-    expect(result.access_token).toBe('tok123');
+    expect(result.token_type).toBe('bearer');
+    // Tokens must NOT be in the response body
+    expect((result as Record<string, unknown>)['access_token']).toBeUndefined();
+    expect((result as Record<string, unknown>)['refresh_token']).toBeUndefined();
+  });
+
+  it('sends login with credentials: include', async () => {
+    mockFetch(200, { token_type: 'bearer', expires_in: 900, user: { id: 'u1', email: 'e@e.com', fullName: 'X', role: 'medecin' } });
+    await client.auth.login('e@e.com', 'pw');
+    const [, init] = getFetchMock().mock.calls[0];
+    expect(init?.credentials).toBe('include');
   });
 });
 
 // ─── auth.me ──────────────────────────────────────────────────────────────────
 
 describe('auth.me', () => {
-  it('sends GET with Authorization header when token is set', async () => {
-    token = 'my-jwt-token';
+  it('sends GET to /api/v1/auth/me with credentials: include', async () => {
     const user = { id: 'u1', email: 'doc@example.com', fullName: 'Dr. Smith', role: 'medecin', locale: 'fr' };
     mockFetch(200, user);
 
@@ -77,18 +79,8 @@ describe('auth.me', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${BASE_URL}/api/v1/auth/me`);
     expect(init?.method).toBe('GET');
-    expect((init?.headers as Record<string, string>)['Authorization']).toBe('Bearer my-jwt-token');
-  });
-
-  it('sends GET without Authorization header when no token', async () => {
-    token = null;
-    const user = { id: 'u1', email: 'doc@example.com', fullName: 'Dr. Smith', role: 'medecin', locale: 'fr' };
-    mockFetch(200, user);
-
-    await client.auth.me();
-
-    const fetchMock = getFetchMock();
-    const [, init] = fetchMock.mock.calls[0];
+    expect(init?.credentials).toBe('include');
+    // No Authorization header — auth is cookie-based
     expect((init?.headers as Record<string, string>)['Authorization']).toBeUndefined();
   });
 });
@@ -132,7 +124,12 @@ describe('diagnose.getSymptomsDiagnosis', () => {
     const fetchMock = getFetchMock();
     const [, init] = fetchMock.mock.calls[0];
     const body = JSON.parse(init?.body as string);
-    expect(body.patient_profile).toEqual(profile);
+    // serializePatientProfile converts to snake_case for the backend
+    expect(body.patient_profile).toMatchObject({
+      allergies: [],
+      comorbidities: { renal_failure: false, hepatic_failure: false },
+      current_medications: [],
+    });
   });
 });
 
@@ -299,7 +296,7 @@ describe('Property 4: All API client fetch helpers include credentials', () => {
       fc.asyncProperty(fc.constantFrom('get', 'post', 'put', 'del', 'postForm'), async (method) => {
         const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
         vi.stubGlobal('fetch', fetchSpy);
-        const client = createApiClient('http://localhost', () => null);
+        const client = createApiClient('http://localhost');
         try { await helperCalls[method](client); } catch {}
         expect(fetchSpy).toHaveBeenCalledWith(
           expect.any(String),
@@ -311,3 +308,4 @@ describe('Property 4: All API client fetch helpers include credentials', () => {
     );
   });
 });
+

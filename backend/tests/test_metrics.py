@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 from prometheus_client import CollectorRegistry, Counter

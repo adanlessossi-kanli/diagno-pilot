@@ -12,7 +12,7 @@ from bson import ObjectId
 from fastapi import HTTPException
 
 from backend.models.common import AgeGroup
-from backend.models.patient import PatientCreate, Comorbidities
+from backend.models.patient import PatientCreate
 from backend.services.patient_service import _compute_age_group, create_patient, get_patient, update_patient
 
 
@@ -33,16 +33,6 @@ class TestComputeAgeGroup:
         assert _compute_age_group(dob) == AgeGroup.INFANT
 
     def test_23_months_is_infant(self):
-        today = date.today()
-        # ~23 months ago: subtract 23 months
-        year = today.year - 1 if today.month <= 11 else today.year - 2
-        month = (today.month - 23) % 12 or 12
-        if today.month <= 11:
-            month = today.month + 1
-            year = today.year - 2
-        else:
-            month = today.month - 11
-            year = today.year - 1
         # Simpler: use timedelta approximation (23 * 30 days)
         dob = date.today() - timedelta(days=23 * 30)
         assert _compute_age_group(dob) == AgeGroup.INFANT

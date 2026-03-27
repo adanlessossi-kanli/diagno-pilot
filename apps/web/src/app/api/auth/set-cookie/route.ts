@@ -1,58 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const COOKIE_NAME = 'auth_token';
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-
-/**
- * GET /api/auth/set-cookie
- * Returns the current auth token from the httpOnly cookie (for client-side hydration).
- */
-export async function GET(request: NextRequest) {
-  const token = request.cookies.get(COOKIE_NAME)?.value;
-  if (!token) {
-    return NextResponse.json({ token: null }, { status: 200 });
-  }
-  return NextResponse.json({ token });
-}
-
 /**
  * POST /api/auth/set-cookie
- * Body: { token: string }
- * Sets the JWT as an httpOnly cookie.
+ * Proxy endpoint: forwards login credentials to the backend and relays
+ * the httpOnly auth cookies back to the browser.
+ *
+ * This is needed because the backend runs on a different origin in
+ * development, so the browser cannot receive httpOnly cookies directly.
  */
-export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null);
-  const token: unknown = body?.token;
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? '';
 
-  if (!token || typeof token !== 'string') {
-    return NextResponse.json({ error: 'Missing token' }, { status: 400 });
-  }
-
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: 'strict',
-    path: '/',
-    // 8 hours — matches typical JWT expiry
-    maxAge: 60 * 60 * 8,
+  const body = await request.text();
+  const backendResp = await fetch(`${apiBase}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': request.headers.get('content-type') ?? 'application/x-www-form-urlencoded',
+    },
+    body,
   });
 
-  return response;
-}
+  const data = await backendResp.json().catch(() => ({}));
+  const response = NextResponse.json(data, { status: backendResp.status });
 
-/**
- * DELETE /api/auth/set-cookie
- * Clears the auth_token cookie.
- */
-export async function DELETE() {
-  const response = NextResponse.json({ ok: true });
-  response.cookies.set(COOKIE_NAME, '', {
-    httpOnly: true,
-    secure: IS_PRODUCTION,
-    sameSite: 'strict',
-    path: '/',
-    maxAge: 0,
+  // Relay Set-Cookie headers from the backend to the browser
+  backendResp.headers.forEach((value, key) => {
+    if (key.toLowerCase() === 'set-cookie') {
+      response.headers.append('set-cookie', value);
+    }
   });
 
   return response;

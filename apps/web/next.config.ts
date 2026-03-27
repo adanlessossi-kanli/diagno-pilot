@@ -7,8 +7,45 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 // Resolve monorepo root regardless of where Next.js is invoked from
 const monorepoRoot = path.resolve(__dirname, '../..');
 
+const isDev = process.env.NODE_ENV !== 'production';
+
+// In development, Next.js HMR requires 'unsafe-inline' and 'unsafe-eval' for
+// React Fast Refresh. In production these are removed for strict XSS protection.
+const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self'";
+
+// API is proxied through Next.js rewrites so all requests go to 'self' —
+// no cross-origin cookie issues. connect-src 'self' is sufficient.
+const connectSrc = "'self'";
+
+// Internal URL used by Next.js server-side rewrites (inside Docker: service name;
+// outside Docker / local dev: localhost:8000).
+const backendInternalUrl = process.env.BACKEND_INTERNAL_URL ?? 'http://localhost:8000';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://images.unsplash.com; connect-src ${connectSrc}; font-src 'self'; frame-ancestors 'none';`,
+          },
+        ],
+      },
+    ];
+  },
+  // Proxy /api/v1/* through Next.js so cookies stay same-origin (localhost:3000).
+  // BACKEND_INTERNAL_URL is the Docker service name URL; falls back to localhost for local dev.
+  async rewrites() {
+    return [
+      {
+        source: '/api/v1/:path*',
+        destination: `${backendInternalUrl}/api/v1/:path*`,
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

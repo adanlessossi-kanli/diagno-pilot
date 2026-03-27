@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\file_validator.py
+# hypothesis_version: 6.151.9
+
+[b'%PDF', b'PK', b'PK\x03\x04', b'\x89PNG\r\n\x1a\n', b'\xff\xd8', b'\xff\xe0', b'\xff\xe1', 1024, 8192, '.csv', '.jpeg', '.jpg', '.pdf', '.png', '.xlsx', 'File is empty.', 'File rejected', '\\.\\.[/\\\\]', 'application/pdf', 'declared_mime', 'detected_mime', 'filename', 'image/jpeg', 'image/png', 'ip', 'reason', 'status', 'text/csv', 'utf-8']

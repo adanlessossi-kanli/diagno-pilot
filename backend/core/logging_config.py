@@ -53,7 +53,7 @@ def setup_logging(log_level: str = "INFO", log_format: str = "json") -> None:
                 # Per-request correlation id
                 log_record["request_id"] = request_id_var.get()
 
-        formatter = _RequestIdJsonFormatter(
+        formatter: logging.Formatter = _RequestIdJsonFormatter(
             fmt="%(asctime)s %(levelname)s %(message)s",
             datefmt="%Y-%m-%dT%H:%M:%S",
             rename_fields={"levelname": "level"},

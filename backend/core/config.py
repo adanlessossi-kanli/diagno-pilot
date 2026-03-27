@@ -57,7 +57,8 @@ class Settings(BaseSettings):
         # not explicitly running in a container environment.  This won't block
         # startup (the ping in database.py will do that), but it surfaces the
         # misconfiguration in the logs before any connection is attempted.
-        import socket
+        # NOTE: DNS resolution is deferred to a background thread to avoid
+        # blocking the event loop or slowing down test instantiation.
         from urllib.parse import urlparse
         try:
             host = urlparse(self.MONGODB_URI).hostname or ""
@@ -68,15 +69,19 @@ class Settings(BaseSettings):
                 and host not in ("localhost", "127.0.0.1", "::1")
             )
             if is_docker_hostname:
-                try:
-                    socket.getaddrinfo(host, None)
-                except socket.gaierror:
-                    import warnings
-                    warnings.warn(
-                        f"MONGODB_URI host '{host}' cannot be resolved. "
-                        "If you are running outside Docker, set MONGODB_URI=mongodb://localhost:27017/diagno_pilot",
-                        stacklevel=2,
-                    )
+                import threading
+                def _check_dns(h: str) -> None:
+                    import socket
+                    try:
+                        socket.getaddrinfo(h, None)
+                    except socket.gaierror:
+                        import warnings
+                        warnings.warn(
+                            f"MONGODB_URI host '{h}' cannot be resolved. "
+                            "If you are running outside Docker, set MONGODB_URI=mongodb://localhost:27017/diagno_pilot",
+                            stacklevel=2,
+                        )
+                threading.Thread(target=_check_dns, args=(host,), daemon=True).start()
         except Exception:
             pass  # never block startup from a validation side-effect
 

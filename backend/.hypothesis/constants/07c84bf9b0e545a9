@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\logging_config.py
+# hypothesis_version: 6.151.9
+
+['%Y-%m-%dT%H:%M:%S', 'INFO', 'asctime', 'diagno-pilot', 'json', 'level', 'levelname', 'request_id', 'service', 'timestamp']

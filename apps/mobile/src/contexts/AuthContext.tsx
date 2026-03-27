@@ -52,9 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await apiClient.auth.login(email, password);
-    await SecureStore.setItemAsync(TOKEN_KEY, res.access_token);
-    setToken(res.access_token);
-    setUser(res.user as AuthUser);
+    // Auth is now cookie-based; access_token is set as an httpOnly cookie by the server.
+    // We store the user info from the response and fetch the full profile via /auth/me.
+    const me = await apiClient.auth.me();
+    // Store a placeholder token value so the rest of the app knows we're authenticated.
+    const placeholder = `session:${res.expires_in}`;
+    await SecureStore.setItemAsync(TOKEN_KEY, placeholder);
+    setToken(placeholder);
+    setUser(me);
   }, [apiClient]);
 
   const logout = useCallback(async () => {

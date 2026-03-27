@@ -1,10 +1,14 @@
 """
-FileValidator — validation des fichiers uploadés (REQ 3.1–3.5).
+FileValidator — validation des fichiers uploadés (REQ 3.1–3.5, REQ 4, REQ 5).
 
-Validation en 3 étapes :
-  1. Taille (> 20 Mo → HTTP 413)
-  2. MIME type via magic bytes (non autorisé ou discordant → HTTP 415)
-  3. Nom de fichier (traversée de répertoire → HTTP 400)
+Validation en étapes :
+  1. Contenu non vide (→ HTTP 400)
+  2. Taille (> 20 Mo → HTTP 413)
+  3. MIME type via magic bytes (non autorisé ou discordant → HTTP 415)
+  4. Extension / MIME canonical map (→ HTTP 415)
+  5. Détection polyglot (→ HTTP 415)
+  6. Contenu CSV (→ HTTP 415)
+  7. Nom de fichier (traversée de répertoire → HTTP 400)
 
 Tous les rejets sont journalisés avec IP, nom de fichier, et raison.
 """
@@ -12,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
 
@@ -27,10 +32,27 @@ ALLOWED_MIME_TYPES: frozenset[str] = frozenset(
     }
 )
 
+EXTENSION_MIME_MAP: dict[str, str] = {
+    ".pdf":  "application/pdf",
+    ".jpg":  "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png":  "image/png",
+    ".csv":  "text/csv",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
 MAX_FILE_SIZE_BYTES: int = 20 * 1024 * 1024  # 20 Mo
 
 # Regex pour détecter les séquences de traversée de répertoire
 _PATH_TRAVERSAL_RE = re.compile(r"\.\.[/\\]")
+
+# Magic byte signatures for polyglot detection
+_MIME_SIGNATURES: list[tuple[str, bytes]] = [
+    ("application/pdf", b"%PDF"),
+    ("image/jpeg", b"\xff\xd8"),
+    ("image/png", b"\x89PNG\r\n\x1a\n"),
+    ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", b"PK\x03\x04"),
+]
 
 # Tentative d'import de python-magic avec fallback gracieux
 try:
@@ -60,8 +82,8 @@ except ImportError:  # pragma: no cover
 class FileValidator:
     """Valide la taille, le MIME type et le nom d'un fichier uploadé."""
 
-    # Nombre d'octets lus pour la détection MIME (suffisant pour tous les magic bytes)
-    _MIME_PROBE_BYTES: int = 2048
+    # Nombre d'octets lus pour la détection MIME
+    _MIME_PROBE_BYTES: int = 8192
 
     def validate_size(self, size_bytes: int) -> None:
         """Lève HTTP 413 si la taille dépasse MAX_FILE_SIZE_BYTES."""
@@ -103,6 +125,68 @@ class FileValidator:
                 detail=f"Filename '{filename}' contains a path traversal sequence.",
             )
 
+    def validate_not_empty(self, content: bytes) -> None:
+        """Raise HTTP 400 if content is empty."""
+        if len(content) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File is empty.",
+            )
+
+    def validate_extension(self, filename: str, detected_mime: str) -> None:
+        """
+        Raise HTTP 415 if the file extension is absent from EXTENSION_MIME_MAP
+        or does not match the detected MIME type.
+        """
+        suffix = Path(filename).suffix.lower()
+        if suffix not in EXTENSION_MIME_MAP:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"File extension '{suffix}' is not allowed.",
+            )
+        expected_mime = EXTENSION_MIME_MAP[suffix]
+        if expected_mime != detected_mime:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=(
+                    f"Extension '{suffix}' does not match detected MIME type '{detected_mime}'."
+                ),
+            )
+
+    def validate_polyglot(self, content: bytes) -> None:
+        """
+        Raise HTTP 415 if the file simultaneously matches magic byte signatures
+        of two or more distinct MIME types.
+        """
+        probe = content[: self._MIME_PROBE_BYTES]
+        matches = [mime for mime, sig in _MIME_SIGNATURES if probe.startswith(sig)]
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Polyglot file detected: matches signatures for {matches}",
+            )
+
+    def validate_csv_content(self, content: bytes) -> None:
+        """
+        For CSV files: decode as UTF-8 and reject if null bytes or
+        non-printable characters (except common whitespace) are present.
+        """
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="CSV file contains invalid characters.",
+            )
+        for ch in text:
+            code = ord(ch)
+            # Allow printable ASCII, tab (9), newline (10), carriage return (13)
+            if code == 0 or (code < 32 and code not in (9, 10, 13)):
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="CSV file contains invalid characters.",
+                )
+
     async def validate(
         self,
         file: UploadFile,
@@ -110,42 +194,75 @@ class FileValidator:
         ip: str,
     ) -> bytes:
         """
-        Orchestre les 3 validations et journalise tout rejet.
-
-        Retourne le contenu lu (bytes) pour éviter une double lecture par l'appelant.
+        Orchestrates all validations and logs every rejection.
+        Returns the file content bytes to avoid double-reading by the caller.
         """
-        # 1. Taille — utilise file.size si disponible, sinon lit le contenu
         content = await file.read()
         size = len(content)
+        declared_mime: str | None = file.content_type
+        detected_mime: str = _detect_mime(content[: self._MIME_PROBE_BYTES])
 
+        def _log_rejection(reason: str, status_code: int) -> None:
+            logger.warning(
+                "File rejected",
+                extra={
+                    "ip": ip,
+                    "filename": filename,
+                    "detected_mime": detected_mime,
+                    "declared_mime": declared_mime,
+                    "reason": reason,
+                    "status": status_code,
+                },
+            )
+
+        # 1. Empty file
+        try:
+            self.validate_not_empty(content)
+        except HTTPException as exc:
+            _log_rejection(exc.detail, exc.status_code)
+            raise
+
+        # 2. Size
         try:
             self.validate_size(size)
         except HTTPException as exc:
-            logger.warning(
-                "File rejected — size",
-                extra={"ip": ip, "filename": filename, "reason": exc.detail, "status": exc.status_code},
-            )
+            _log_rejection(exc.detail, exc.status_code)
             raise
 
-        # 2. MIME type
-        declared_mime: str | None = file.content_type
+        # 3. MIME type (allowlist + declared vs detected)
         try:
             self.validate_mime(content, declared_mime)
         except HTTPException as exc:
-            logger.warning(
-                "File rejected — mime",
-                extra={"ip": ip, "filename": filename, "reason": exc.detail, "status": exc.status_code},
-            )
+            _log_rejection(exc.detail, exc.status_code)
             raise
 
-        # 3. Nom de fichier
+        # 4. Extension / MIME canonical map
+        try:
+            self.validate_extension(filename, detected_mime)
+        except HTTPException as exc:
+            _log_rejection(exc.detail, exc.status_code)
+            raise
+
+        # 5. Polyglot detection
+        try:
+            self.validate_polyglot(content)
+        except HTTPException as exc:
+            _log_rejection(exc.detail, exc.status_code)
+            raise
+
+        # 6. CSV content check
+        if detected_mime == "text/csv":
+            try:
+                self.validate_csv_content(content)
+            except HTTPException as exc:
+                _log_rejection(exc.detail, exc.status_code)
+                raise
+
+        # 7. Filename path traversal (keep existing)
         try:
             self.validate_filename(filename)
         except HTTPException as exc:
-            logger.warning(
-                "File rejected — filename",
-                extra={"ip": ip, "filename": filename, "reason": exc.detail, "status": exc.status_code},
-            )
+            _log_rejection(exc.detail, exc.status_code)
             raise
 
         return content

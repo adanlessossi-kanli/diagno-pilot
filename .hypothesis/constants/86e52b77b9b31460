@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\csrf.py
+# hypothesis_version: 6.151.9
+
+[403, '/api/v1/auth/login', '/api/v1/auth/refresh', 'DELETE', 'PATCH', 'POST', 'PUT', 'X-CSRF-Token', 'csrf_token', 'csrf_token_invalid']

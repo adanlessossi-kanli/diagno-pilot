@@ -100,9 +100,10 @@ describe('AuthContext mobile — session restoration', () => {
     expect(result.current.token).toBeNull();
   });
 
-  it('d. login stores token in SecureStore under TOKEN_KEY', async () => {
+  it('d. login calls /auth/me and stores session marker in SecureStore', async () => {
     mockGetItemAsync.mockResolvedValue(null);
-    mockLogin.mockResolvedValue({ access_token: 'new-tok', user: fakeUser });
+    mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 1800 });
+    mockMe.mockResolvedValue(fakeUser);
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -111,9 +112,12 @@ describe('AuthContext mobile — session restoration', () => {
       await result.current.login('doc@example.com', 'password');
     });
 
-    expect(mockSetItemAsync).toHaveBeenCalledWith(TOKEN_KEY, 'new-tok');
+    // After cookie-based login, /auth/me is called to get the user profile
+    expect(mockMe).toHaveBeenCalled();
+    // A session marker is stored in SecureStore
+    expect(mockSetItemAsync).toHaveBeenCalledWith(TOKEN_KEY, expect.stringContaining('session:'));
     expect(result.current.user).toEqual(fakeUser);
-    expect(result.current.token).toBe('new-tok');
+    expect(result.current.token).toEqual(expect.stringContaining('session:'));
   });
 
   it('e. logout clears token from SecureStore', async () => {
@@ -141,7 +145,6 @@ import * as fc from 'fast-check';
 // Feature: role-based-access-control, Property 11: useAuth retourne un UserRole valide
 describe('Property 11 — useAuth retourne un UserRole valide (mobile)', () => {
   it('user.role must belong to the valid UserRole union or be null when not authenticated', async () => {
-    jest.setTimeout(60000);
     // Validates: Requirements 7.2
     const VALID_ROLES = ['admin', 'medecin', 'infirmière', 'guest'] as const;
 
@@ -179,5 +182,5 @@ describe('Property 11 — useAuth retourne un UserRole valide (mobile)', () => {
       ),
       { numRuns: 100 },
     );
-  });
+  }, 60000);
 });

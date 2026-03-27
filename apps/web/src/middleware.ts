@@ -65,7 +65,7 @@ export async function middleware(request: NextRequest) {
     return intlMiddleware(request);
   }
 
-  const token = request.cookies.get('auth_token')?.value;
+  const token = request.cookies.get('access_token')?.value;
   const role = token ? decodeRoleFromJwt(token) : null;
   const locale = extractLocale(pathname);
 

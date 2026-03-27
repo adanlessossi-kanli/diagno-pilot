@@ -66,9 +66,6 @@ class ChatService:
         """
         session_id = session_id or str(uuid.uuid4())
 
-        # Retrieve existing history to build LLM context
-        history = await self._load_history(session_id)
-
         # Query RAG with the full conversation context
         rag_response = await self._rag.query(
             question=user_message,

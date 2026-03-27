@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
+import secrets
 import uuid
 
 import bcrypt
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import jwt
 from pydantic import BaseModel
@@ -55,17 +57,56 @@ async def ensure_refresh_token_indexes() -> None:
     await col.create_index("expires_at", expireAfterSeconds=0)
 
 
+# --- Cookie helpers ---
+
+def _generate_csrf_token() -> str:
+    return secrets.token_hex(32)
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str, csrf_token: str) -> None:
+    secure = settings.ENV == "production"
+    # SameSite=Strict blocks cookies on cross-origin requests (e.g. frontend on :3000,
+    # backend on :8000 in dev). Use Lax in dev so cookies are sent on top-level navigations
+    # and fetch requests with credentials:include. Production keeps Strict.
+    samesite = "strict" if settings.ENV == "production" else "lax"
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=secure,
+        samesite=samesite,
+        max_age=settings.JWT_EXPIRE_MINUTES * 60,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=secure,
+        samesite=samesite,
+        max_age=settings.JWT_REFRESH_EXPIRE_DAYS * 86400,
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=secure,
+        samesite=samesite,
+        max_age=settings.JWT_REFRESH_EXPIRE_DAYS * 86400,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    samesite = "strict" if settings.ENV == "production" else "lax"
+    response.set_cookie(key="access_token", value="", httponly=True, samesite=samesite, max_age=0)
+    response.set_cookie(key="refresh_token", value="", httponly=True, samesite=samesite, max_age=0)
+    response.set_cookie(key="csrf_token", value="", httponly=False, samesite=samesite, max_age=0)
+
+
 # --- Schemas ---
 
 class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
 
 
 class UserResponse(BaseModel):
@@ -81,8 +122,8 @@ class UserResponse(BaseModel):
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
-async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
-    """Authenticate with email + password, return JWT access token + opaque refresh token."""
+async def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
+    """Authenticate with email + password, set auth cookies, return slim TokenResponse."""
     database = db.get_db()
     user_doc = await database["users"].find_one({"email": form_data.username})
     ip = request.client.host if request.client else None
@@ -120,40 +161,51 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         ip_address=ip,
     )
 
+    csrf_token = _generate_csrf_token()
+    _set_auth_cookies(response, access_token, refresh_token_value, csrf_token)
+
     return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token_value,
         token_type="bearer",
         expires_in=settings.JWT_EXPIRE_MINUTES * 60,
     )
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest):
+async def refresh(request: Request, response: Response):
     """
-    Validate a refresh token, rotate it (invalidate old, issue new),
-    and return a new JWT access token + new refresh token.
+    Validate a refresh token from cookie, rotate it (invalidate old, issue new),
+    and set new auth cookies. Returns slim TokenResponse.
 
     Returns HTTP 401 with "refresh_token_invalid" if token is expired or revoked.
     """
+    def _error_401() -> JSONResponse:
+        err = JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "refresh_token_invalid"},
+        )
+        _clear_auth_cookies(err)
+        return err
+
+    refresh_token_value = request.cookies.get("refresh_token")
+
+    if not refresh_token_value:
+        return _error_401()
+
     database = db.get_db()
     now = datetime.now(timezone.utc)
 
-    token_doc = await database["refresh_tokens"].find_one({"token": body.refresh_token})
+    token_doc = await database["refresh_tokens"].find_one({"token": refresh_token_value})
 
     if (
         token_doc is None
         or token_doc.get("revoked", True)
         or token_doc["expires_at"].replace(tzinfo=timezone.utc) <= now
     ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="refresh_token_invalid",
-        )
+        return _error_401()
 
     # Revoke the old token (rotation)
     await database["refresh_tokens"].update_one(
-        {"token": body.refresh_token},
+        {"token": refresh_token_value},
         {"$set": {"revoked": True}},
     )
 
@@ -162,17 +214,11 @@ async def refresh(body: RefreshRequest):
     try:
         oid = ObjectId(user_id)
     except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="refresh_token_invalid",
-        )
+        return _error_401()
 
     user_doc = await database["users"].find_one({"_id": oid})
     if user_doc is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="refresh_token_invalid",
-        )
+        return _error_401()
 
     new_access_token = create_access_token(user_id=user_id, role=user_doc["role"])
     new_refresh_token_value = create_refresh_token()
@@ -185,17 +231,18 @@ async def refresh(body: RefreshRequest):
         "revoked": False,
     })
 
+    new_csrf_token = _generate_csrf_token()
+    _set_auth_cookies(response, new_access_token, new_refresh_token_value, new_csrf_token)
+
     return TokenResponse(
-        access_token=new_access_token,
-        refresh_token=new_refresh_token_value,
         token_type="bearer",
         expires_in=settings.JWT_EXPIRE_MINUTES * 60,
     )
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-async def logout(request: Request, current_user: dict = Depends(get_current_user)):
-    """Invalidate session (stateless — client discards the token)."""
+async def logout(request: Request, response: Response, current_user: dict = Depends(get_current_user)):
+    """Invalidate session — clear all auth cookies."""
     ip = request.client.host if request.client else None
     await audit_service.log_action(
         user_id=str(current_user["_id"]),
@@ -203,6 +250,7 @@ async def logout(request: Request, current_user: dict = Depends(get_current_user
         resource="auth",
         ip_address=ip,
     )
+    _clear_auth_cookies(response)
     return {"detail": "Logged out successfully"}
 
 

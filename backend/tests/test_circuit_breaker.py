@@ -19,7 +19,6 @@ doit passer à l'état HALF_OPEN et laisser passer exactement une requête de te
 from __future__ import annotations
 
 import asyncio
-import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
