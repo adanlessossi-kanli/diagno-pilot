@@ -84,7 +84,7 @@ def invalid_condition_diagnosis_st(draw) -> DifferentialDiagnosis:
 
 
 # A diagnosis with a malformed icd_code (non-None, non-matching)
-import re as _re
+import re as _re  # noqa: E402
 
 invalid_icd_code_st = st.text(min_size=1).filter(
     lambda s: s.strip() != "" and not _re.match(

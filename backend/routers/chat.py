@@ -1,12 +1,12 @@
 """Chat router — conversational RAG Q&A endpoints (REQ-04)."""
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.core.auth import require_role
 from backend.core.database import db
 from backend.core.rate_limit import limiter
-from backend.models.document import DocumentSource, RAGResponse
+from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
 from backend.services.embedding_service import EmbeddingModel

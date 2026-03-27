@@ -21,8 +21,6 @@ import type {
 export type { AuthUser } from '@diagno-pilot/types';
 
 export interface LoginResponse {
-  access_token: string;
-  refresh_token: string;
   token_type: string;
   expires_in: number;
   user: {
@@ -156,22 +154,43 @@ function serializePatientProfile(p: PatientProfile | null | undefined): Record<s
   };
 }
 
+// ─── CSRF helper ─────────────────────────────────────────────────────────────
+
 /**
- * Creates a typed API client bound to a base URL and an optional token provider.
- *
- * @param baseUrl   - Root URL of the FastAPI backend, e.g. "http://localhost:8000"
- * @param getToken  - Callback that returns the current JWT access token (or null)
+ * Reads the `csrf_token` value from `document.cookie`.
+ * Returns an empty string in non-browser environments (e.g. SSR, tests without jsdom).
  */
-export function createApiClient(baseUrl: string, getToken: () => string | null) {
+export function getCsrfToken(): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+// ─── Factory ──────────────────────────────────────────────────────────────────
+
+/**
+ * Creates a typed API client bound to a base URL.
+ * Auth is handled via httpOnly cookies; CSRF token is read from the `csrf_token` cookie.
+ *
+ * @param baseUrl - Root URL of the FastAPI backend, e.g. "http://localhost:8000"
+ * @deprecated The `getToken` parameter is no longer used. Auth is cookie-based. Remove it when updating callers.
+ */
+export function createApiClient(baseUrl: string, _getToken?: () => string | null) {
   const base = baseUrl.replace(/\/$/, '');
 
   function headers(extra?: Record<string, string>): Record<string, string> {
-    const token = getToken();
     return {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...extra,
     };
+  }
+
+  function csrfHeaders(extra?: Record<string, string>): Record<string, string> {
+    const csrf = getCsrfToken();
+    return headers({
+      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+      ...extra,
+    });
   }
 
   function get<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -181,7 +200,7 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
   function post<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     return fetch(`${base}${path}`, {
       method: 'POST',
-      headers: headers(),
+      headers: csrfHeaders(),
       credentials: 'include',
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal,
@@ -191,7 +210,7 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
   function put<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     return fetch(`${base}${path}`, {
       method: 'PUT',
-      headers: headers(),
+      headers: csrfHeaders(),
       credentials: 'include',
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal,
@@ -199,14 +218,14 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
   }
 
   function del<T>(path: string, signal?: AbortSignal): Promise<T> {
-    return fetch(`${base}${path}`, { method: 'DELETE', headers: headers(), credentials: 'include', signal }).then(parseResponse<T>);
+    return fetch(`${base}${path}`, { method: 'DELETE', headers: csrfHeaders(), credentials: 'include', signal }).then(parseResponse<T>);
   }
 
   function postForm<T>(path: string, formData: FormData, signal?: AbortSignal): Promise<T> {
-    const token = getToken();
+    const csrf = getCsrfToken();
     return fetch(`${base}${path}`, {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: csrf ? { 'X-CSRF-Token': csrf } : {},
       credentials: 'include',
       body: formData,
       signal,
@@ -221,9 +240,12 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
       const form = new URLSearchParams();
       form.append('username', email);
       form.append('password', password);
-      return fetch(`${base}/api/v1/auth/login`, {
+      // Use the BFF proxy (/api/auth/login) so Set-Cookie headers are relayed
+      // on the same origin as the frontend — avoids cross-origin cookie issues.
+      return fetch(`${base}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'include',
         body: form.toString(),
         signal,
       }).then(parseResponse<LoginResponse>);
@@ -231,12 +253,23 @@ export function createApiClient(baseUrl: string, getToken: () => string | null) 
 
     /** REQ-01 — Invalidate the current session */
     logout(signal?: AbortSignal): Promise<void> {
-      return post<void>('/api/v1/auth/logout', undefined, signal);
+      const csrf = getCsrfToken();
+      return fetch(`${base}/api/auth/logout`, {
+        method: 'POST',
+        headers: { ...(csrf ? { 'X-CSRF-Token': csrf } : {}) },
+        credentials: 'include',
+        signal,
+      }).then(parseResponse<void>);
     },
 
     /** REQ-01 — Retrieve the currently authenticated user */
     me(signal?: AbortSignal): Promise<AuthUser> {
-      return get<Record<string, unknown>>('/api/v1/auth/me', signal).then((raw) => ({
+      return fetch(`${base}/api/auth/me`, {
+        method: 'GET',
+        headers: {},
+        credentials: 'include',
+        signal,
+      }).then(parseResponse<Record<string, unknown>>).then((raw) => ({
         id: raw['id'] as string,
         email: raw['email'] as string,
         role: raw['role'] as AuthUser['role'],

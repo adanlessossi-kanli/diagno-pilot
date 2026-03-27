@@ -148,9 +148,13 @@ class TestAuthFlow:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert "access_token" in body
+        # Tokens are now delivered via httpOnly cookies, not in the response body
+        assert "access_token" not in body
+        assert "refresh_token" not in body
         assert body["token_type"] == "bearer"
         assert body["expires_in"] > 0
+        # Verify access_token cookie was set
+        assert "access_token" in resp.cookies
 
     async def test_login_wrong_password_returns_401(self):
         """Login avec mauvais mot de passe retourne 401."""
@@ -296,7 +300,7 @@ class TestPatientCreation:
 class TestDiagnoseSymptoms:
     """REQ-02 : Diagnostic différentiel via POST /api/v1/diagnose/symptoms."""
 
-    def _make_rag_mock(self, llm_answer: str = None) -> MagicMock:
+    def _make_rag_mock(self, llm_answer: str | None = None) -> MagicMock:
         """Build a mock DiagnosticService that returns 3 diagnoses."""
         from backend.models.consultation import DifferentialDiagnosis
 
@@ -767,14 +771,14 @@ class TestFullFlow:
           with _patch_all_db(user_doc, audit_col, {"patients": patients_col, "consultations": consultations_col}):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
 
-                # Step 1: Login (REQ-01)
+                # Step 1: Login (REQ-01) — tokens now delivered via httpOnly cookies
                 login_resp = await client.post(
                     "/api/v1/auth/login",
                     data={"username": "medecin@test.com", "password": "password123"},
                 )
                 assert login_resp.status_code == 200
-                token = login_resp.json()["access_token"]
-                headers = {"Authorization": f"Bearer {token}"}
+                assert "access_token" not in login_resp.json()
+                # Cookies are carried automatically by the AsyncClient for subsequent requests
 
                 # Step 2: Create patient (REQ-06)
                 patient_resp = await client.post(
@@ -786,7 +790,6 @@ class TestFullFlow:
                         "comorbidities": {"renal_failure": False, "hepatic_failure": False},
                         "current_medications": [],
                     },
-                    headers=headers,
                 )
                 assert patient_resp.status_code == 201
                 assert patient_resp.json()["full_name"] == "Kofi Asante"
@@ -800,7 +803,6 @@ class TestFullFlow:
                             {"name": "céphalées", "severity": "moderate"},
                         ]
                     },
-                    headers=headers,
                 )
                 assert diag_resp.status_code == 200
                 diagnoses_result = diag_resp.json()["diagnoses"]
@@ -823,7 +825,6 @@ class TestFullFlow:
                             "current_medications": [],
                         },
                     },
-                    headers=headers,
                 )
                 assert rx_resp.status_code == 200
                 rx_body = rx_resp.json()
@@ -867,14 +868,14 @@ class TestFullFlow:
           with _patch_all_db(user_doc, audit_col, {"consultations": consultations_col}):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
 
-                # Step 1: Login
+                # Step 1: Login — tokens now delivered via httpOnly cookies
                 login_resp = await client.post(
                     "/api/v1/auth/login",
                     data={"username": "medecin@test.com", "password": "password123"},
                 )
                 assert login_resp.status_code == 200
-                token = login_resp.json()["access_token"]
-                headers = {"Authorization": f"Bearer {token}"}
+                assert "access_token" not in login_resp.json()
+                # Cookies are carried automatically by the AsyncClient for subsequent requests
 
                 # Step 2: Diagnose symptoms for child
                 diag_resp = await client.post(
@@ -890,7 +891,6 @@ class TestFullFlow:
                             "current_medications": [],
                         },
                     },
-                    headers=headers,
                 )
                 assert diag_resp.status_code == 200
                 assert len(diag_resp.json()["diagnoses"]) >= 3
@@ -909,7 +909,6 @@ class TestFullFlow:
                             "current_medications": [],
                         },
                     },
-                    headers=headers,
                 )
                 assert rx_resp.status_code == 200
                 rx_body = rx_resp.json()

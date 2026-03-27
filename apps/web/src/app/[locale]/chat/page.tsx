@@ -231,12 +231,12 @@ function PatientContextPanel({
 
 export default function ChatPage() {
   const t = useTranslations('chat');
-  const { user, getToken } = useAuth();
+  const { user } = useAuth();
 
   const apiClient = useMemo(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-    return createApiClient(baseUrl, getToken);
-  }, [getToken]);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+    return createApiClient(baseUrl);
+  }, []);
 
   // Session
   const [sessionId, setSessionId] = useState<string>(() => generateSessionId());

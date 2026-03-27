@@ -24,15 +24,21 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", aut
 LEGACY_ROLE_MAP = {"pharmacien": "guest"}
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    """Decode JWT, fetch user from DB, return user document as dict."""
+async def get_current_user(
+    request: Request,
+    token: str | None = Depends(oauth2_scheme_optional),
+) -> dict:
+    """Decode JWT from Bearer header or access_token cookie, fetch user from DB, return user document as dict."""
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    raw = token or request.cookies.get("access_token")
+    if raw is None:
+        raise credentials_exc
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(raw, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         user_id: str | None = payload.get("sub")
         if user_id is None:
             raise credentials_exc
@@ -59,6 +65,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 
 
 async def get_current_user_optional(
+    request: Request,
     token: str | None = Depends(oauth2_scheme_optional),
 ) -> dict | None:
     """Retourne l'utilisateur ou None si pas de token (pour les routes publiques).
@@ -66,10 +73,11 @@ async def get_current_user_optional(
     Utilisé pour les routes comme /api/v1/qa qui sont accessibles sans authentification.
     REQ 2.4, 9.2, 9.3
     """
-    if token is None:
+    raw = token or request.cookies.get("access_token")
+    if raw is None:
         return None
     try:
-        return await get_current_user(token)
+        return await get_current_user(request=request, token=token)
     except HTTPException:
         return None
 

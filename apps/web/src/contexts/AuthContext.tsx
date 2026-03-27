@@ -16,7 +16,6 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   fetchWithRefresh: (input: RequestInfo, init?: RequestInit) => Promise<Response>;
-  getToken: () => string | null;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -32,67 +31,64 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
   const router = useRouter();
   // Prevent concurrent refresh attempts
   const isRefreshing = useRef(false);
-  // In-memory token — scoped to this provider instance (no module-level mutable)
-  const memoryTokenRef = useRef<string | null>(null);
-
-  const getToken = useCallback((): string | null => {
-    return memoryTokenRef.current;
-  }, []); // stable — memoryTokenRef never changes
 
   const apiClient = React.useMemo(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-    return createApiClient(baseUrl, getToken);
-  }, [getToken]);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+    return createApiClient(baseUrl);
+  }, []);
 
   /**
-   * Attempt a silent token refresh.
-   * Returns true if a new access token was obtained, false otherwise.
+   * Fetch the current user from /auth/me and update state.
+   * Returns the AuthUser on success, or null on failure.
+   */
+  const fetchMe = useCallback(async (): Promise<AuthUser | null> => {
+    try {
+      const apiUser = await apiClient.auth.me();
+      const authUser: AuthUser = {
+        id: apiUser.id,
+        email: apiUser.email,
+        role: apiUser.role as UserRole,
+        fullName: apiUser.fullName,
+      };
+      setUser(authUser);
+      return authUser;
+    } catch {
+      setUser(null);
+      return null;
+    }
+  }, [apiClient]);
+
+  /**
+   * Attempt a silent token refresh via POST /api/v1/auth/refresh.
+   * Returns true if refresh succeeded (cookies rotated), false otherwise.
+   * On success, re-calls GET /auth/me to refresh user state. (REQ 3.2, 7.2)
    */
   const tryRefresh = useCallback(async (): Promise<boolean> => {
     if (isRefreshing.current) return false;
     isRefreshing.current = true;
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-      const res = await fetch(`${baseUrl}/api/v1/auth/refresh`, {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${baseUrl}/api/auth/refresh`, {
         method: 'POST',
-        credentials: 'include', // send httpOnly refresh token cookie
+        credentials: 'include',
       });
       if (!res.ok) return false;
-      const data = (await res.json()) as { access_token: string };
-      memoryTokenRef.current = data.access_token;
-      // Update the httpOnly cookie with the new access token
-      await fetch('/api/auth/set-cookie', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: data.access_token }),
-      });
+      // Re-fetch user state with the new cookies (REQ 7.2)
+      await fetchMe();
       return true;
     } catch {
       return false;
     } finally {
       isRefreshing.current = false;
     }
-  }, []);
+  }, [fetchMe]);
 
-  // Auto-detect existing session on mount (REQ 7.1)
+  // Auto-detect existing session on mount — auth state determined by GET /auth/me (REQ 3.3)
   useEffect(() => {
     let cancelled = false;
 
     async function restoreSession() {
-      // 1. Try to read the access token from the httpOnly cookie
-      const cookieRes = await fetch('/api/auth/set-cookie');
-      const { token } = (await cookieRes.json()) as { token: string | null };
-
-      if (token) {
-        memoryTokenRef.current = token;
-      }
-
-      // 2. No token at all — skip the /auth/me call entirely (avoids a noisy 401)
-      if (!memoryTokenRef.current) {
-        return;
-      }
-
-      // 3. Try /auth/me with the stored access token
+      // Try /auth/me — cookies are sent automatically by the browser
       try {
         const apiUser = await apiClient.auth.me();
         if (cancelled) return;
@@ -102,32 +98,20 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
           role: apiUser.role as UserRole,
           fullName: apiUser.fullName,
         });
-        return;
       } catch (err) {
-        // Access token may be expired — fall through to refresh attempt
-        if ((err as { status?: number })?.status !== 401) throw err;
-      }
-
-      // 4. Access token expired — attempt silent refresh before giving up
-      memoryTokenRef.current = null;
-      const refreshed = await tryRefresh();
-      if (cancelled) return;
-
-      if (refreshed) {
-        try {
-          const apiUser = await apiClient.auth.me();
+        if (cancelled) return;
+        // If 401, attempt silent refresh before giving up
+        if ((err as { status?: number })?.status === 401) {
+          const refreshed = await tryRefresh();
           if (cancelled) return;
-          setUser({
-            id: apiUser.id,
-            email: apiUser.email,
-            role: apiUser.role as UserRole,
-            fullName: apiUser.fullName,
-          });
-        } catch {
-          if (!cancelled) setUser(null);
+          if (!refreshed) {
+            setUser(null);
+          }
+          // If refreshed, fetchMe() inside tryRefresh already updated user state
+        } else {
+          setUser(null);
         }
       }
-      // if refresh also failed, user stays null (not logged in)
     }
 
     restoreSession()
@@ -139,75 +123,53 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
 
   /**
    * Wrapper around fetch that intercepts 401 responses, attempts a silent
-   * token refresh, and replays the original request once. If the refresh
-   * fails, the user is redirected to /login. (REQ 4.5, 7.3)
+   * token refresh, and replays the original request once.
+   * On double-401, redirects to login and clears local auth state. (REQ 3.2, 3.4)
+   * No Authorization header injection — cookies are automatic.
    */
   const fetchWithRefresh = useCallback(
     async (input: RequestInfo, init?: RequestInit): Promise<Response> => {
-      // Inject current token into Authorization header
-      const headers = new Headers(init?.headers);
-      if (memoryTokenRef.current) {
-        headers.set('Authorization', `Bearer ${memoryTokenRef.current}`);
-      }
-
-      const response = await fetch(input, { ...init, headers });
+      // No Authorization header injection — cookies are sent automatically
+      const response = await fetch(input, { ...init, credentials: 'include' });
 
       if (response.status !== 401) return response;
 
       // 401 — try silent refresh
       const refreshed = await tryRefresh();
       if (!refreshed) {
-        // Refresh failed — clear state and redirect to login (REQ 7.3)
-        memoryTokenRef.current = null;
+        // Refresh failed — clear state and redirect to login (REQ 3.4)
         setUser(null);
-        await fetch('/api/auth/set-cookie', { method: 'DELETE' });
         router.push(`/${locale}/login`);
         return response;
       }
 
-      // Replay the original request with the new token
-      const retryHeaders = new Headers(init?.headers);
-      if (memoryTokenRef.current) {
-        retryHeaders.set('Authorization', `Bearer ${memoryTokenRef.current}`);
+      // Replay the original request — cookies are now updated
+      const retryResponse = await fetch(input, { ...init, credentials: 'include' });
+
+      if (retryResponse.status === 401) {
+        // Double-401 — clear state and redirect to login (REQ 3.4)
+        setUser(null);
+        router.push(`/${locale}/login`);
       }
-      return fetch(input, { ...init, headers: retryHeaders });
+
+      return retryResponse;
     },
     [locale, router, tryRefresh],
   );
 
+  /**
+   * Login: POST /api/v1/auth/login with credentials:include, then GET /auth/me. (REQ 3.1, 3.3)
+   */
   const login = useCallback(
     async (email: string, password: string) => {
-      const response = await apiClient.auth.login(email, password);
+      // apiClient.auth.login already sends credentials:'include' and handles CSRF
+      await apiClient.auth.login(email, password);
 
-      // Store token in memory for subsequent API calls
-      memoryTokenRef.current = response.access_token;
-
-      // Persist token in httpOnly cookie via Next.js API route
-      await fetch('/api/auth/set-cookie', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: response.access_token }),
-      });
-
-      // Use the user from the login response, or fall back to /auth/me
-      let authUser: AuthUser;
-      if (response.user) {
-        authUser = {
-          id: response.user.id,
-          email: response.user.email,
-          role: response.user.role as UserRole,
-          fullName: response.user.fullName,
-        };
-      } else {
-        const apiUser = await apiClient.auth.me();
-        authUser = {
-          id: apiUser.id,
-          email: apiUser.email,
-          role: apiUser.role as UserRole,
-          fullName: apiUser.fullName,
-        };
+      // Populate user state from /auth/me (REQ 3.3)
+      const authUser = await fetchMe();
+      if (!authUser) {
+        throw new Error('Failed to retrieve user after login');
       }
-      setUser(authUser);
 
       // Role-based redirect
       if (authUser.role === 'admin') {
@@ -216,27 +178,25 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
         router.push(`/${locale}`);
       }
     },
-    [apiClient, locale, router],
+    [apiClient, fetchMe, locale, router],
   );
 
+  /**
+   * Logout: POST /api/v1/auth/logout with credentials:include, clear local user state. (REQ 1.5)
+   */
   const logout = useCallback(async () => {
     try {
       await apiClient.auth.logout();
     } catch {
       // Ignore backend errors on logout
     } finally {
-      memoryTokenRef.current = null;
       setUser(null);
-
-      // Clear the httpOnly cookie
-      await fetch('/api/auth/set-cookie', { method: 'DELETE' });
-
       router.push(`/${locale}/login`);
     }
   }, [apiClient, locale, router]);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, fetchWithRefresh, getToken }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, fetchWithRefresh }}>
       {children}
     </AuthContext.Provider>
   );

@@ -205,13 +205,13 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
   const { id } = use(params);
   const t = useTranslations('patientDetail');
   const tCommon = useTranslations('common');
-  const { user, isLoading: authLoading, getToken } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
   const apiClient = useMemo(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-    return createApiClient(baseUrl, getToken);
-  }, [getToken]);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+    return createApiClient(baseUrl);
+  }, []);
 
   const [patient, setPatient] = useState<PatientProfile | null>(null);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
@@ -269,11 +269,10 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
     setLoadingFiles(true);
     setErrorFiles('');
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-      const token = getToken();
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
       const res = await fetch(
         `${baseUrl}/api/v1/files?patient_id=${encodeURIComponent(id)}`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        { credentials: 'include' },
       );
       if (!res.ok) throw new Error('fetch failed');
       const data = (await res.json()) as PatientFile[];
@@ -283,7 +282,7 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
     } finally {
       setLoadingFiles(false);
     }
-  }, [id, t, getToken]);
+  }, [id, t]);
 
   useEffect(() => {
     if (user) {

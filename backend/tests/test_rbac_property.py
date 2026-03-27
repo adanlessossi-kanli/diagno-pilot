@@ -8,7 +8,6 @@ from __future__ import annotations
 import pytest
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
-from pydantic import ValidationError
 
 from backend.models.common import UserRole
 
@@ -50,7 +49,7 @@ def test_property_1_only_valid_roles_accepted(role: str):
 # Feature: role-based-access-control, Property 10: Rétrocompatibilité des tokens JWT existants
 # ---------------------------------------------------------------------------
 
-from backend.core.auth import LEGACY_ROLE_MAP
+from backend.core.auth import LEGACY_ROLE_MAP  # noqa: E402
 
 
 @given(role=st.sampled_from(["medecin", "admin"]))
@@ -82,7 +81,7 @@ def test_property_10_legacy_tokens_accepted(role: str):
 # Feature: role-based-access-control, Property 3: Admin autorisé sur tous les endpoints d'administration
 # ---------------------------------------------------------------------------
 
-import asyncio
+import asyncio  # noqa: E402
 
 ADMIN_ENDPOINTS = [
     ("GET", "/api/v1/admin/users"),
@@ -331,10 +330,25 @@ async def _test_property_5(role: str, endpoint: tuple[str, str]):
 
     mock_db.__getitem__ = MagicMock(side_effect=_extended_getitem)
 
+    # Patch all db references to ensure isolation regardless of test ordering
+    _module_db_targets = [
+        "backend.services.patient_service.db",
+        "backend.routers.patients.patient_service.db",
+        "backend.routers.diagnose.db",
+        "backend.core.auth.db",
+    ]
     try:
-        with patch("backend.core.database.db.get_db", return_value=mock_db):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                resp = await client.get(path, headers={"Authorization": "Bearer fake"})
+        module_patches = [patch(t) for t in _module_db_targets]
+        module_mocks = [p.start() for p in module_patches]
+        for m in module_mocks:
+            m.get_db.return_value = mock_db
+        try:
+            with patch("backend.core.database.db.get_db", return_value=mock_db):
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                    resp = await client.get(path, headers={"Authorization": "Bearer fake"})
+        finally:
+            for p in module_patches:
+                p.stop()
     finally:
         app.dependency_overrides.clear()
 
@@ -372,7 +386,7 @@ async def _test_property_9_stats(role: str):
     Vérifie que l'accès à GET /admin/stats crée une entrée d'audit
     contenant user_id, created_at (timestamp) et ip_address.
     """
-    from unittest.mock import AsyncMock, MagicMock, patch, call
+    from unittest.mock import MagicMock, patch
     from httpx import AsyncClient, ASGITransport
     from backend.main import app
     from backend.core.auth import get_current_user

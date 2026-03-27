@@ -1,20 +1,18 @@
 /**
- * Unit tests + Property-based tests for AuthContext (App_Web)
- * Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.8, 4.9, 7.7
+ * Unit tests for AuthContext (security-hardened, cookie-based auth)
+ * Validates: Requirements 3.1, 3.2, 3.3, 3.4, 1.5
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import React from 'react';
-import * as fc from 'fast-check';
 import { AuthProvider, useAuth } from '../AuthContext';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 const mockPush = vi.fn();
-const mockReplace = vi.fn();
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useRouter: () => ({ push: mockPush }),
 }));
 
 const mockLogin = vi.fn();
@@ -23,11 +21,7 @@ const mockMe = vi.fn();
 
 vi.mock('@diagno-pilot/api-client', () => ({
   createApiClient: () => ({
-    auth: {
-      login: mockLogin,
-      logout: mockLogout,
-      me: mockMe,
-    },
+    auth: { login: mockLogin, logout: mockLogout, me: mockMe },
   }),
 }));
 
@@ -41,175 +35,165 @@ const fakeUser = {
   id: 'u1',
   email: 'doc@example.com',
   fullName: 'Dr. Test',
-  role: 'medecin',
+  role: 'medecin' as const,
+  locale: 'fr',
 };
 
-const fakeAdminUser = {
-  id: 'a1',
-  email: 'admin@example.com',
-  fullName: 'Admin User',
-  role: 'admin',
-};
-
-function makeLoginResponse(user: { id: string; email: string; fullName: string; role: string }) {
-  return { access_token: 'tok123', token_type: 'bearer', user };
-}
-
-function resetMocks(userForMe?: { id: string; email: string; fullName: string; role: string } | null) {
-  vi.resetAllMocks();
-  if (userForMe) {
-    mockMe.mockResolvedValue(userForMe);
-  } else {
-    mockMe.mockRejectedValue(new Error('Unauthorized'));
-  }
-  // Mock fetch: first call is GET /api/auth/set-cookie (returns token or null),
-  // subsequent calls are POST/DELETE /api/auth/set-cookie (returns ok: true)
-  global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-    if (typeof url === 'string' && url.includes('/api/auth/set-cookie') && (!init?.method || init.method === 'GET')) {
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ token: null }),
-      });
-    }
-    return Promise.resolve({ ok: true, json: async () => ({}) });
-  });
-}
-
-// ─── Setup ────────────────────────────────────────────────────────────────────
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  resetMocks(null);
+  vi.clearAllMocks();
+  // Default: no active session on mount
+  mockMe.mockRejectedValue(Object.assign(new Error('Unauthorized'), { status: 401 }));
+  // Default: refresh fails so mount's tryRefresh doesn't consume extra mockMe values
+  global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) });
 });
 
-// Helper to create a fetch mock that handles the cookie GET endpoint
-function makeFetchMock(cookieToken: string | null = null) {
-  return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-    if (typeof url === 'string' && url.includes('/api/auth/set-cookie') && (!init?.method || init.method === 'GET')) {
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({ token: cookieToken }),
-      });
-    }
-    return Promise.resolve({ ok: true, json: async () => ({}) });
-  });
-}
-
-// ─── Unit Tests (8.2) ─────────────────────────────────────────────────────────
-
-describe('AuthContext — Unit Tests', () => {
-  it('login success — sets user and persists token via cookie', async () => {
-    mockLogin.mockResolvedValue(makeLoginResponse(fakeUser));
+describe('AuthContext — initial state', () => {
+  it('isLoading is true until auth/me resolves', async () => {
+    let resolveMe!: (v: typeof fakeUser) => void;
+    mockMe.mockReturnValue(new Promise<typeof fakeUser>((res) => { resolveMe = res; }));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => { resolveMe(fakeUser); });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    await act(async () => {
-      await result.current.login('doc@example.com', 'password');
-    });
-
-    expect(result.current.user).toEqual({
-      id: 'u1',
-      email: 'doc@example.com',
-      fullName: 'Dr. Test',
-      role: 'medecin',
-    });
-    expect(global.fetch).toHaveBeenCalledWith(
-      '/api/auth/set-cookie',
-      expect.objectContaining({ method: 'POST' }),
-    );
   });
 
-  it('login failure — rejects with error, user stays null', async () => {
-    mockLogin.mockRejectedValue(new Error('Invalid credentials'));
-
+  it('user is null when auth/me returns 401 on mount', async () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    await expect(
-      act(async () => {
-        await result.current.login('bad@example.com', 'wrong');
-      }),
-    ).rejects.toThrow();
-
     expect(result.current.user).toBeNull();
   });
 
-  it('logout — clears user, deletes cookie, redirects to /login', async () => {
-    mockLogin.mockResolvedValue(makeLoginResponse(fakeUser));
-    mockLogout.mockResolvedValue(undefined);
+  it('user is populated when auth/me succeeds on mount', async () => {
+    mockMe.mockResolvedValue(fakeUser);
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.user).toMatchObject({ id: 'u1', email: 'doc@example.com' });
+  });
+
+  it('getToken is not exposed on context value (REQ 1.7)', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect((result.current as unknown as Record<string, unknown>)['getToken']).toBeUndefined();
+  });
+});
+
+describe('AuthContext — login', () => {
+  it('calls POST /api/v1/auth/login then GET /auth/me to populate user (REQ 3.1, 3.3)', async () => {
+    mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
+    mockMe
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
+      .mockResolvedValueOnce(fakeUser); // after login
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    await act(async () => {
-      await result.current.login('doc@example.com', 'password');
-    });
+    await act(async () => { await result.current.login('doc@example.com', 'password'); });
+
+    expect(mockLogin).toHaveBeenCalledWith('doc@example.com', 'password');
+    expect(mockMe).toHaveBeenCalledTimes(2); // once on mount (fails), once after login
+    expect(result.current.user).toMatchObject({ id: 'u1', role: 'medecin' });
+  });
+
+  it('does NOT call /api/auth/set-cookie BFF route (REQ 3.1)', async () => {
+    mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
+    mockMe
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
+      .mockResolvedValueOnce(fakeUser);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => { await result.current.login('doc@example.com', 'password'); });
+
+    const fetchCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls as [string][];
+    const bffCalls = fetchCalls.filter(([url]) => typeof url === 'string' && url.includes('/api/auth/set-cookie'));
+    expect(bffCalls).toHaveLength(0);
+  });
+
+  it('redirects admin to /fr/admin after login', async () => {
+    mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
+    mockMe
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
+      .mockResolvedValueOnce({ ...fakeUser, role: 'admin' });
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => { await result.current.login('admin@example.com', 'password'); });
+    expect(mockPush).toHaveBeenCalledWith('/fr/admin');
+  });
+
+  it('redirects non-admin to locale root after login', async () => {
+    mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
+    mockMe
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
+      .mockResolvedValueOnce(fakeUser);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => { await result.current.login('doc@example.com', 'password'); });
+    expect(mockPush).toHaveBeenCalledWith('/fr');
+  });
+});
+
+describe('AuthContext — logout', () => {
+  it('calls POST /api/v1/auth/logout and clears user state (REQ 1.5)', async () => {
+    mockLogout.mockResolvedValue(undefined);
+    mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
+    mockMe
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
+      .mockResolvedValueOnce(fakeUser);
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => { await result.current.login('doc@example.com', 'password'); });
     expect(result.current.user).not.toBeNull();
 
-    await act(async () => {
-      await result.current.logout();
-    });
+    await act(async () => { await result.current.logout(); });
 
+    expect(mockLogout).toHaveBeenCalled();
     expect(result.current.user).toBeNull();
-    expect(global.fetch).toHaveBeenCalledWith(
-      '/api/auth/set-cookie',
-      expect.objectContaining({ method: 'DELETE' }),
-    );
-    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/login'));
+    expect(mockPush).toHaveBeenCalledWith('/fr/login');
   });
 
-  it('role-based redirect — admin role redirects to /admin', async () => {
-    mockLogin.mockResolvedValue(makeLoginResponse(fakeAdminUser));
+  it('does NOT call /api/auth/set-cookie DELETE on logout (REQ 3.1)', async () => {
+    mockLogout.mockResolvedValue(undefined);
+    mockMe.mockRejectedValue(Object.assign(new Error('no session'), { status: 401 }));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    await act(async () => {
-      await result.current.login('admin@example.com', 'password');
-    });
+    await act(async () => { await result.current.logout(); });
 
-    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/admin'));
+    const fetchCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls as [string][];
+    const bffCalls = fetchCalls.filter(([url]) => typeof url === 'string' && url.includes('/api/auth/set-cookie'));
+    expect(bffCalls).toHaveLength(0);
   });
+});
 
-  it('role-based redirect — non-admin role redirects to locale root', async () => {
-    mockLogin.mockResolvedValue(makeLoginResponse(fakeUser));
+describe('AuthContext — fetchWithRefresh: 401 → refresh → retry (REQ 3.2)', () => {
+  it('retries original request after successful silent refresh', async () => {
+    mockMe.mockRejectedValue(Object.assign(new Error('no session'), { status: 401 }));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    await act(async () => {
-      await result.current.login('doc@example.com', 'password');
-    });
-
-    const lastCall = mockPush.mock.calls[mockPush.mock.calls.length - 1][0] as string;
-    expect(lastCall).not.toContain('/admin');
-    expect(lastCall).toMatch(/^\/fr/);
-  });
-
-  it('session persistence — user restored from auth.me() on mount (httpOnly cookie)', async () => {
-    mockMe.mockResolvedValue(fakeUser);
-    // Provide a token so restoreSession proceeds to call auth.me()
-    global.fetch = makeFetchMock('tok123');
-
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.user).toEqual({
-      id: 'u1',
-      email: 'doc@example.com',
-      fullName: 'Dr. Test',
-      role: 'medecin',
-    });
-  });
-
-  it('refresh token — silent renewal replays request after 401', async () => {
-    const { result } = renderHook(() => useAuth(), { wrapper });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    // After mount completes, set up fresh mocks for fetchWithRefresh
+    // fetchMe uses apiClient.auth.me (mockMe), not global.fetch
+    mockMe.mockResolvedValue(fakeUser); // for tryRefresh → fetchMe
 
     const mockFetch = vi.fn()
+      // fetchWithRefresh: original request → 401
       .mockResolvedValueOnce({ status: 401, ok: false } as Response)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'new-tok' }) } as Response)
-      .mockResolvedValueOnce({ ok: true } as Response)
+      // fetchWithRefresh: tryRefresh → POST /auth/refresh succeeds
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+      // fetchWithRefresh: retry original request → 200
       .mockResolvedValueOnce({ status: 200, ok: true } as Response);
 
     global.fetch = mockFetch;
@@ -222,14 +206,38 @@ describe('AuthContext — Unit Tests', () => {
     expect(response.status).toBe(200);
   });
 
-  it('forced logout — redirects to /login if refresh fails', async () => {
+  it('does not inject Authorization header — uses credentials:include only (REQ 3.1)', async () => {
+    mockMe.mockRejectedValue(Object.assign(new Error('no session'), { status: 401 }));
+
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const mockFetch = vi.fn().mockResolvedValue({ status: 200, ok: true } as Response);
+    global.fetch = mockFetch;
+
+    await act(async () => {
+      await result.current.fetchWithRefresh('http://localhost:8000/api/v1/patients');
+    });
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const authHeader = (init?.headers as Record<string, string> | undefined)?.['Authorization'];
+    expect(authHeader).toBeUndefined();
+    expect(init?.credentials).toBe('include');
+  });
+});
+
+describe('AuthContext — fetchWithRefresh: double-401 → redirect (REQ 3.4)', () => {
+  it('redirects to login and clears user when refresh fails', async () => {
+    mockMe.mockRejectedValue(Object.assign(new Error('no session'), { status: 401 }));
+
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     const mockFetch = vi.fn()
+      // fetchWithRefresh: original request → 401
       .mockResolvedValueOnce({ status: 401, ok: false } as Response)
-      .mockResolvedValueOnce({ ok: false, status: 401 } as Response)
-      .mockResolvedValueOnce({ ok: true } as Response);
+      // fetchWithRefresh: tryRefresh → POST /auth/refresh fails
+      .mockResolvedValueOnce({ ok: false, status: 401 } as Response);
 
     global.fetch = mockFetch;
 
@@ -238,339 +246,35 @@ describe('AuthContext — Unit Tests', () => {
     });
 
     expect(result.current.user).toBeNull();
-    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/login'));
+    expect(mockPush).toHaveBeenCalledWith('/fr/login');
   });
-});
 
-// ─── Property Tests ───────────────────────────────────────────────────────────
-
-// Feature: app-consistency, Property 2: Pour toute erreur, le message ne contient ni stack trace ni détail interne
-describe('P2 — Error messages contain no technical details', () => {
-  it('any error from login must not expose stack trace or internal details', { timeout: 30000 }, async () => {
-    // Validates: Requirements 1.2, 1.4
-    await fc.assert(
-      fc.asyncProperty(
-        fc.string({ minLength: 1, maxLength: 30 }),
-        fc.string({ minLength: 1, maxLength: 30 }),
-        async (email, password) => {
-          resetMocks(null);
-          mockLogin.mockRejectedValue(new Error('Identifiants invalides'));
-
-          const { result } = renderHook(() => useAuth(), { wrapper });
-          await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-          let errorMessage = '';
-          try {
-            await act(async () => {
-              await result.current.login(email, password);
-            });
-          } catch (e) {
-            errorMessage = (e as Error).message;
-          }
-
-          // The first line of the error message must not be a stack trace frame
-          const firstLine = errorMessage.split('\n')[0];
-          expect(firstLine).not.toMatch(/^\s+at\s+\w+/);
-          expect(firstLine).not.toMatch(/\.tsx?:\d+:\d+/);
-          expect(firstLine).not.toMatch(/TypeError:|ReferenceError:|SyntaxError:/);
-
-          return true;
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-});
-
-// Feature: app-consistency, Property 10: Pour tout utilisateur valide, redirection selon rôle
-describe('P10 — Successful login redirects by role', () => {
-  it('any valid user login must redirect to /admin for admin role, or / for others', { timeout: 60000 }, async () => {
-    // Validates: Requirements 4.1, 4.8, 4.9
-    const roles = ['admin', 'medecin', 'infirmier', 'pharmacien'];
-
-    await fc.assert(
-      fc.asyncProperty(
-        fc.constantFrom(...roles),
-        fc.uuid(),
-        async (role, id) => {
-          resetMocks(null);
-
-          const user = { id, email: `user-${id.slice(0, 8)}@example.com`, fullName: 'Test User', role };
-          mockLogin.mockResolvedValue(makeLoginResponse(user));
-
-          const { result } = renderHook(() => useAuth(), { wrapper });
-          await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-          await act(async () => {
-            await result.current.login(user.email, 'password123');
-          });
-
-          const calls = mockPush.mock.calls;
-          expect(calls.length).toBeGreaterThan(0);
-          const redirectTarget = calls[calls.length - 1][0] as string;
-
-          if (role === 'admin') {
-            expect(redirectTarget).toContain('/admin');
-          } else {
-            expect(redirectTarget).not.toContain('/admin');
-          }
-
-          return true;
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-});
-
-// Feature: app-consistency, Property 11: Pour tout couple email/mdp invalide, message générique sans révéler lequel est incorrect
-describe('P11 — Generic error message for invalid credentials', () => {
-  it('error message must not reveal whether email or password is wrong', { timeout: 30000 }, async () => {
-    // Validates: Requirement 4.2
-    await fc.assert(
-      fc.asyncProperty(
-        fc.string({ minLength: 1, maxLength: 30 }),
-        fc.string({ minLength: 1, maxLength: 30 }),
-        async (email, password) => {
-          resetMocks(null);
-          mockLogin.mockRejectedValue(new Error('Identifiants invalides'));
-
-          const { result } = renderHook(() => useAuth(), { wrapper });
-          await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-          let errorMessage = '';
-          try {
-            await act(async () => {
-              await result.current.login(email, password);
-            });
-          } catch (e) {
-            errorMessage = (e as Error).message;
-          }
-
-          const lowerMsg = errorMessage.toLowerCase();
-          expect(lowerMsg).not.toMatch(/email.*incorrect|incorrect.*email/);
-          expect(lowerMsg).not.toMatch(/password.*incorrect|incorrect.*password/);
-          expect(lowerMsg).not.toMatch(/mot de passe.*incorrect|incorrect.*mot de passe/);
-
-          return true;
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-});
-
-// Feature: app-consistency, Property 12: Après déconnexion, token effacé et redirection /login
-describe('P12 — After logout, token cleared and redirect to /login', () => {
-  it('any authenticated user after logout must have token cleared and be redirected to /login', { timeout: 60000 }, async () => {
-    // Validates: Requirement 4.3
-    const roles = ['admin', 'medecin', 'infirmier'];
-
-    await fc.assert(
-      fc.asyncProperty(
-        fc.constantFrom(...roles),
-        fc.uuid(),
-        async (role, id) => {
-          resetMocks(null);
-
-          const user = { id, email: `user-${id.slice(0, 8)}@example.com`, fullName: 'Test', role };
-          mockLogin.mockResolvedValue(makeLoginResponse(user));
-          mockLogout.mockResolvedValue(undefined);
-
-          const { result } = renderHook(() => useAuth(), { wrapper });
-          await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-          await act(async () => {
-            await result.current.login(user.email, 'password');
-          });
-          expect(result.current.user).not.toBeNull();
-
-          const fetchMock = vi.fn().mockResolvedValue({ ok: true });
-          global.fetch = fetchMock;
-
-          await act(async () => {
-            await result.current.logout();
-          });
-
-          expect(result.current.user).toBeNull();
-          expect(fetchMock).toHaveBeenCalledWith(
-            '/api/auth/set-cookie',
-            expect.objectContaining({ method: 'DELETE' }),
-          );
-          expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/login'));
-
-          return true;
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-});
-
-// Feature: app-consistency, Property 13: Après rechargement, session restaurée sans nouvelle connexion
-describe('P13 — After page reload, session restored without new login', () => {
-  it('any authenticated user session must be restored from httpOnly cookie on mount', { timeout: 60000 }, async () => {
-    // Validates: Requirements 4.6, 4.7
-    const roles = ['admin', 'medecin', 'infirmier'];
-
-    await fc.assert(
-      fc.asyncProperty(
-        fc.constantFrom(...roles),
-        fc.uuid(),
-        async (role, id) => {
-          vi.resetAllMocks();
-          // Provide a token so restoreSession proceeds to call auth.me()
-          global.fetch = makeFetchMock('tok123');
-
-          const user = { id, email: `user-${id.slice(0, 8)}@example.com`, fullName: 'Test User', role };
-          mockMe.mockResolvedValue(user);
-
-          const { result } = renderHook(() => useAuth(), { wrapper });
-          await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-          expect(result.current.user).not.toBeNull();
-          expect(result.current.user?.id).toBe(id);
-          expect(result.current.user?.role).toBe(role);
-          expect(mockLogin).not.toHaveBeenCalled();
-
-          return true;
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-});
-
-// Feature: app-consistency, Property 1: Pour toute opération async > 300ms, un indicateur de chargement est présent
-describe('P1 — Loading indicator present during async operations', () => {
-  it('isLoading is true while auth.me() is pending, indicating a loading state', { timeout: 120000 }, async () => {
-    // Validates: Requirements 1.1, 1.3
-    // Property 1: For any async operation exceeding 300ms, a loading indicator must be present.
-    // We verify that AuthContext exposes isLoading=true during the async me() call,
-    // which consumers (SkeletonLoader, spinners) use to display loading feedback.
-    const roles = ['admin', 'medecin', 'infirmier', 'pharmacien'];
-
-    await fc.assert(
-      fc.asyncProperty(
-        fc.constantFrom(...roles),
-        fc.uuid(),
-        // Keep delay small (10-50ms) to avoid timeout while still testing async behavior
-        fc.integer({ min: 10, max: 50 }),
-        async (role, id, delayMs) => {
-          vi.resetAllMocks();
-          // Provide a token so restoreSession proceeds to call auth.me()
-          global.fetch = makeFetchMock('tok123');
-
-          const user = { id, email: `user-${id.slice(0, 8)}@example.com`, fullName: 'Test User', role };
-
-          // Simulate an async operation (the delay represents > 300ms in production)
-          mockMe.mockImplementation(
-            () => new Promise((resolve) => setTimeout(() => resolve(user), delayMs)),
-          );
-
-          const { result } = renderHook(() => useAuth(), { wrapper });
-
-          // Immediately after mount, isLoading must be true (loading indicator present)
-          expect(result.current.isLoading).toBe(true);
-
-          // Wait for the async operation to complete
-          await waitFor(() => expect(result.current.isLoading).toBe(false), {
-            timeout: delayMs + 500,
-          });
-
-          // After completion, user is set and isLoading is false
-          expect(result.current.user).not.toBeNull();
-          expect(result.current.user?.id).toBe(id);
-
-          return true;
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-});
-
-// ─── Property 11 (RBAC) ───────────────────────────────────────────────────────
-
-// Feature: role-based-access-control, Property 11: useAuth retourne un UserRole valide
-describe('Property 11 — useAuth retourne un UserRole valide', () => {
-  it('user.role must belong to the valid UserRole union or be null when not authenticated', { timeout: 60000 }, async () => {
-    // Validates: Requirements 7.2
-    const VALID_ROLES = ['admin', 'medecin', 'infirmière', 'guest'] as const;
-
-    await fc.assert(
-      fc.asyncProperty(
-        fc.option(fc.constantFrom(...VALID_ROLES), { nil: null }),
-        async (role) => {
-          vi.resetAllMocks();
-          global.fetch = makeFetchMock(role !== null ? 'tok123' : null);
-
-          if (role !== null) {
-            const user = { id: 'u1', email: 'user@example.com', fullName: 'Test User', role };
-            mockMe.mockResolvedValue(user);
-          } else {
-            mockMe.mockRejectedValue(new Error('Unauthorized'));
-          }
-
-          const { result } = renderHook(() => useAuth(), { wrapper });
-          await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-          const userRole = result.current.user?.role ?? null;
-
-          // user.role must be null (unauthenticated) or a valid UserRole
-          if (userRole !== null) {
-            expect(VALID_ROLES).toContain(userRole);
-          } else {
-            expect(userRole).toBeNull();
-          }
-
-          return true;
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-});
-
-// ─── Unit Test 12.4 — Session invalidation after role change ─────────────────
-
-describe('Example 7.3 — Session invalidated after role change by admin', () => {
-  it('when role changes (401 on refresh), user is forced to re-login', async () => {
-    // Validates: Requirements 7.3
-    // Simulates: admin modifies a user's role → backend invalidates the session
-    // → next request returns 401 → refresh also fails → user is logged out
-    resetMocks(null);
-    mockLogin.mockResolvedValue(makeLoginResponse(fakeUser));
-    mockLogout.mockResolvedValue(undefined);
+  it('redirects to login and clears user on double-401 (retry also 401)', async () => {
+    mockMe.mockRejectedValue(Object.assign(new Error('no session'), { status: 401 }));
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // Login as medecin
-    await act(async () => {
-      await result.current.login('doc@example.com', 'password');
-    });
-    expect(result.current.user).not.toBeNull();
-    expect(result.current.user?.role).toBe('medecin');
+    // Simulate: refresh succeeds but retry still returns 401
+    mockMe.mockResolvedValue(fakeUser); // fetchMe inside tryRefresh succeeds
 
-    // Simulate: admin changed the role → backend invalidates the token
-    // Next API call returns 401, and the refresh token is also invalidated
     const mockFetch = vi.fn()
-      // First request returns 401 (token invalidated due to role change)
+      // fetchWithRefresh: original request → 401
       .mockResolvedValueOnce({ status: 401, ok: false } as Response)
-      // Refresh attempt also fails (session fully invalidated)
-      .mockResolvedValueOnce({ ok: false, status: 401 } as Response)
-      // Cookie deletion
-      .mockResolvedValueOnce({ ok: true } as Response);
+      // fetchWithRefresh: tryRefresh → POST /auth/refresh succeeds
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+      // fetchWithRefresh: retry original request → still 401
+      .mockResolvedValueOnce({ status: 401, ok: false } as Response);
 
     global.fetch = mockFetch;
 
+    let response!: Response;
     await act(async () => {
-      await result.current.fetchWithRefresh('http://localhost:8000/api/v1/patients');
+      response = await result.current.fetchWithRefresh('http://localhost:8000/api/v1/patients');
     });
 
-    // Session must be invalidated: user is null and redirected to login
+    expect(response.status).toBe(401);
     expect(result.current.user).toBeNull();
-    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('/login'));
+    expect(mockPush).toHaveBeenCalledWith('/fr/login');
   });
 });

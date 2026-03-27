@@ -11,14 +11,11 @@ import io
 import uuid
 from datetime import datetime, timezone
 from functools import partial
-from typing import AsyncIterator
 
-import boto3
 from bson import ObjectId
 from fastapi import UploadFile
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from backend.core.config import settings
 from backend.models.document import MedicalDocument
 from backend.services.embedding_service import EmbeddingModel
 from backend.services.s3_service import S3Service

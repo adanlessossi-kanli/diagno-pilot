@@ -52,7 +52,6 @@ async def check_alerts(
     """
     from backend.core.database import db
     from backend.models.patient import Comorbidities
-    from backend.models.common import AgeGroup
     from bson import ObjectId
 
     # Build a minimal patient profile

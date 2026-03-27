@@ -76,12 +76,20 @@ class TestCreateAccessToken:
 # Helpers for endpoint tests
 # ---------------------------------------------------------------------------
 
-def _make_user_doc(role: str = "medecin", password: str = "password123") -> dict:
+# Pre-compute a bcrypt hash once at module load to avoid hashing on every
+# Hypothesis example (bcrypt is intentionally slow — 100 hashes ≈ 10 s).
+_DEFAULT_PASSWORD = "password123"
+_DEFAULT_PASSWORD_HASH = hash_password(_DEFAULT_PASSWORD)
+
+
+def _make_user_doc(role: str = "medecin", password: str = _DEFAULT_PASSWORD) -> dict:
     oid = ObjectId()
+    # Reuse the pre-computed hash when the caller uses the default password.
+    pw_hash = _DEFAULT_PASSWORD_HASH if password == _DEFAULT_PASSWORD else hash_password(password)
     return {
         "_id": oid,
         "email": "doc@example.com",
-        "password_hash": hash_password(password),
+        "password_hash": pw_hash,
         "role": role,
         "full_name": "Dr. Test",
         "locale": "fr",
@@ -138,9 +146,15 @@ class TestLoginEndpoint:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert "access_token" in body
-        assert "refresh_token" in body
+        # Tokens are now in cookies, not in the response body
+        assert "access_token" not in body
+        assert "refresh_token" not in body
         assert body["token_type"] == "bearer"
+        assert "expires_in" in body
+        # Verify cookies are set
+        assert "access_token" in resp.cookies
+        assert "refresh_token" in resp.cookies
+        assert "csrf_token" in resp.cookies
 
     async def test_invalid_password_returns_401(self):
         from httpx import AsyncClient, ASGITransport
@@ -342,22 +356,30 @@ class TestRequireRole:
 class TestExpiredJWT:
     async def test_expired_token_raises_401_in_get_current_user(self):
         from backend.core.auth import get_current_user
+        from unittest.mock import MagicMock
 
         user_id = str(ObjectId())
         token = _expired_token(user_id)
 
+        mock_request = MagicMock()
+        mock_request.cookies = {}
+
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(token=token)
+            await get_current_user(request=mock_request, token=token)
 
         assert exc_info.value.status_code == 401
 
     async def test_tampered_token_raises_401(self):
         from backend.core.auth import get_current_user
+        from unittest.mock import MagicMock
 
         token = _valid_token(str(ObjectId())) + "tampered"
 
+        mock_request = MagicMock()
+        mock_request.cookies = {}
+
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(token=token)
+            await get_current_user(request=mock_request, token=token)
 
         assert exc_info.value.status_code == 401
 
@@ -410,16 +432,18 @@ class TestRefreshEndpoint:
             mock_db_obj.get_db.return_value = mock_db
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                client.cookies.set("refresh_token", "valid-refresh-token-uuid")
                 resp = await client.post(
                     "/api/v1/auth/refresh",
-                    json={"refresh_token": "valid-refresh-token-uuid"},
                 )
 
         assert resp.status_code == 200
         body = resp.json()
-        assert "access_token" in body
-        assert "refresh_token" in body
+        # Tokens are now in cookies, not in the response body
+        assert "access_token" not in body
+        assert "refresh_token" not in body
         assert body["token_type"] == "bearer"
+        assert "expires_in" in body
 
     async def test_revoked_refresh_token_returns_401(self):
         from httpx import AsyncClient, ASGITransport
@@ -438,9 +462,9 @@ class TestRefreshEndpoint:
             mock_db_obj.get_db.return_value = mock_db
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                client.cookies.set("refresh_token", "revoked-token")
                 resp = await client.post(
                     "/api/v1/auth/refresh",
-                    json={"refresh_token": "revoked-token"},
                 )
 
         assert resp.status_code == 401
@@ -463,9 +487,9 @@ class TestRefreshEndpoint:
             mock_db_obj.get_db.return_value = mock_db
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                client.cookies.set("refresh_token", "expired-token")
                 resp = await client.post(
                     "/api/v1/auth/refresh",
-                    json={"refresh_token": "expired-token"},
                 )
 
         assert resp.status_code == 401
@@ -485,9 +509,9 @@ class TestRefreshEndpoint:
             mock_db_obj.get_db.return_value = mock_db
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                client.cookies.set("refresh_token", "unknown-token")
                 resp = await client.post(
                     "/api/v1/auth/refresh",
-                    json={"refresh_token": "unknown-token"},
                 )
 
         assert resp.status_code == 401
@@ -522,9 +546,9 @@ class TestRefreshEndpoint:
             mock_db_obj.get_db.return_value = mock_db
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                client.cookies.set("refresh_token", "valid-refresh-token-uuid")
                 await client.post(
                     "/api/v1/auth/refresh",
-                    json={"refresh_token": "valid-refresh-token-uuid"},
                 )
 
         # Verify old token was revoked
@@ -540,8 +564,8 @@ class TestRefreshEndpoint:
 # Validates: Requirements 4.3, 4.4
 # ---------------------------------------------------------------------------
 
-from hypothesis import given, settings as h_settings, HealthCheck
-from hypothesis import strategies as st
+from hypothesis import given, settings as h_settings, HealthCheck  # noqa: E402
+from hypothesis import strategies as st  # noqa: E402
 
 h_settings.register_profile(
     "ci",
@@ -565,7 +589,7 @@ def _make_refresh_token_doc(token_value: str, user_id: str, days_offset: int = 7
 @h_settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 @given(
     token_suffix=st.text(
-        alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd"), whitelist_characters="-"),
+        alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-",
         min_size=4,
         max_size=32,
     )
@@ -635,24 +659,25 @@ async def test_p7_refresh_token_rotation_invalidates_old_token(token_suffix: str
     with patch("backend.routers.auth.db") as mock_db_obj:
         mock_db_obj.get_db.return_value = mock_db
 
+        # First use of old_token — must succeed (HTTP 200)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            # First use of old_token — must succeed (HTTP 200)
+            client.cookies.set("refresh_token", old_token_value)
             first_resp = await client.post(
                 "/api/v1/auth/refresh",
-                json={"refresh_token": old_token_value},
             )
-            assert first_resp.status_code == 200, (
-                f"Expected 200 on first refresh, got {first_resp.status_code}: {first_resp.text}"
-            )
+        assert first_resp.status_code == 200, (
+            f"Expected 200 on first refresh, got {first_resp.status_code}: {first_resp.text}"
+        )
 
-            # Second use of the same old_token — must be rejected (HTTP 401)
-            second_resp = await client.post(
+        # Second use of the same old_token — must be rejected (HTTP 401)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client2:
+            client2.cookies.set("refresh_token", old_token_value)
+            second_resp = await client2.post(
                 "/api/v1/auth/refresh",
-                json={"refresh_token": old_token_value},
             )
-            assert second_resp.status_code == 401, (
-                f"Expected 401 on second use of old token, got {second_resp.status_code}: {second_resp.text}"
-            )
-            assert second_resp.json().get("detail") == "refresh_token_invalid", (
-                f"Expected detail='refresh_token_invalid', got: {second_resp.json()}"
-            )
+        assert second_resp.status_code == 401, (
+            f"Expected 401 on second use of old token, got {second_resp.status_code}: {second_resp.text}"
+        )
+        assert second_resp.json().get("detail") == "refresh_token_invalid", (
+            f"Expected detail='refresh_token_invalid', got: {second_resp.json()}"
+        )

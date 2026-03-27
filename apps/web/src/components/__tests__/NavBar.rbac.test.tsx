@@ -46,7 +46,6 @@ const mockAuthValue = {
   login: vi.fn(),
   logout: vi.fn(),
   fetchWithRefresh: vi.fn(),
-  getToken: vi.fn(),
 };
 
 vi.mock('../../contexts/AuthContext', () => ({

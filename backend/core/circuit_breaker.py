@@ -84,7 +84,7 @@ class CircuitBreaker:
 
         try:
             result = await coro
-        except Exception as exc:
+        except Exception:
             async with self._lock:
                 self._on_failure()
             raise

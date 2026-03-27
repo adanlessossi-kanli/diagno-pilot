@@ -5,8 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from bson import ObjectId
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class RefreshToken(BaseModel):

@@ -6,7 +6,6 @@ Feature: diagno-pilot-improvements
 
 from datetime import date, timedelta
 
-import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 

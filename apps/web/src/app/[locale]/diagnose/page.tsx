@@ -38,12 +38,12 @@ type DiagnoseFormValues = z.infer<typeof diagnoseSchema>;
 export default function DiagnosePage() {
   const t = useTranslations('diagnose');
   const tCommon = useTranslations('common');
-  const { user, getToken } = useAuth();
+  const { user } = useAuth();
 
   const apiClient = useMemo(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-    return createApiClient(baseUrl, getToken);
-  }, [getToken]);
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+    return createApiClient(baseUrl);
+  }, []);
 
   // Symptom input state
   const [inputMode, setInputMode] = useState<InputMode>('freeText');

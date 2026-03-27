@@ -12,10 +12,7 @@ terminer sans erreur.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
@@ -42,6 +39,8 @@ class FakeCollection:
 
     async def find_one(self, query: dict) -> dict | None:
         email = query.get("email")
+        if email is None:
+            return None
         return self._docs.get(email)
 
     async def insert_one(self, doc: dict) -> None:

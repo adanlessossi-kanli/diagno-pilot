@@ -8,27 +8,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from prometheus_fastapi_instrumentator import Instrumentator
-from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.responses import Response
+from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.security import HTTPBasic, HTTPBasicCredentials  # noqa: E402
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+from slowapi.middleware import SlowAPIMiddleware  # noqa: E402
+from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
+from starlette.responses import Response  # noqa: E402
 
-from backend.core.config import settings
-from backend.core.database import db
-from backend.core.logging_config import request_id_var, setup_logging
-from backend.core.rate_limit import limiter
-from backend.routers import admin, alerts, auth, chat, diagnose, documents, files, patients, qa
-from backend.services.diagnostic_service import DiagnosticService
-from backend.services.embedding_service import EmbeddingModel
-from backend.services.llm_router import LLMRouter
-from backend.services.alert_service import alert_service
-from backend.services.prescription_service import prescription_service
-from backend.services.rag_service import RAGService
+from backend.core.config import settings  # noqa: E402
+from backend.core.csrf import verify_csrf  # noqa: E402
+from backend.core.security_headers import SecurityHeadersMiddleware  # noqa: E402
+from backend.core.database import db  # noqa: E402
+from backend.core.logging_config import request_id_var, setup_logging  # noqa: E402
+from backend.core.rate_limit import limiter  # noqa: E402
+from backend.routers import admin, alerts, auth, chat, diagnose, documents, files, patients, qa  # noqa: E402
+from backend.services.diagnostic_service import DiagnosticService  # noqa: E402
+from backend.services.embedding_service import EmbeddingModel  # noqa: E402
+from backend.services.llm_router import LLMRouter  # noqa: E402
+from backend.services.alert_service import alert_service  # noqa: E402
+from backend.services.prescription_service import prescription_service  # noqa: E402
+from backend.services.rag_service import RAGService  # noqa: E402
 
 # Initialise structured logging before anything else
 setup_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
@@ -138,7 +140,7 @@ def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Re
     return response
 
 
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 app.add_middleware(SlowAPIMiddleware)
 
 # CORS
@@ -150,6 +152,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security headers — registered after CORS so it wraps CORS and runs on every response
+# (Starlette applies middleware in reverse registration order; this becomes the outermost layer)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # Request logging middleware — injects request_id and logs structured HTTP fields (REQ 14.1, 14.2)
@@ -209,6 +215,9 @@ app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(alerts.router, prefix=API_PREFIX)
 app.include_router(admin.router, prefix=API_PREFIX)
 app.include_router(qa.router, prefix=API_PREFIX)
+
+# Apply CSRF validation globally to all routes (Requirements 6.3, 6.4, 6.5)
+app.router.dependencies.append(Depends(verify_csrf))
 
 
 @app.get("/health", tags=["health"])

@@ -15,9 +15,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.models.alert import SafetyAlert
 from backend.models.common import AgeGroup, AlertLevel
-from backend.models.consultation import DifferentialDiagnosis, Prescription, Symptom
+from backend.models.consultation import Prescription, Symptom
 from backend.models.document import DocumentSource, RAGResponse
 from backend.models.patient import Comorbidities, PatientProfile
 from backend.services.alert_service import AlertService
@@ -625,7 +624,6 @@ class TestEndToEndRAGFlow:
         Flux complet : ciprofloxacine contre-indiquée chez l'enfant → alerte CRITIQUE.
         """
         patient = _make_patient(AgeGroup.CHILD, weight_kg=25.0)
-        protocol = ANTIBIOTIC_PROTOCOLS["ciprofloxacin"]
 
         rx_svc = PrescriptionService()
         rx = rx_svc.calculate_prescription("ciprofloxacin", patient)

@@ -283,7 +283,14 @@ async def create_drug_interaction(
 
     await alert_service.reload_interactions()
 
-    return DrugInteractionResponse(**doc)
+    return DrugInteractionResponse(
+        drug_a=data.drug_a.lower().strip(),
+        drug_b=data.drug_b.lower().strip(),
+        level=data.level,
+        message=data.message,
+        created_by=user_id,
+        created_at=now,
+    )
 
 
 # ---------------------------------------------------------------------------

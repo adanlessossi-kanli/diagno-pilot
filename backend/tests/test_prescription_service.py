@@ -360,8 +360,8 @@ class TestAlertServiceInteractions:
 # Property-based test — P14: PrescriptionService priorité DB sur dict codé en dur
 # ---------------------------------------------------------------------------
 
-from hypothesis import given, settings, HealthCheck
-from hypothesis import strategies as st
+from hypothesis import given, settings, HealthCheck  # noqa: E402
+from hypothesis import strategies as st  # noqa: E402
 
 settings.register_profile("ci", max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 settings.load_profile("ci")
