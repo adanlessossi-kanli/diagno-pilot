@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     LLM_FALLBACK_API_KEY: str | None = None
     EMBED_MODEL: str = "text-embedding-ada-002"
     LLM_TIMEOUT: int = 60  # seconds
+    LLM_RETRY_MAX: int = 3
+    LLM_RETRY_BASE_DELAY: float = 1.0
+    LLM_RETRY_MAX_DELAY: float = 30.0
 
     ALLOWED_ORIGINS: str = "*"
     RATE_LIMIT_STORAGE_URI: str = "memory://"

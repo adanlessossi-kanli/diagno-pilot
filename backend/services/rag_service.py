@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -11,6 +13,8 @@ from backend.models.document import DocumentSource, RAGResponse
 from backend.models.patient import PatientProfile
 from backend.services.embedding_service import EmbeddingModel
 from backend.services.llm_router import LLMRouter
+
+logger = logging.getLogger(__name__)
 
 
 class RAGService:
@@ -106,9 +110,14 @@ class RAGService:
         cache_misses_total.labels(cache="rag").inc()
         # --- End cache lookup ---
 
+        # EmbeddingModel.encode exceptions propagate immediately — no fallback.
         query_vector = await self._embedder.encode(question)
 
-        pipeline = [
+        degraded_warning: str | None = None
+        chunks: list[dict[str, Any]] = []
+
+        # --- Vector search (with keyword fallback on failure) ---
+        pipeline: list[dict[str, Any]] = [
             {
                 "$vectorSearch": {
                     "index": self.VECTOR_INDEX,
@@ -128,7 +137,31 @@ class RAGService:
             },
         ]
 
-        chunks = await self._chunks.aggregate(pipeline).to_list(top_k)
+        try:
+            chunks = await self._chunks.aggregate(pipeline).to_list(top_k)
+        except Exception as exc:
+            logger.warning(
+                "Vector Search failed — attempting keyword fallback. error=%s", exc
+            )
+            # Keyword fallback: $text search on content field
+            try:
+                keyword_pipeline: list[dict[str, Any]] = [
+                    {"$match": {"$text": {"$search": question}}},
+                    {"$limit": top_k},
+                ]
+                chunks = await self._chunks.aggregate(keyword_pipeline).to_list(top_k)
+            except Exception:
+                chunks = []
+
+            if chunks:
+                degraded_warning = (
+                    "Vector Search unavailable — response based on keyword retrieval only"
+                )
+            else:
+                degraded_warning = (
+                    "Vector Search and keyword retrieval unavailable"
+                    " — response generated without document context"
+                )
 
         sources = [
             DocumentSource(
@@ -149,12 +182,14 @@ class RAGService:
         for c in chunks:
             llm_context.append({"role": "system", "content": c.get("content", "")})
 
-        answer = await self._llm.generate(question, llm_context)
+        llm_result = await self._llm.generate(question, llm_context)
 
         response = RAGResponse(
-            answer=answer,
+            answer=llm_result.answer,
             sources=sources,
             llm_used=self._llm.last_used or "unknown",
+            fallback_used=llm_result.fallback_used,
+            degraded_warning=degraded_warning,
         )
 
         await cache_service.set(key, response.model_dump_json(), ttl=settings.CACHE_TTL_RAG)

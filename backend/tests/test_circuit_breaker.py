@@ -320,7 +320,7 @@ def test_llm_router_routes_to_fallback_when_circuit_open():
         router._fallback.generate = AsyncMock(return_value="fallback response")
 
         result = await router.generate("test prompt", [])
-        assert result == "fallback response"
+        assert result.answer == "fallback response"
         assert router.last_used == "gpt5"
 
         # Primary must NOT have been called
@@ -354,6 +354,6 @@ def test_llm_router_raises_503_when_both_llms_unavailable():
             await router.generate("test prompt", [])
 
         assert exc_info.value.status_code == 503
-        assert exc_info.value.detail == "llm_unavailable"
+        assert exc_info.value.detail == {"error": "llm_unavailable", "code": "LLM_UNAVAILABLE", "retryable": True}
 
     _run(_run_test())

@@ -46,7 +46,10 @@ Because this is a medical application, every degraded or fallback response MUST 
 7. THE RetryPolicy SHALL be applied independently to the Primary_LLM and to the Fallback_LLM.
 8. WHEN a retry succeeds, THE LLMRouter SHALL log the attempt count and the LLM endpoint that ultimately responded at INFO level.
 9. THE RetryPolicy SHALL expose `max_retries`, `base_delay`, and `max_delay` as configurable settings via environment variables `LLM_RETRY_MAX`, `LLM_RETRY_BASE_DELAY`, and `LLM_RETRY_MAX_DELAY`.
-10. WHILE the total elapsed time for all retry attempts exceeds `LLM_TIMEOUT`, THE RetryPolicy SHALL abort remaining retries and propagate a timeout failure.
+10. WHEN the total elapsed time across all retry attempts combined (not per individual attempt) exceeds `LLM_TIMEOUT`, THE RetryPolicy SHALL abort any remaining retries and propagate a timeout failure; `LLM_TIMEOUT` is not reset between attempts.
+11. WHEN the Fallback_LLM exhausts all retries without a successful response, THE LLMRouter SHALL raise an exception that propagates to the caller as an HTTP 503 response with a structured error body containing `error`, `code`, and `retryable` fields.
+12. WHEN a retry attempt is made, THE RetryPolicy SHALL log the attempt at DEBUG level with structured fields: `attempt_number`, `endpoint_url`, `status_code` (or exception type if no HTTP response was received), and `delay_seconds`.
+13. WHEN the Fallback_LLM exhausts all retries without success, THE LLMRouter SHALL record the failure against the Fallback_LLM's CircuitBreaker.
 
 ---
 
@@ -62,7 +65,7 @@ Because this is a medical application, every degraded or fallback response MUST 
 4. THE RAGResponse model SHALL include a `degraded_warning` field of type `str | None`, defaulting to `None` for fully successful responses.
 5. WHEN `degraded_warning` is not `None`, THE RAGService SHALL log the degradation reason at WARNING level, including the original exception message.
 6. WHEN `degraded_warning` is not `None`, THE API response body for `/api/v1/chat/message` and `/api/v1/diagnose/symptoms` SHALL include the `degraded_warning` value in a top-level `degraded_warning` field.
-7. IF the EmbeddingModel raises an exception during query encoding, THEN THE RAGService SHALL propagate the exception without attempting Vector Search or Keyword_Fallback, and THE LLMRouter SHALL be called with an empty context list.
+7. IF the EmbeddingModel raises an exception during query encoding, THEN THE RAGService SHALL propagate the exception to the caller without attempting Vector Search, Keyword_Fallback, or LLM generation.
 8. THE Keyword_Fallback query SHALL limit results to the same `top_k` value used by the Vector Search query.
 
 ---
@@ -94,7 +97,7 @@ Because this is a medical application, every degraded or fallback response MUST 
 #### Acceptance Criteria
 
 1. WHEN the LLMRouter uses the Fallback_LLM because the Primary_LLM is unavailable, THE LLMRouter SHALL set a `fallback_used` flag to `True` in the response metadata returned to the caller.
-2. WHEN `fallback_used` is `True`, THE API response body for `/api/v1/chat/message` and `/api/v1/diagnose/symptoms` SHALL include a `fallback_warning` field with value `"Réponse générée par le modèle de secours (GPT-5) — vérification clinique recommandée"`.
+2. WHEN `fallback_used` is `True`, THE API response body for `/api/v1/chat/message` and `/api/v1/diagnose/symptoms` SHALL include a `fallback_warning` field with value `"Réponse générée par le modèle de secours (GPT-5) — vérification clinique recommandée"`. Note: this string is the canonical value for the `fr` locale; localization of warning strings is out of scope for this feature.
 3. WHEN both `fallback_used` is `True` and `degraded_warning` is not `None`, THE API response body SHALL include both `fallback_warning` and `degraded_warning` fields.
 4. THE DiagnosticService and ChatService SHALL propagate `fallback_used` and `degraded_warning` from the LLMRouter and RAGService respectively to the API response layer without modification.
 5. IF a response carries any warning field (`fallback_warning` or `degraded_warning`), THEN THE API response body SHALL include a top-level `warnings_present` boolean field set to `True`.

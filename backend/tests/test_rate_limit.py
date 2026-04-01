@@ -95,7 +95,10 @@ def test_p3a_diagnose_symptoms_rate_limit_429(user_id: str):
 
         # Mock DiagnosticService to avoid LLM/DB calls
         mock_diag_service = MagicMock()
-        mock_diag_service.get_differential_diagnosis = AsyncMock(return_value=[])
+        from backend.services.diagnostic_service import DiagnosticResult
+        mock_diag_service.get_differential_diagnosis = AsyncMock(
+            return_value=DiagnosticResult(diagnoses=[], fallback_used=False, degraded_warning=None)
+        )
 
         # Mock DB insert for consultations
         mock_collection = MagicMock()
@@ -256,7 +259,10 @@ def test_p3c_rate_limit_isolation_between_users(user_id_a: str, user_id_b: str):
             return current_token_holder["doc"]
 
         mock_diag_service = MagicMock()
-        mock_diag_service.get_differential_diagnosis = AsyncMock(return_value=[])
+        from backend.services.diagnostic_service import DiagnosticResult
+        mock_diag_service.get_differential_diagnosis = AsyncMock(
+            return_value=DiagnosticResult(diagnoses=[], fallback_used=False, degraded_warning=None)
+        )
 
         mock_collection = MagicMock()
         mock_collection.insert_one = AsyncMock(return_value=MagicMock(inserted_id=ObjectId()))

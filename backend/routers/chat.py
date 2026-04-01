@@ -15,6 +15,8 @@ from backend.services.rag_service import RAGService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+FALLBACK_WARNING = "Réponse générée par le modèle de secours (GPT-5) — vérification clinique recommandée"
+
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -31,6 +33,9 @@ class ChatMessageResponse(BaseModel):
     answer: str
     sources: list[DocumentSource]
     llm_used: str
+    fallback_warning: str | None = None
+    degraded_warning: str | None = None
+    warnings_present: bool = False
 
 
 class ChatHistoryResponse(BaseModel):
@@ -87,11 +92,17 @@ async def send_message(
         user_id=str(current_user["_id"]),
     )
 
+    fallback_warning = FALLBACK_WARNING if rag_response.fallback_used else None
+    warnings_present = bool(fallback_warning or rag_response.degraded_warning)
+
     return ChatMessageResponse(
         session_id=session_id,
         answer=rag_response.answer,
         sources=rag_response.sources,
         llm_used=rag_response.llm_used,
+        fallback_warning=fallback_warning,
+        degraded_warning=rag_response.degraded_warning,
+        warnings_present=warnings_present,
     )
 
 

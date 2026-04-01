@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from backend.models.consultation import DifferentialDiagnosis, Symptom
 from backend.models.patient import PatientProfile
@@ -10,6 +11,14 @@ from backend.services.prompt_builder import PromptBuilder
 from backend.services.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DiagnosticResult:
+    """Return value of DiagnosticOrchestrator.get_differential_diagnosis."""
+    diagnoses: list[DifferentialDiagnosis]
+    fallback_used: bool
+    degraded_warning: str | None
 
 
 class DiagnosticOrchestrator:
@@ -41,7 +50,7 @@ class DiagnosticOrchestrator:
         self,
         symptoms: list[Symptom],
         patient_profile: PatientProfile | None = None,
-    ) -> list[DifferentialDiagnosis]:
+    ) -> DiagnosticResult:
         """Return at least 3 differential diagnoses for the given symptoms.
 
         End-to-end flow:
@@ -59,8 +68,8 @@ class DiagnosticOrchestrator:
             patient_profile: Optional patient profile to personalise the results.
 
         Returns:
-            List of at least 3 DifferentialDiagnosis objects ordered by
-            descending probability (or 3 placeholders on LLM failure).
+            DiagnosticResult with diagnoses, fallback_used, and degraded_warning
+            propagated unchanged from RAGService.
 
         Raises:
             HTTPException: Propagated from RAGService if the LLM is unavailable.
@@ -71,7 +80,12 @@ class DiagnosticOrchestrator:
             context=patient_profile,
             top_k=5,
         )
-        return self._diagnostic_parser.parse(rag_response.answer)
+        diagnoses = self._diagnostic_parser.parse(rag_response.answer)
+        return DiagnosticResult(
+            diagnoses=diagnoses,
+            fallback_used=rag_response.fallback_used,
+            degraded_warning=rag_response.degraded_warning,
+        )
 
 
 # Backward-compatibility alias — all existing import sites continue to work.

@@ -21,7 +21,7 @@ from hypothesis import strategies as st
 from backend.models.consultation import DifferentialDiagnosis, Symptom
 from backend.models.document import RAGResponse
 from backend.models.patient import PatientProfile
-from backend.services.diagnostic_service import DiagnosticOrchestrator
+from backend.services.diagnostic_service import DiagnosticOrchestrator, DiagnosticResult
 
 # ---------------------------------------------------------------------------
 # Strategies — reuse patterns from test_diagnostic_property.py
@@ -91,15 +91,15 @@ def test_p8_orchestrator_always_returns_at_least_3_diagnoses(
 
     orchestrator = DiagnosticOrchestrator(rag_service=mock_rag)
 
-    result: list[DifferentialDiagnosis] = asyncio.run(
+    result: DiagnosticResult = asyncio.run(
         orchestrator.get_differential_diagnosis(symptoms, patient_profile)
     )
 
-    assert len(result) >= 3, (
-        f"Expected at least 3 diagnoses, got {len(result)}"
+    assert len(result.diagnoses) >= 3, (
+        f"Expected at least 3 diagnoses, got {len(result.diagnoses)}"
     )
 
-    for diag in result:
+    for diag in result.diagnoses:
         assert 0.0 <= diag.probability <= 1.0, (
             f"Probability {diag.probability!r} out of range for condition {diag.condition!r}"
         )

@@ -17,6 +17,8 @@ from backend.services.diagnostic_service import DiagnosticService
 from backend.services.prescription_service import prescription_service
 from pydantic import BaseModel
 
+FALLBACK_WARNING = "Réponse générée par le modèle de secours (GPT-5) — vérification clinique recommandée"
+
 router = APIRouter(prefix="/diagnose", tags=["diagnose"])
 
 
@@ -33,6 +35,9 @@ class DiagnoseRequest(BaseModel):
 class DiagnoseResponse(BaseModel):
     session_id: str
     diagnoses: list[DifferentialDiagnosis]
+    fallback_warning: str | None = None
+    degraded_warning: str | None = None
+    warnings_present: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +71,7 @@ async def diagnose_symptoms(
     DiagnosticService to generate differential diagnoses, persists the session
     in MongoDB, and returns the session_id together with the diagnoses.
     """
-    diagnoses = await diagnostic_service.get_differential_diagnosis(
+    result = await diagnostic_service.get_differential_diagnosis(
         symptoms=body.symptoms,
         patient_profile=body.patient_profile,
     )
@@ -80,7 +85,7 @@ async def diagnose_symptoms(
         "patient_id": None,
         "user_id": ObjectId(str(current_user["_id"])),
         "symptoms": [s.model_dump() for s in body.symptoms],
-        "diagnoses": [d.model_dump() for d in diagnoses],
+        "diagnoses": [d.model_dump() for d in result.diagnoses],
         "prescription": None,
         "alerts": [],
         "llm_used": None,
@@ -91,7 +96,16 @@ async def diagnose_symptoms(
     database = db.get_db()
     await database["consultations"].insert_one(doc)
 
-    return DiagnoseResponse(session_id=session_id, diagnoses=diagnoses)
+    fallback_warning = FALLBACK_WARNING if result.fallback_used else None
+    warnings_present = bool(fallback_warning or result.degraded_warning)
+
+    return DiagnoseResponse(
+        session_id=session_id,
+        diagnoses=result.diagnoses,
+        fallback_warning=fallback_warning,
+        degraded_warning=result.degraded_warning,
+        warnings_present=warnings_present,
+    )
 
 
 @router.get(

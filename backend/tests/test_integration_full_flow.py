@@ -303,6 +303,7 @@ class TestDiagnoseSymptoms:
     def _make_rag_mock(self, llm_answer: str | None = None) -> MagicMock:
         """Build a mock DiagnosticService that returns 3 diagnoses."""
         from backend.models.consultation import DifferentialDiagnosis
+        from backend.services.diagnostic_service import DiagnosticResult
 
         diagnoses = [
             DifferentialDiagnosis(condition="Paludisme", probability=0.80, icd_code="B54"),
@@ -310,7 +311,9 @@ class TestDiagnoseSymptoms:
             DifferentialDiagnosis(condition="Dengue", probability=0.40, icd_code="A90"),
         ]
         mock_service = MagicMock()
-        mock_service.get_differential_diagnosis = AsyncMock(return_value=diagnoses)
+        mock_service.get_differential_diagnosis = AsyncMock(
+            return_value=DiagnosticResult(diagnoses=diagnoses, fallback_used=False, degraded_warning=None)
+        )
         return mock_service
 
     async def test_diagnose_symptoms_returns_diagnoses(self):
@@ -744,6 +747,7 @@ class TestFullFlow:
         """
         from backend.main import app
         from backend.models.consultation import DifferentialDiagnosis
+        from backend.services.diagnostic_service import DiagnosticResult
 
         user_doc = _make_user_doc(password="password123")
         audit_col = _make_audit_collection()
@@ -762,7 +766,9 @@ class TestFullFlow:
             DifferentialDiagnosis(condition="Dengue", probability=0.40, icd_code="A90"),
         ]
         mock_diag_service = MagicMock()
-        mock_diag_service.get_differential_diagnosis = AsyncMock(return_value=diagnoses)
+        mock_diag_service.get_differential_diagnosis = AsyncMock(
+            return_value=DiagnosticResult(diagnoses=diagnoses, fallback_used=False, degraded_warning=None)
+        )
 
         from backend.routers.diagnose import get_diagnostic_service
         app.dependency_overrides[get_diagnostic_service] = lambda: mock_diag_service
@@ -846,6 +852,7 @@ class TestFullFlow:
         """
         from backend.main import app
         from backend.models.consultation import DifferentialDiagnosis
+        from backend.services.diagnostic_service import DiagnosticResult
 
         user_doc = _make_user_doc(password="password123")
         audit_col = _make_audit_collection()
@@ -859,7 +866,9 @@ class TestFullFlow:
             DifferentialDiagnosis(condition="Dengue", probability=0.40, icd_code="A90"),
         ]
         mock_diag_service = MagicMock()
-        mock_diag_service.get_differential_diagnosis = AsyncMock(return_value=diagnoses)
+        mock_diag_service.get_differential_diagnosis = AsyncMock(
+            return_value=DiagnosticResult(diagnoses=diagnoses, fallback_used=False, degraded_warning=None)
+        )
 
         from backend.routers.diagnose import get_diagnostic_service
         app.dependency_overrides[get_diagnostic_service] = lambda: mock_diag_service

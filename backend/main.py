@@ -5,6 +5,7 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -237,19 +238,114 @@ app.include_router(qa.router, prefix=API_PREFIX)
 app.router.dependencies.append(Depends(verify_csrf))
 
 
+_PROBE_TIMEOUT = 5.0  # seconds
+
+
+async def _probe_llm_primary() -> str:
+    """Probe the primary LLM endpoint. Returns 'ok', 'not_configured', or 'unreachable: <reason>'."""
+    url = settings.LLM_PRIMARY_URL
+    if not url:
+        return "not_configured"
+    try:
+        async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
+            resp = await client.get(f"{url.rstrip('/')}/models")
+            resp.raise_for_status()
+        return "ok"
+    except Exception as exc:
+        logger.warning("Health probe failed for llm_primary: %s", exc)
+        return f"unreachable: {exc}"
+
+
+async def _probe_llm_fallback() -> str:
+    """Probe the fallback LLM endpoint. Returns 'ok', 'not_configured', or 'unreachable: <reason>'."""
+    url = settings.LLM_FALLBACK_URL
+    if not url:
+        return "not_configured"
+    try:
+        async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
+            resp = await client.get(f"{url.rstrip('/')}/models")
+            resp.raise_for_status()
+        return "ok"
+    except Exception as exc:
+        logger.warning("Health probe failed for llm_fallback: %s", exc)
+        return f"unreachable: {exc}"
+
+
+async def _probe_embedding() -> str:
+    """Probe the embedding endpoint. Returns 'ok', 'not_configured', or 'unreachable: <reason>'."""
+    url = settings.LLM_PRIMARY_URL  # embedding reuses the primary LLM URL
+    if not url:
+        return "not_configured"
+    try:
+        async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
+            resp = await client.get(f"{url.rstrip('/')}/models")
+            resp.raise_for_status()
+        return "ok"
+    except Exception as exc:
+        logger.warning("Health probe failed for embedding: %s", exc)
+        return f"unreachable: {exc}"
+
+
 @app.get("/health", tags=["health"])
 async def health():
+    # Run all four probes concurrently
+    db_status_result, redis_ok, llm_primary_status, llm_fallback_status, embedding_status = (
+        await asyncio.gather(
+            _probe_mongo(),
+            cache_service.ping(),
+            _probe_llm_primary(),
+            _probe_llm_fallback(),
+            _probe_embedding(),
+            return_exceptions=True,
+        )
+    )
+
+    # Handle exceptions from gather (treat as failures)
+    if isinstance(db_status_result, Exception):
+        db_status = f"unreachable: {db_status_result}"
+    else:
+        db_status = db_status_result
+
+    if isinstance(redis_ok, Exception) or not redis_ok:
+        redis_status = "degraded"
+        redis_ok_bool = False
+    else:
+        redis_status = "ok"
+        redis_ok_bool = True
+
+    if isinstance(llm_primary_status, Exception):
+        llm_primary_status = f"unreachable: {llm_primary_status}"
+    if isinstance(llm_fallback_status, Exception):
+        llm_fallback_status = f"unreachable: {llm_fallback_status}"
+    if isinstance(embedding_status, Exception):
+        embedding_status = f"unreachable: {embedding_status}"
+
+    all_ok = (
+        db_status == "ok"
+        and redis_ok_bool
+        and llm_primary_status == "ok"
+        and llm_fallback_status == "ok"
+        and embedding_status == "ok"
+    )
+    overall = "ok" if all_ok else "degraded"
+
+    return {
+        "status": overall,
+        "db": db_status,
+        "redis": redis_status,
+        "llm_primary": llm_primary_status,
+        "llm_fallback": llm_fallback_status,
+        "embedding": embedding_status,
+    }
+
+
+async def _probe_mongo() -> str:
+    """Probe MongoDB. Returns 'ok' or 'unreachable: <reason>'."""
     try:
         await db.get_db().client.admin.command("ping")
-        db_status = "ok"
+        return "ok"
     except Exception as exc:
-        db_status = f"unreachable: {exc}"
-
-    redis_ok = await cache_service.ping()
-    redis_status = "ok" if redis_ok else "degraded"
-
-    overall = "ok" if db_status == "ok" and redis_ok else "degraded"
-    return {"status": overall, "db": db_status, "redis": redis_status}
+        return f"unreachable: {exc}"
 
 
 # ---------------------------------------------------------------------------

@@ -29,3 +29,5 @@ class RAGResponse(BaseModel):
     sources: list[DocumentSource]
     llm_used: str
     confidence: float | None = None
+    degraded_warning: str | None = None
+    fallback_used: bool = False

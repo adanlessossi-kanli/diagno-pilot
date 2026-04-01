@@ -98,8 +98,9 @@ def _make_rag_service(
     mock_embedder = MagicMock()
     mock_embedder.encode = AsyncMock(return_value=[0.1] * 1536)
 
+    from backend.services.llm_router import LLMResult
     mock_llm = MagicMock()
-    mock_llm.generate = AsyncMock(return_value=llm_answer)
+    mock_llm.generate = AsyncMock(return_value=LLMResult(answer=llm_answer, fallback_used=False))
     mock_llm.last_used = "qwen3"
 
     service = RAGService(
@@ -129,7 +130,7 @@ class TestDiagnosticFlow:
 
         result = asyncio.run(service.get_differential_diagnosis(symptoms))
 
-        assert len(result) >= 3
+        assert len(result.diagnoses) >= 3
 
     def test_diagnoses_have_probability_scores(self):
         """Chaque diagnostic possède un score de probabilité entre 0 et 1."""
@@ -139,7 +140,7 @@ class TestDiagnosticFlow:
 
         result = asyncio.run(service.get_differential_diagnosis(symptoms))
 
-        for diag in result:
+        for diag in result.diagnoses:
             assert 0.0 <= diag.probability <= 1.0, (
                 f"Probabilité hors plage pour {diag.condition!r}: {diag.probability}"
             )
@@ -152,7 +153,7 @@ class TestDiagnosticFlow:
 
         result = asyncio.run(service.get_differential_diagnosis(symptoms))
 
-        probabilities = [d.probability for d in result]
+        probabilities = [d.probability for d in result.diagnoses]
         assert probabilities == sorted(probabilities, reverse=True)
 
     def test_diagnoses_have_icd_codes(self):
@@ -163,7 +164,7 @@ class TestDiagnosticFlow:
 
         result = asyncio.run(service.get_differential_diagnosis(symptoms))
 
-        icd_codes = [d.icd_code for d in result if d.icd_code]
+        icd_codes = [d.icd_code for d in result.diagnoses if d.icd_code]
         assert len(icd_codes) >= 1, "Au moins un code CIM-10 attendu"
 
     def test_patient_profile_influences_prompt(self):
@@ -179,7 +180,7 @@ class TestDiagnosticFlow:
 
         # RAG query must have been called
         rag._llm.generate.assert_called_once()
-        assert len(result) >= 3
+        assert len(result.diagnoses) >= 3
 
     def test_fallback_when_llm_returns_invalid_json(self):
         """En cas de réponse LLM invalide, le service retourne 3 diagnostics de secours."""
@@ -189,7 +190,7 @@ class TestDiagnosticFlow:
 
         result = asyncio.run(service.get_differential_diagnosis(symptoms))
 
-        assert len(result) >= 3
+        assert len(result.diagnoses) >= 3
 
 
 # ---------------------------------------------------------------------------
@@ -548,8 +549,8 @@ class TestEndToEndRAGFlow:
         diagnoses = asyncio.run(
             diag_svc.get_differential_diagnosis(symptoms, patient_profile=patient)
         )
-        assert len(diagnoses) >= 3
-        assert all(0.0 <= d.probability <= 1.0 for d in diagnoses)
+        assert len(diagnoses.diagnoses) >= 3
+        assert all(0.0 <= d.probability <= 1.0 for d in diagnoses.diagnoses)
 
         # Step 2: Prescription (REQ-03)
         rx_svc = PrescriptionService()
@@ -585,7 +586,7 @@ class TestEndToEndRAGFlow:
         diagnoses = asyncio.run(
             diag_svc.get_differential_diagnosis(symptoms, patient_profile=patient)
         )
-        assert len(diagnoses) >= 3
+        assert len(diagnoses.diagnoses) >= 3
 
         # Step 2: Prescription (REQ-03) — dose adulte
         rx_svc = PrescriptionService()
