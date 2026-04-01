@@ -177,7 +177,7 @@ async def create_prescription(
     Returns the prescription together with any safety alerts.
     """
     try:
-        rx = prescription_service.calculate_prescription(
+        rx = await prescription_service.calculate_prescription(
             antibiotic=body.antibiotic,
             patient=body.patient_profile,
         )

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 import traceback
@@ -18,6 +19,7 @@ from slowapi.middleware import SlowAPIMiddleware  # noqa: E402
 from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
 from starlette.responses import Response  # noqa: E402
 
+from backend.core.cache import cache_service  # noqa: E402
 from backend.core.config import settings  # noqa: E402
 from backend.core.csrf import verify_csrf  # noqa: E402
 from backend.core.security_headers import SecurityHeadersMiddleware  # noqa: E402
@@ -37,8 +39,30 @@ setup_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
+async def _warm_up_cache() -> None:
+    """Pre-populate Redis with protocols and interactions (non-blocking background task).
+
+    Runs with a 10-second timeout. On timeout or any other error the application
+    continues with a cold cache — warm-up failures are never fatal.
+    """
+    try:
+        async with asyncio.timeout(10):
+            await prescription_service.load_protocols_from_db()
+            await alert_service.load_interactions_from_db()
+    except TimeoutError:
+        logger.warning("Cache warm-up timed out after 10 s; starting with cold cache")
+    except Exception:
+        logger.error("Cache warm-up failed; starting with cold cache", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Connect CacheService first (non-blocking — enters degraded mode if Redis is down)
+    await cache_service.connect()
+
+    # Fire warm-up as a background task so the app starts serving immediately
+    asyncio.create_task(_warm_up_cache())
+
     try:
         await db.connect()
     except RuntimeError as exc:
@@ -95,15 +119,8 @@ async def lifespan(app: FastAPI):
     app.state.diagnostic_service = DiagnosticService(rag_service=rag)
     logger.info("DiagnosticService singleton initialised")
 
-    # Load antibiotic protocols from MongoDB (REQ 11.4, 11.5)
-    await prescription_service.load_protocols_from_db()
-    logger.info("PrescriptionService protocols loaded")
-
-    # Load drug interactions from MongoDB (REQ 12.1, 12.5)
-    await alert_service.load_interactions_from_db()
-    logger.info("AlertService drug interactions loaded")
-
     yield
+    await cache_service.disconnect()
     await db.disconnect()
     logger.info("MongoDB disconnected")
 
@@ -227,7 +244,12 @@ async def health():
         db_status = "ok"
     except Exception as exc:
         db_status = f"unreachable: {exc}"
-    return {"status": "ok" if db_status == "ok" else "degraded", "db": db_status}
+
+    redis_ok = await cache_service.ping()
+    redis_status = "ok" if redis_ok else "degraded"
+
+    overall = "ok" if db_status == "ok" and redis_ok else "degraded"
+    return {"status": overall, "db": db_status, "redis": redis_status}
 
 
 # ---------------------------------------------------------------------------

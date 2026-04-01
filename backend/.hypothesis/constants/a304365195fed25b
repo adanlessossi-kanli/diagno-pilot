@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\main.py
+# hypothesis_version: 6.151.9
+
+[401, 429, 500, 1000, 1536, '%s %s %s', '*', '/api/v1', '/health', '/metrics', '0.1.0', '60', ':', 'Diagno-Pilot API', 'MongoDB connected', 'MongoDB disconnected', 'Retry-After', 'Startup failed — %s', 'Unauthorized', 'Unhandled error: %s', 'WWW-Authenticate', 'cosine', 'created_at', 'created_by', 'db', 'definition', 'degraded', 'detail', 'document_chunks', 'duration_ms', 'embedding', 'embedding_index', 'error', 'fields', 'health', 'http', 'method', 'name', 'numDimensions', 'ok', 'path', 'patients', 'ping', 'redis', 'similarity', 'stack_trace', 'status', 'status_code', 'type', 'vector', 'vectorSearch', 'view_rate_limit']

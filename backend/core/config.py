@@ -30,7 +30,28 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "json"  # "json" | "text"
     METRICS_AUTH: str = ""  # "user:password" for /metrics Basic Auth
 
+    # Cache / Redis settings
+    REDIS_URL: str = "redis://localhost:6379/0"
+    CACHE_TTL_PROTOCOLS: int = 3600
+    CACHE_TTL_INTERACTIONS: int = 3600
+    CACHE_TTL_EMBEDDINGS: int = 86400
+    CACHE_TTL_RAG: int = 300
+    CACHE_KEY_VERSION: str = "v1"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def set_rate_limit_storage(self) -> "Settings":
+        # Only migrate when REDIS_URL was explicitly provided (env var or kwarg),
+        # not when it is just the class default. This prevents slowapi from
+        # attempting a Redis connection in environments where Redis is not configured.
+        if (
+            self.RATE_LIMIT_STORAGE_URI == "memory://"
+            and self.REDIS_URL
+            and "REDIS_URL" in self.model_fields_set
+        ):
+            self.RATE_LIMIT_STORAGE_URI = self.REDIS_URL
+        return self
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":

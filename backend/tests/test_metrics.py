@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from httpx import AsyncClient, ASGITransport
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 from prometheus_client import CollectorRegistry, Counter
@@ -131,3 +133,32 @@ def test_p19_fallback_success_does_not_affect_primary_error_counter(n_failures: 
         )
 
     asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_run_test())
+
+
+# ---------------------------------------------------------------------------
+# Unit test — /metrics endpoint exposes cache metrics (Task 11.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint_contains_cache_metrics():
+    """Assert /metrics response body contains cache_hits_total, cache_misses_total, cache_degraded.
+
+    **Validates: Requirements 8.4**
+    """
+    # Import cache module to ensure metrics are registered in the default registry
+    import backend.core.cache  # noqa: F401
+
+    from backend.main import app
+
+    # METRICS_AUTH is not set in .env so unauthenticated access is allowed
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/metrics")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "cache_hits_total" in body, "cache_hits_total not found in /metrics output"
+    assert "cache_misses_total" in body, "cache_misses_total not found in /metrics output"
+    assert "cache_degraded" in body, "cache_degraded not found in /metrics output"

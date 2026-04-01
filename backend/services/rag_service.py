@@ -1,8 +1,12 @@
 """RAGService — retrieval-augmented generation over MongoDB Atlas Vector Search."""
 from __future__ import annotations
 
+import hashlib
+
 from motor.motor_asyncio import AsyncIOMotorClient
 
+from backend.core.cache import cache_hits_total, cache_misses_total, cache_service
+from backend.core.config import settings
 from backend.models.document import DocumentSource, RAGResponse
 from backend.models.patient import PatientProfile
 from backend.services.embedding_service import EmbeddingModel
@@ -85,6 +89,23 @@ class RAGService:
               produced the answer (primary or fallback), as reported by
               :class:`~backend.services.llm_router.LLMRouter`.
         """
+        # --- Cache lookup ---
+        q_hash = hashlib.sha256(question.encode()).hexdigest()
+        if context is not None:
+            ctx_hash = hashlib.sha256(context.model_dump_json().encode()).hexdigest()
+            identifier = f"{q_hash}:{ctx_hash}"
+        else:
+            identifier = q_hash
+        key = cache_service.make_key("rag", identifier)
+
+        cached = await cache_service.get(key)
+        if cached is not None:
+            cache_hits_total.labels(cache="rag").inc()
+            return RAGResponse.model_validate_json(cached)
+
+        cache_misses_total.labels(cache="rag").inc()
+        # --- End cache lookup ---
+
         query_vector = await self._embedder.encode(question)
 
         pipeline = [
@@ -130,8 +151,11 @@ class RAGService:
 
         answer = await self._llm.generate(question, llm_context)
 
-        return RAGResponse(
+        response = RAGResponse(
             answer=answer,
             sources=sources,
             llm_used=self._llm.last_used or "unknown",
         )
+
+        await cache_service.set(key, response.model_dump_json(), ttl=settings.CACHE_TTL_RAG)
+        return response

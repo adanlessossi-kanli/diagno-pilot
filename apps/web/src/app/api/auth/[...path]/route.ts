@@ -40,7 +40,16 @@ async function proxyToBackend(request: NextRequest, path: string[]): Promise<Nex
     init.body = await request.text();
   }
 
-  const backendResp = await fetch(url, init);
+  let backendResp: Response;
+  try {
+    backendResp = await fetch(url, init);
+  } catch (err) {
+    console.error(`[auth-proxy] Failed to reach backend at ${url}:`, err);
+    return NextResponse.json(
+      { detail: 'Backend unavailable' },
+      { status: 503 },
+    );
+  }
 
   const contentType = backendResp.headers.get('content-type') ?? '';
   const body = contentType.includes('application/json')

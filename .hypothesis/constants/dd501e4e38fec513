@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\documents.py
+# hypothesis_version: 6.151.9
+
+['*', '.', '/documents', '/upload', '/{document_id}', 'admin', 'delete_document', 'documents', 'rag', 'upload_document']

@@ -9,14 +9,19 @@ Endpoints:
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from backend.core.auth import audit_dependency, get_current_user, require_role
+from backend.core.cache import cache_service
 from backend.core.database import db
 from backend.models.document import MedicalDocument
 from backend.services.document_service import SUPPORTED_FORMATS, DocumentService
 from backend.services.embedding_service import EmbeddingModel
 from backend.services.s3_service import s3_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -63,6 +68,9 @@ async def upload_document(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+    flushed = await cache_service.flush_pattern(cache_service.make_key("rag", "*"))
+    logger.info("Flushed %d RAG cache entries after document upload", flushed)
 
     return doc
 

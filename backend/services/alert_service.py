@@ -11,6 +11,7 @@ REQ 12: Drug interactions loaded from MongoDB `drug_interactions` collection at 
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from backend.models.alert import SafetyAlert
@@ -129,6 +130,15 @@ class AlertService:
                 "AlertService: loaded %d drug interactions from MongoDB",
                 len(self._interactions_cache),
             )
+            # Store full list in Redis cache
+            from backend.core.cache import cache_service
+            from backend.core.config import settings as _settings
+            key = cache_service.make_key("drug_interactions", "all")
+            await cache_service.set(
+                key,
+                json.dumps(list(self._interactions_cache)),
+                ttl=_settings.CACHE_TTL_INTERACTIONS,
+            )
         else:
             self._interactions_cache = list(_DRUG_INTERACTIONS)
             logger.warning(
@@ -139,7 +149,27 @@ class AlertService:
 
     async def reload_interactions(self) -> None:
         """Hot-reload drug interactions from MongoDB without restarting the service (REQ 12.3)."""
+        from backend.core.cache import cache_service
+        key = cache_service.make_key("drug_interactions", "all")
+        await cache_service.delete(key)
         await self.load_interactions_from_db()
+
+    async def _get_interactions(self) -> list[tuple[str, str, str]]:
+        """Return the interaction list, checking Redis first then in-process cache.
+
+        Lookup order:
+            1. Redis cache — key ``v1:drug_interactions:all``
+            2. In-process list (``self._interactions_cache``)
+        """
+        from backend.core.cache import cache_service
+        cache_key = cache_service.make_key("drug_interactions", "all")
+        raw = await cache_service.get(cache_key)
+        if raw is not None:
+            try:
+                return [tuple(item) for item in json.loads(raw)]  # type: ignore[return-value]
+            except Exception:
+                pass  # fall through to in-process list
+        return self._interactions_cache
 
     async def check_prescription(
         self,
@@ -179,8 +209,9 @@ class AlertService:
         """
         alerts: list[SafetyAlert] = []
 
+        interactions = await self._get_interactions()
         alerts.extend(self._check_allergies(prescription, patient))
-        alerts.extend(self._check_interactions(prescription, patient))
+        alerts.extend(self._check_interactions(prescription, patient, interactions))
         alerts.extend(self._check_age_contraindications(prescription, patient))
         alerts.extend(self._check_organ_failure(prescription, patient))
 
@@ -248,6 +279,7 @@ class AlertService:
         self,
         prescription: Prescription,
         patient: PatientProfile,
+        interactions: list[tuple[str, str, str]] | None = None,
     ) -> list[SafetyAlert]:
         """Check for known drug interactions between the prescription and current medications.
 
@@ -279,9 +311,10 @@ class AlertService:
         alerts: list[SafetyAlert] = []
         drug_lower = prescription.antibiotic.lower()
 
+        interaction_list = interactions if interactions is not None else self._interactions_cache
         for med in patient.current_medications:
             med_lower = med.lower()
-            for drug_a, drug_b, message in self._interactions_cache:
+            for drug_a, drug_b, message in interaction_list:
                 # Symmetric check: match regardless of which is drug_a or drug_b
                 if (drug_lower == drug_a and drug_b in med_lower) or (
                     drug_lower == drug_b and drug_a in med_lower

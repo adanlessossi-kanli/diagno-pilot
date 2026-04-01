@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\prescription_service.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.25, 0.5, 0.75, 1.0, 4.0, 5.0, 10.0, 20.0, 30.0, 45.0, 48.0, 50.0, 200.0, 240.0, 500.0, 1500.0, 1920.0, 2000.0, 2625.0, 3000.0, '*', '1x/day', '2x/day', '3x/day', '4x/day', 'IV', 'adult_max_dose_mg', 'alternative', 'amoxicillin', 'antibiotic_protocols', 'azithromycin', 'ceftriaxone', 'ciprofloxacin', 'cotrimoxazole', 'doxycycline', 'duration_days', 'frequency', 'gentamicin', 'metronidazole', 'name', 'oral', 'penicillin-v', 'protocol', 'route', 'unknown_antibiotic']

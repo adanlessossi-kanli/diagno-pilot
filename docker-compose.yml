@@ -41,6 +41,7 @@ services:
       - EMBED_MODEL=${EMBED_MODEL}
       - JWT_SECRET=${JWT_SECRET}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/workspace/backend
     depends_on:
@@ -50,6 +51,8 @@ services:
         condition: service_completed_successfully
       localstack:
         condition: service_started
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -70,12 +73,25 @@ services:
         condition: service_healthy
     restart: "no"
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   mongo:
     image: mongodb/mongodb-atlas-local:latest
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+      - mongo_configdb:/data/configdb
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping').ok", "--quiet"]
       interval: 5s
@@ -95,6 +111,8 @@ services:
 
 volumes:
   mongo_data:
+  mongo_configdb:
   localstack_data:
+  redis_data:
   web_node_modules:
   web_next_cache:

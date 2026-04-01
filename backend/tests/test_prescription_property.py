@@ -86,7 +86,7 @@ def test_paediatric_dose_never_exceeds_adult_max(
     service = PrescriptionService()
     patient = _make_paediatric_patient(age_group, weight_kg)
 
-    rx = service.calculate_prescription(antibiotic=antibiotic, patient=patient)
+    rx = asyncio.run(service.calculate_prescription(antibiotic=antibiotic, patient=patient))
 
     # The dose must never exceed the adult maximum
     assert rx.dose_mg <= protocol.adult_max_dose_mg, (

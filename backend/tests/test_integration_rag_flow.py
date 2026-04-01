@@ -204,7 +204,7 @@ class TestPrescriptionFlow:
         service = PrescriptionService()
         patient = _make_patient(AgeGroup.ADULT, 70.0)
 
-        rx = service.calculate_prescription("amoxicillin", patient)
+        rx = asyncio.run(service.calculate_prescription("amoxicillin", patient))
 
         assert rx.antibiotic == "amoxicillin"
         assert rx.dose_mg > 0
@@ -218,7 +218,7 @@ class TestPrescriptionFlow:
         patient = _make_patient(AgeGroup.CHILD, weight_kg=20.0)
         protocol = ANTIBIOTIC_PROTOCOLS["amoxicillin"]
 
-        rx = service.calculate_prescription("amoxicillin", patient)
+        rx = asyncio.run(service.calculate_prescription("amoxicillin", patient))
 
         expected_dose = protocol.paediatric_dose_per_kg * 20.0
         assert rx.dose_mg == pytest.approx(expected_dose)
@@ -231,7 +231,7 @@ class TestPrescriptionFlow:
         # 80 kg child: 50 mg/kg × 80 = 4000 mg > 3000 mg adult max
         patient = _make_patient(AgeGroup.CHILD, weight_kg=80.0)
 
-        rx = service.calculate_prescription("amoxicillin", patient)
+        rx = asyncio.run(service.calculate_prescription("amoxicillin", patient))
 
         assert rx.dose_mg == ANTIBIOTIC_PROTOCOLS["amoxicillin"].adult_max_dose_mg
         assert rx.is_capped_to_adult_dose is True
@@ -242,7 +242,7 @@ class TestPrescriptionFlow:
         patient = _make_patient(AgeGroup.ADULT, 70.0, renal_failure=True)
         protocol = ANTIBIOTIC_PROTOCOLS["amoxicillin"]
 
-        rx = service.calculate_prescription("amoxicillin", patient)
+        rx = asyncio.run(service.calculate_prescription("amoxicillin", patient))
 
         expected = protocol.adult_max_dose_mg * protocol.renal_adjustment_factor
         assert rx.dose_mg == pytest.approx(expected)
@@ -253,7 +253,7 @@ class TestPrescriptionFlow:
         patient = _make_patient(AgeGroup.ADULT, 70.0, hepatic_failure=True)
         protocol = ANTIBIOTIC_PROTOCOLS["metronidazole"]
 
-        rx = service.calculate_prescription("metronidazole", patient)
+        rx = asyncio.run(service.calculate_prescription("metronidazole", patient))
 
         expected = protocol.adult_max_dose_mg * protocol.hepatic_adjustment_factor
         assert rx.dose_mg == pytest.approx(expected)
@@ -264,7 +264,7 @@ class TestPrescriptionFlow:
         patient = _make_patient(AgeGroup.NEONATAL, weight_kg=3.5)
         protocol = ANTIBIOTIC_PROTOCOLS["amoxicillin"]
 
-        rx = service.calculate_prescription("amoxicillin", patient)
+        rx = asyncio.run(service.calculate_prescription("amoxicillin", patient))
 
         assert rx.dose_mg == pytest.approx(protocol.paediatric_dose_per_kg * 3.5)
 
@@ -553,7 +553,7 @@ class TestEndToEndRAGFlow:
 
         # Step 2: Prescription (REQ-03)
         rx_svc = PrescriptionService()
-        rx = rx_svc.calculate_prescription("amoxicillin", patient)
+        rx = asyncio.run(rx_svc.calculate_prescription("amoxicillin", patient))
         assert rx.dose_mg > 0
         assert rx.antibiotic == "amoxicillin"
 
@@ -589,7 +589,7 @@ class TestEndToEndRAGFlow:
 
         # Step 2: Prescription (REQ-03) — dose adulte
         rx_svc = PrescriptionService()
-        rx = rx_svc.calculate_prescription("ciprofloxacin", patient)
+        rx = asyncio.run(rx_svc.calculate_prescription("ciprofloxacin", patient))
         assert rx.dose_mg == ANTIBIOTIC_PROTOCOLS["ciprofloxacin"].adult_max_dose_mg
 
         # Step 3: Safety alerts (REQ-09) — allergie détectée avec alternative
@@ -609,7 +609,7 @@ class TestEndToEndRAGFlow:
 
         # Prescription ajustée (REQ-03)
         rx_svc = PrescriptionService()
-        rx = rx_svc.calculate_prescription("amoxicillin", patient)
+        rx = asyncio.run(rx_svc.calculate_prescription("amoxicillin", patient))
         expected_dose = protocol.adult_max_dose_mg * protocol.renal_adjustment_factor
         assert rx.dose_mg == pytest.approx(expected_dose)
 
@@ -626,7 +626,7 @@ class TestEndToEndRAGFlow:
         patient = _make_patient(AgeGroup.CHILD, weight_kg=25.0)
 
         rx_svc = PrescriptionService()
-        rx = rx_svc.calculate_prescription("ciprofloxacin", patient)
+        rx = asyncio.run(rx_svc.calculate_prescription("ciprofloxacin", patient))
 
         alert_svc = AlertService()
         alerts = asyncio.run(alert_svc.check_prescription(rx, patient))
