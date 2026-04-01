@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\consultation_service.py
+# hypothesis_version: 6.151.9
+
+['Patient not found', '_id', 'alerts', 'consultations', 'created_at', 'diagnoses', 'is_one_shot', 'llm_used', 'patient_id', 'prescription', 'symptoms', 'user_id']

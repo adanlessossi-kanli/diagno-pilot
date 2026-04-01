@@ -42,14 +42,20 @@ def _expected_age_group(dob: date) -> AgeGroup:
     if days_old <= 28:
         return AgeGroup.NEONATAL
 
-    months_old = (today.year - dob.year) * 12 + (today.month - dob.month)
-    if months_old < 24:
+    # 29 days – less than 2 full years → infant
+    try:
+        two_years_later = date(dob.year + 2, dob.month, dob.day)
+    except ValueError:
+        two_years_later = date(dob.year + 2, dob.month, 28)
+    if today < two_years_later:
         return AgeGroup.INFANT
 
-    years_old = today.year - dob.year - (
-        (today.month, today.day) < (dob.month, dob.day)
-    )
-    if years_old < 18:
+    # 2 years – less than 18 full years → child
+    try:
+        eighteen_years_later = date(dob.year + 18, dob.month, dob.day)
+    except ValueError:
+        eighteen_years_later = date(dob.year + 18, dob.month, 28)
+    if today < eighteen_years_later:
         return AgeGroup.CHILD
 
     return AgeGroup.ADULT

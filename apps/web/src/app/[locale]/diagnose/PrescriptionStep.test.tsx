@@ -6,8 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import { PrescriptionStep } from './PrescriptionStep';
+import type { DiagnosisEntry } from './PrescriptionStep';
 import type { PrescriptionResponse } from '@diagno-pilot/api-client';
-import type { DifferentialDiagnosis } from '@diagno-pilot/types';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -20,12 +20,12 @@ vi.mock('next-intl', () => ({
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-const mockDiagnoses: DifferentialDiagnosis[] = [
+const mockDiagnoses: DiagnosisEntry[] = [
   {
     condition: 'Pneumonia',
     probability: 0.85,
-    icd_code: 'J18.9',
-    concordant_symptoms: ['fever', 'cough'],
+    icdCode: 'J18.9',
+    concordantSymptoms: ['fever', 'cough'],
   },
 ];
 

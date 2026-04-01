@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\qa.py
+# hypothesis_version: 6.151.9
+
+['/', '/qa', 'qa']

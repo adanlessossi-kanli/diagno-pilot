@@ -1,129 +1,142 @@
-// Shared TypeScript types for Diagno-Pilot
+// Shared TypeScript types for Diagno-Pilot — derived from Zod schemas
 // REQ-02, REQ-03, REQ-06, REQ-08, REQ-09
+import { z } from 'zod';
 
-// ─── Primitive types ──────────────────────────────────────────────────────────
+// ─── Primitive enums ──────────────────────────────────────────────────────────
 
 /** Age group for pediatric/adult dosing calculations (REQ-06, REQ-08) */
-export type AgeGroup = 'neonatal' | 'infant' | 'child' | 'adult';
+export const AgeGroupSchema = z.enum(['neonatal', 'infant', 'child', 'adult']);
+export type AgeGroup = z.infer<typeof AgeGroupSchema>;
 
 /** Severity level for safety alerts (REQ-09) */
-export type AlertLevel = 'critical' | 'warning' | 'info';
+export const AlertLevelSchema = z.enum(['critical', 'warning', 'info']);
+export type AlertLevel = z.infer<typeof AlertLevelSchema>;
 
 /** User roles controlling feature access (REQ-01, RBAC) */
-export type UserRole = 'admin' | 'medecin' | 'infirmière' | 'guest';
+export const UserRoleSchema = z.enum(['admin', 'medecin', 'infirmière', 'guest']);
+export type UserRole = z.infer<typeof UserRoleSchema>;
 
 /** Supported application locales (REQ-12) */
-export type Locale = 'fr' | 'en';
+export const LocaleSchema = z.enum(['fr', 'en']);
+export type Locale = z.infer<typeof LocaleSchema>;
+
+// ─── Object schemas ───────────────────────────────────────────────────────────
 
 /** Authenticated user returned by /auth/me and stored in AuthContext */
-export interface AuthUser {
-  id: string;
-  email: string;
+export const AuthUserSchema = z.object({
+  id: z.string(),
+  email: z.string(),
   /** Display name */
-  fullName: string;
-  role: UserRole;
-  locale?: Locale;
-}
-
-// ─── Clinical entities ────────────────────────────────────────────────────────
+  fullName: z.string(),
+  role: UserRoleSchema,
+  locale: LocaleSchema.optional(),
+});
+export type AuthUser = z.infer<typeof AuthUserSchema>;
 
 /** A clinical symptom reported by or observed in the patient (REQ-02) */
-export interface Symptom {
-  name: string;
-  severity: string;
-  duration_days: number;
-}
+export const SymptomSchema = z.object({
+  name: z.string(),
+  severity: z.string(),
+  duration_days: z.number(),
+});
+export type Symptom = z.infer<typeof SymptomSchema>;
 
 /** A differential diagnosis entry with probability score (REQ-02) */
-export interface DifferentialDiagnosis {
-  condition: string;
+export const DifferentialDiagnosisSchema = z.object({
+  condition: z.string(),
   /** Probability score between 0 and 1 */
-  probability: number;
+  probability: z.number().min(0).max(1),
   /** ICD-10 code, when available */
-  icd_code?: string;
-  concordant_symptoms: string[];
-}
+  icd_code: z.string().optional(),
+  concordant_symptoms: z.array(z.string()),
+});
+export type DifferentialDiagnosis = z.infer<typeof DifferentialDiagnosisSchema>;
 
 /** Reference to a source document used in a RAG response (REQ-04) */
-export interface DocumentSource {
+export const DocumentSourceSchema = z.object({
   /** Document title or identifier */
-  title: string;
-  section: string;
-  excerpt: string;
-}
+  title: z.string(),
+  section: z.string(),
+  excerpt: z.string(),
+});
+export type DocumentSource = z.infer<typeof DocumentSourceSchema>;
 
 /** Antibiotic prescription with dosing details (REQ-03, REQ-08) */
-export interface Prescription {
-  antibiotic: string;
-  dose_mg: number;
+export const PrescriptionSchema = z.object({
+  antibiotic: z.string(),
+  dose_mg: z.number(),
   /** Weight-based dose in mg/kg, used for pediatric patients */
-  dose_per_kg?: number;
-  frequency: string;
-  duration_days: number;
+  dose_per_kg: z.number().optional(),
+  frequency: z.string(),
+  duration_days: z.number(),
   /** Route of administration */
-  route: 'oral' | 'IV' | 'IM';
+  route: z.enum(['oral', 'IV', 'IM']),
   /** True when the calculated dose has been capped to the maximum adult dose */
-  is_capped_to_adult_dose: boolean;
-}
+  is_capped_to_adult_dose: z.boolean(),
+});
+export type Prescription = z.infer<typeof PrescriptionSchema>;
 
 /** Safety alert for allergies, interactions, or contraindications (REQ-09) */
-export interface SafetyAlert {
-  level: AlertLevel;
+export const SafetyAlertSchema = z.object({
+  level: AlertLevelSchema,
   /** Category of the alert */
-  type: 'allergy' | 'interaction' | 'contraindication';
-  message: string;
-  affected_drug?: string;
-}
-
-// ─── Patient & session entities ───────────────────────────────────────────────
+  type: z.enum(['allergy', 'interaction', 'contraindication']),
+  message: z.string(),
+  affected_drug: z.string().optional(),
+});
+export type SafetyAlert = z.infer<typeof SafetyAlertSchema>;
 
 /** Patient clinical profile used to personalise recommendations (REQ-06) */
-export interface PatientProfile {
-  id?: string;
-  fullName?: string;
+export const PatientProfileSchema = z.object({
+  id: z.string().optional(),
+  fullName: z.string().optional(),
   /** ISO date string (YYYY-MM-DD) */
-  dateOfBirth?: string;
-  weightKg?: number;
-  ageGroup?: AgeGroup;
-  allergies: string[];
-  renalFailure: boolean;
-  hepaticFailure: boolean;
-  currentMedications: string[];
-}
+  dateOfBirth: z.string().optional(),
+  weightKg: z.number().optional(),
+  ageGroup: AgeGroupSchema.optional(),
+  allergies: z.array(z.string()),
+  renalFailure: z.boolean(),
+  hepaticFailure: z.boolean(),
+  currentMedications: z.array(z.string()),
+});
+export type PatientProfile = z.infer<typeof PatientProfileSchema>;
 
 /** A single consultation (guided mode) linking symptoms, diagnoses and prescription (REQ-02, REQ-03) */
-export interface Consultation {
-  id: string;
+export const ConsultationSchema = z.object({
+  id: z.string(),
   /** Undefined for one-shot consultations */
-  patientId?: string;
-  symptoms: Symptom[];
-  diagnoses: DifferentialDiagnosis[];
-  prescription?: Prescription;
-  alerts: SafetyAlert[];
+  patientId: z.string().optional(),
+  symptoms: z.array(SymptomSchema),
+  diagnoses: z.array(DifferentialDiagnosisSchema),
+  prescription: PrescriptionSchema.optional(),
+  alerts: z.array(SafetyAlertSchema),
   /** Identifier of the LLM that generated the response, e.g. 'qwen3' | 'gpt5' */
-  llmUsed: string;
+  llmUsed: z.string(),
   /** ISO 8601 timestamp */
-  createdAt: string;
+  createdAt: z.string(),
   /** True when the consultation was performed without a patient record */
-  isOneShot: boolean;
-}
+  isOneShot: z.boolean(),
+});
+export type Consultation = z.infer<typeof ConsultationSchema>;
 
 /** A single message in the conversational Q&A interface (REQ-04) */
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
+export const ChatMessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(['user', 'assistant']),
+  content: z.string(),
   /** Source documents cited in the response */
-  sources?: DocumentSource[];
+  sources: z.array(DocumentSourceSchema).optional(),
   /** ISO 8601 timestamp */
-  timestamp: string;
-}
+  timestamp: z.string(),
+});
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 /** A conversational chat session with optional patient context (REQ-04) */
-export interface ChatSession {
-  id: string;
-  messages: ChatMessage[];
-  patientContext?: PatientProfile;
+export const ChatSessionSchema = z.object({
+  id: z.string(),
+  messages: z.array(ChatMessageSchema),
+  patientContext: PatientProfileSchema.optional(),
   /** ISO 8601 timestamp */
-  createdAt: string;
-}
+  createdAt: z.string(),
+});
+export type ChatSession = z.infer<typeof ChatSessionSchema>;

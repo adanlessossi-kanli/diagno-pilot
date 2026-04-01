@@ -74,7 +74,28 @@ _PAEDIATRIC_GROUPS = {AgeGroup.NEONATAL, AgeGroup.INFANT, AgeGroup.CHILD}
 
 
 class AlertService:
-    """Checks a prescription against a patient profile and returns safety alerts."""
+    """Safety alert checker for antibiotic prescriptions.
+
+    Evaluates a prescription against a patient profile across four alert categories:
+
+    1. **Allergy** (severity: ``critical``) — detects whether the prescribed antibiotic
+       matches any of the patient's known allergies.
+    2. **Drug interaction** (severity: ``warning``) — detects known interactions between
+       the prescribed antibiotic and the patient's current medications.
+    3. **Age contraindication** (severity: ``critical``) — detects antibiotics that are
+       contraindicated for the patient's age group (e.g. fluoroquinolones in paediatric
+       patients).
+    4. **Organ failure** (severity: ``warning``) — detects when renal or hepatic
+       impairment requires a dose reduction.
+
+    Data sources:
+    - Drug interaction pairs are loaded at startup from the MongoDB
+      ``drug_interactions`` collection via :meth:`load_interactions_from_db`.
+    - If the collection is empty or unreachable, the service falls back to the
+      built-in :data:`_DRUG_INTERACTIONS` list defined in this module.
+    - Antibiotic protocols (contraindicated age groups, adjustment factors) come
+      from :data:`~backend.services.prescription_service.ANTIBIOTIC_PROTOCOLS`.
+    """
 
     def __init__(self) -> None:
         # In-memory cache of interactions: list of (drug_a, drug_b, message)
@@ -125,10 +146,36 @@ class AlertService:
         prescription: Prescription,
         patient: PatientProfile,
     ) -> list[SafetyAlert]:
-        """Verify allergies, drug interactions, and contraindications.
+        """Run all safety checks for a prescription and return any alerts.
 
-        Returns a list of SafetyAlert objects. Critical alerts indicate
-        blocking issues; warning alerts are informational.
+        Checks are executed in the following order:
+
+        1. :meth:`_check_allergies` — allergy match against the patient's known
+           allergies.  Emits ``critical`` alerts that indicate the prescription
+           should be blocked.
+        2. :meth:`_check_interactions` — interaction match against the patient's
+           current medications.  Emits ``warning`` alerts that are informational
+           and do not automatically block the prescription.
+        3. :meth:`_check_age_contraindications` — contraindication match against
+           the patient's age group.  Emits ``critical`` alerts.
+        4. :meth:`_check_organ_failure` — dose-adjustment check for renal or
+           hepatic impairment.  Emits ``warning`` alerts.
+
+        ``critical`` alerts signal that the prescription is clinically unsafe and
+        should be blocked or require explicit override.  ``warning`` alerts flag
+        conditions that require clinical attention but do not automatically prevent
+        dispensing.
+
+        Returns an empty list when no safety issues are detected.
+
+        Args:
+            prescription: The antibiotic prescription to evaluate.
+            patient: The patient profile containing allergies, current medications,
+                age group, and comorbidities.
+
+        Returns:
+            A (possibly empty) list of :class:`~backend.models.alert.SafetyAlert`
+            objects ordered by check category.
         """
         alerts: list[SafetyAlert] = []
 
@@ -148,7 +195,29 @@ class AlertService:
         prescription: Prescription,
         patient: PatientProfile,
     ) -> list[SafetyAlert]:
-        """Generate a CRITICAL alert if the prescribed antibiotic matches a known allergy."""
+        """Check whether the prescribed antibiotic matches a known patient allergy.
+
+        Matching strategy: both the drug name and each allergy string are
+        lower-cased, then a substring test is applied in both directions —
+        i.e. an alert is raised if the allergy string is contained in the drug
+        name *or* the drug name is contained in the allergy string.  This
+        catches common variants such as ``"penicillin allergy"`` matching
+        ``"amoxicillin"`` (which contains ``"cillin"``).
+
+        Only one ``critical`` allergy alert is emitted per drug, regardless of
+        how many allergy entries match.  This avoids duplicate alerts for the
+        same clinical issue (e.g. a patient who has both ``"penicillin"`` and
+        ``"amoxicillin"`` listed as allergies would still receive a single alert
+        for a prescribed amoxicillin).
+
+        Args:
+            prescription: The antibiotic prescription to evaluate.
+            patient: The patient profile whose ``allergies`` list is checked.
+
+        Returns:
+            A list containing at most one ``critical``
+            :class:`~backend.models.alert.SafetyAlert` of type ``"allergy"``.
+        """
         alerts: list[SafetyAlert] = []
         drug_lower = prescription.antibiotic.lower()
 
@@ -180,10 +249,32 @@ class AlertService:
         prescription: Prescription,
         patient: PatientProfile,
     ) -> list[SafetyAlert]:
-        """Generate WARNING alerts for known drug interactions with current medications.
+        """Check for known drug interactions between the prescription and current medications.
 
-        Checks symmetrically: (A prescribed, B in medications) == (B prescribed, A in medications)
-        (REQ 12.4).
+        Interaction data is sourced from :attr:`_interactions_cache`, which is
+        populated at startup from the MongoDB ``drug_interactions`` collection
+        (via :meth:`load_interactions_from_db`) or from the built-in
+        :data:`_DRUG_INTERACTIONS` fallback list if the collection is unavailable.
+
+        Matching is symmetric: an interaction pair ``(drug_a, drug_b)`` is
+        triggered whether the prescribed antibiotic corresponds to ``drug_a``
+        and the current medication to ``drug_b``, or vice versa.  This ensures
+        that the order in which pairs are stored in the database does not affect
+        detection.
+
+        Each matching pair produces a separate ``warning``-level alert.  Multiple
+        alerts may be returned if the patient is taking several interacting
+        medications simultaneously.
+
+        Args:
+            prescription: The antibiotic prescription to evaluate.
+            patient: The patient profile whose ``current_medications`` list is
+                checked.
+
+        Returns:
+            A (possibly empty) list of ``warning``
+            :class:`~backend.models.alert.SafetyAlert` objects of type
+            ``"interaction"``.
         """
         alerts: list[SafetyAlert] = []
         drug_lower = prescription.antibiotic.lower()
@@ -211,7 +302,31 @@ class AlertService:
         prescription: Prescription,
         patient: PatientProfile,
     ) -> list[SafetyAlert]:
-        """Generate CRITICAL alerts for age-based contraindications."""
+        """Check whether the prescribed antibiotic is contraindicated for the patient's age group.
+
+        Paediatric age groups are defined as :attr:`AgeGroup.NEONATAL`,
+        :attr:`AgeGroup.INFANT`, and :attr:`AgeGroup.CHILD` (collected in the
+        module-level :data:`_PAEDIATRIC_GROUPS` set).  Adult and elderly patients
+        are not considered paediatric and are therefore not subject to
+        paediatric-specific contraindications.
+
+        The check consults the ``contraindicated_age_groups`` field of the
+        antibiotic's protocol entry in
+        :data:`~backend.services.prescription_service.ANTIBIOTIC_PROTOCOLS`.
+        If the patient's :attr:`~backend.models.patient.PatientProfile.age_group`
+        is present in that set, a ``critical`` alert is raised.  No alert is
+        emitted when the protocol has no contraindicated age groups or when the
+        antibiotic is not found in the protocols dictionary.
+
+        Args:
+            prescription: The antibiotic prescription to evaluate.
+            patient: The patient profile whose ``age_group`` is checked.
+
+        Returns:
+            A list containing at most one ``critical``
+            :class:`~backend.models.alert.SafetyAlert` of type
+            ``"contraindication"``.
+        """
         alerts: list[SafetyAlert] = []
         drug_lower = prescription.antibiotic.lower()
         protocol = ANTIBIOTIC_PROTOCOLS.get(drug_lower)
@@ -241,7 +356,38 @@ class AlertService:
         prescription: Prescription,
         patient: PatientProfile,
     ) -> list[SafetyAlert]:
-        """Generate WARNING alerts when organ failure requires dose adjustment."""
+        """Check whether renal or hepatic impairment requires a dose adjustment.
+
+        Two adjustment factors are read from the antibiotic's protocol entry in
+        :data:`~backend.services.prescription_service.ANTIBIOTIC_PROTOCOLS`:
+
+        - ``renal_adjustment_factor`` — multiplier applied to the standard dose
+          when the patient has renal failure.  A value of ``1.0`` means no
+          adjustment is needed; values below ``1.0`` indicate a dose reduction.
+        - ``hepatic_adjustment_factor`` — equivalent multiplier for hepatic
+          failure.
+
+        An alert is only emitted when the relevant failure flag is ``True`` *and*
+        the corresponding adjustment factor is strictly less than ``1.0``.  This
+        avoids spurious alerts for drugs that do not require organ-specific dose
+        changes.
+
+        The alert level is ``warning`` rather than ``critical`` because organ
+        failure does not absolutely contraindicate the drug — it requires a
+        monitored dose reduction.  The prescriber retains clinical discretion,
+        unlike allergy or age contraindications where the drug must be avoided
+        entirely.
+
+        Args:
+            prescription: The antibiotic prescription to evaluate.
+            patient: The patient profile whose ``comorbidities`` (renal/hepatic
+                failure flags) are checked.
+
+        Returns:
+            A (possibly empty) list of ``warning``
+            :class:`~backend.models.alert.SafetyAlert` objects of type
+            ``"contraindication"``, one per applicable organ failure condition.
+        """
         alerts: list[SafetyAlert] = []
         drug_lower = prescription.antibiotic.lower()
         protocol = ANTIBIOTIC_PROTOCOLS.get(drug_lower)

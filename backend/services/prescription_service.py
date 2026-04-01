@@ -176,8 +176,28 @@ def _doc_to_protocol(doc: dict[str, Any]) -> AntibioticProtocol:
 class PrescriptionService:
     """Calculates antibiotic prescriptions adapted to the patient profile.
 
-    Protocols are loaded from MongoDB at startup (REQ 11.4) with fallback to
-    the built-in ANTIBIOTIC_PROTOCOLS dict if the collection is empty (REQ 11.5).
+    Role in the antibiotic prescription workflow:
+        This service is the single entry point for computing a patient-specific
+        antibiotic dose.  It combines a dosing protocol (mg/kg rate, adult cap,
+        route, frequency, duration) with patient-specific adjustments for organ
+        failure to produce a ready-to-dispense ``Prescription``.
+
+    Protocol loading strategy:
+        On application startup ``load_protocols_from_db`` should be called to
+        populate the in-memory cache from the MongoDB ``antibiotic_protocols``
+        collection.  If that collection is empty or unreachable the service
+        falls back to the built-in ``ANTIBIOTIC_PROTOCOLS`` dictionary so that
+        the application remains functional without a database connection.
+
+    Patient profile fields consumed:
+        - ``age_group``   — determines whether paediatric (mg/kg) or adult
+                            (fixed max dose) dosing is applied.
+        - ``weight_kg``   — required for paediatric dose calculation; a
+                            ``ValueError`` is raised if absent or non-positive.
+        - ``comorbidities.renal_failure``   — triggers the protocol's
+                            ``renal_adjustment_factor`` when ``True``.
+        - ``comorbidities.hepatic_failure`` — triggers the protocol's
+                            ``hepatic_adjustment_factor`` when ``True``.
     """
 
     def __init__(self) -> None:
@@ -187,8 +207,27 @@ class PrescriptionService:
     async def load_protocols_from_db(self) -> None:
         """Load antibiotic protocols from MongoDB into the in-memory cache.
 
-        Falls back to the built-in ANTIBIOTIC_PROTOCOLS dict if the collection
-        is empty (REQ 11.5).
+        MongoDB collection:
+            ``antibiotic_protocols`` — each document must contain at minimum
+            the fields ``name``, ``paediatric_dose_per_kg``,
+            ``adult_max_dose_mg``, ``frequency``, ``duration_days``, and
+            ``route``.  Optional fields (``renal_adjustment_factor``,
+            ``hepatic_adjustment_factor``, ``contraindicated_age_groups``,
+            ``alternative``) default to safe values when absent.
+
+        Fallback behaviour:
+            If the collection returns zero documents *or* the database is
+            unreachable, the in-memory cache is populated from the built-in
+            ``ANTIBIOTIC_PROTOCOLS`` dictionary and a ``WARNING`` is logged.
+            The service therefore remains fully functional without a live
+            database connection.
+
+        When to call:
+            This method should be called once during application startup (e.g.
+            in the FastAPI ``lifespan`` handler) before any prescription
+            requests are served.  It can also be called via ``reload_protocols``
+            after an admin operation updates the ``antibiotic_protocols``
+            collection.
         """
         from backend.core.database import db
 
@@ -225,9 +264,27 @@ class PrescriptionService:
         await self.load_protocols_from_db()
 
     def _get_protocol(self, key: str) -> AntibioticProtocol:
-        """Look up a protocol: DB cache first, then built-in dict.
+        """Look up an antibiotic protocol using a two-level cache strategy.
 
-        Raises HTTPException 422 with 'unknown_antibiotic' if not found (REQ 11.5).
+        Lookup order:
+            1. **In-memory cache** (``self._protocols_cache``) — populated at
+               startup from MongoDB via ``load_protocols_from_db``.  This is
+               the primary source and reflects any admin updates made since the
+               last reload.
+            2. **Built-in dictionary** (``ANTIBIOTIC_PROTOCOLS``) — consulted
+               only when the cache is empty or the key is absent, providing a
+               safe fallback for the representative subset of protocols bundled
+               with the application.
+
+        Args:
+            key: Lowercase antibiotic name (e.g. ``"amoxicillin"``).
+
+        Returns:
+            The matching ``AntibioticProtocol`` dataclass instance.
+
+        Raises:
+            HTTPException 422 (``unknown_antibiotic``): If the antibiotic name
+                is not found in either the cache or the built-in dictionary.
         """
         # DB cache (populated at startup or after reload)
         protocol = self._protocols_cache.get(key)
@@ -250,6 +307,33 @@ class PrescriptionService:
         """Return a Prescription adapted to the patient's weight, age group,
         and comorbidities.
 
+        Paediatric mg/kg calculation:
+            When ``patient.age_group`` is one of ``NEONATAL``, ``INFANT``, or
+            ``CHILD``, the daily dose is computed as::
+
+                dose_mg = protocol.paediatric_dose_per_kg × patient.weight_kg
+
+            ``patient.weight_kg`` must be a positive number; a ``ValueError``
+            is raised otherwise.
+
+        Adult-dose cap (``is_capped_to_adult_dose``):
+            If the weight-based paediatric dose exceeds
+            ``protocol.adult_max_dose_mg``, the dose is clamped to that
+            maximum and ``Prescription.is_capped_to_adult_dose`` is set to
+            ``True``.  For adult patients the adult max dose is used directly
+            without a weight calculation.
+
+        Renal adjustment:
+            When ``patient.comorbidities.renal_failure`` is ``True``, the
+            computed dose is multiplied by
+            ``protocol.renal_adjustment_factor`` (a value in ``(0, 1]``).
+
+        Hepatic adjustment:
+            When ``patient.comorbidities.hepatic_failure`` is ``True``, the
+            computed dose is multiplied by
+            ``protocol.hepatic_adjustment_factor`` (a value in ``(0, 1]``).
+            Both adjustments are applied independently and cumulatively.
+
         Args:
             antibiotic: Antibiotic name (case-insensitive key).
             patient: Patient profile with weight, age group, and comorbidities.
@@ -259,8 +343,10 @@ class PrescriptionService:
             is_capped_to_adult_dose, frequency, duration_days, and route.
 
         Raises:
-            HTTPException 422: If the antibiotic is unknown (REQ 11.5).
-            ValueError: If weight is required but missing.
+            HTTPException 422 (``unknown_antibiotic``): If the antibiotic name
+                is not found in the protocol cache or built-in dictionary.
+            ValueError: If ``patient.weight_kg`` is ``None`` or non-positive
+                for a paediatric patient.
         """
         key = antibiotic.lower()
         protocol = self._get_protocol(key)

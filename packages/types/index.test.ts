@@ -1,5 +1,23 @@
-// Unit tests for shared TypeScript types — REQ-02, REQ-06, RBAC
+// Tests for shared TypeScript types — REQ-02, REQ-06, RBAC
 import { describe, it, expect } from 'vitest';
+import { ZodError } from 'zod';
+import * as fc from 'fast-check';
+import {
+  AgeGroupSchema,
+  AlertLevelSchema,
+  UserRoleSchema,
+  LocaleSchema,
+  AuthUserSchema,
+  SymptomSchema,
+  DifferentialDiagnosisSchema,
+  DocumentSourceSchema,
+  PrescriptionSchema,
+  SafetyAlertSchema,
+  PatientProfileSchema,
+  ConsultationSchema,
+  ChatMessageSchema,
+  ChatSessionSchema,
+} from './index';
 import type {
   AgeGroup,
   AlertLevel,
@@ -15,10 +33,316 @@ import type {
   DocumentSource,
 } from './index';
 
-// ─── UserRole ─────────────────────────────────────────────────────────────────
+// ─── Arbitraries ──────────────────────────────────────────────────────────────
 
-// Exemple 7.4 : le type UserRole contient exactement les 4 valeurs attendues
-// Validates: Requirements 1.1, 7.4
+const ageGroupArb = fc.constantFrom('neonatal', 'infant', 'child', 'adult');
+const alertLevelArb = fc.constantFrom('critical', 'warning', 'info');
+const userRoleArb = fc.constantFrom('admin', 'medecin', 'infirmière', 'guest');
+const localeArb = fc.constantFrom('fr', 'en');
+const routeArb = fc.constantFrom('oral', 'IV', 'IM');
+const alertTypeArb = fc.constantFrom('allergy', 'interaction', 'contraindication');
+const chatRoleArb = fc.constantFrom('user', 'assistant');
+
+const symptomArb = fc.record({
+  name: fc.string({ minLength: 1 }),
+  severity: fc.string({ minLength: 1 }),
+  duration_days: fc.integer({ min: 0, max: 365 }),
+});
+
+const documentSourceArb = fc.record({
+  title: fc.string({ minLength: 1 }),
+  section: fc.string({ minLength: 1 }),
+  excerpt: fc.string({ minLength: 1 }),
+});
+
+const differentialDiagnosisArb = fc.record({
+  condition: fc.string({ minLength: 1 }),
+  probability: fc.float({ min: 0, max: 1, noNaN: true }),
+  icd_code: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+  concordant_symptoms: fc.array(fc.string()),
+});
+
+const prescriptionArb = fc.record({
+  antibiotic: fc.string({ minLength: 1 }),
+  dose_mg: fc.float({ min: 0, max: Math.fround(1e6), noNaN: true, noDefaultInfinity: true }),
+  dose_per_kg: fc.option(fc.float({ min: 0, max: Math.fround(1e4), noNaN: true, noDefaultInfinity: true }), { nil: undefined }),
+  frequency: fc.string({ minLength: 1 }),
+  duration_days: fc.integer({ min: 1, max: 30 }),
+  route: routeArb,
+  is_capped_to_adult_dose: fc.boolean(),
+});
+
+const safetyAlertArb = fc.record({
+  level: alertLevelArb,
+  type: alertTypeArb,
+  message: fc.string({ minLength: 1 }),
+  affected_drug: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+});
+
+const patientProfileArb = fc.record({
+  id: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+  fullName: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+  dateOfBirth: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+  weightKg: fc.option(fc.float({ min: 0, max: Math.fround(300), noNaN: true, noDefaultInfinity: true }), { nil: undefined }),
+  ageGroup: fc.option(ageGroupArb, { nil: undefined }),
+  allergies: fc.array(fc.string()),
+  renalFailure: fc.boolean(),
+  hepaticFailure: fc.boolean(),
+  currentMedications: fc.array(fc.string()),
+});
+
+const chatMessageArb = fc.record({
+  id: fc.string({ minLength: 1 }),
+  role: chatRoleArb,
+  content: fc.string(),
+  sources: fc.option(fc.array(documentSourceArb), { nil: undefined }),
+  timestamp: fc.string({ minLength: 1 }),
+});
+
+const chatSessionArb = fc.record({
+  id: fc.string({ minLength: 1 }),
+  messages: fc.array(chatMessageArb),
+  patientContext: fc.option(patientProfileArb, { nil: undefined }),
+  createdAt: fc.string({ minLength: 1 }),
+});
+
+const authUserArb = fc.record({
+  id: fc.string({ minLength: 1 }),
+  email: fc.string({ minLength: 1 }),
+  fullName: fc.string({ minLength: 1 }),
+  role: userRoleArb,
+  locale: fc.option(localeArb, { nil: undefined }),
+});
+
+const consultationArb = fc.record({
+  id: fc.string({ minLength: 1 }),
+  patientId: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+  symptoms: fc.array(symptomArb),
+  diagnoses: fc.array(differentialDiagnosisArb),
+  prescription: fc.option(prescriptionArb, { nil: undefined }),
+  alerts: fc.array(safetyAlertArb),
+  llmUsed: fc.string({ minLength: 1 }),
+  createdAt: fc.string({ minLength: 1 }),
+  isOneShot: fc.boolean(),
+});
+
+// ─── Property 9: Zod schemas accept all valid objects ─────────────────────────
+// Feature: code-quality — Validates: Requirements 5.1, 5.2
+
+describe('Property 9: Zod schemas accept all valid objects', () => {
+  it('SymptomSchema accepts all valid Symptom objects', () => {
+    fc.assert(fc.property(symptomArb, (obj) => {
+      expect(() => SymptomSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('DifferentialDiagnosisSchema accepts all valid DifferentialDiagnosis objects', () => {
+    fc.assert(fc.property(differentialDiagnosisArb, (obj) => {
+      expect(() => DifferentialDiagnosisSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('DocumentSourceSchema accepts all valid DocumentSource objects', () => {
+    fc.assert(fc.property(documentSourceArb, (obj) => {
+      expect(() => DocumentSourceSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('PrescriptionSchema accepts all valid Prescription objects', () => {
+    fc.assert(fc.property(prescriptionArb, (obj) => {
+      expect(() => PrescriptionSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('SafetyAlertSchema accepts all valid SafetyAlert objects', () => {
+    fc.assert(fc.property(safetyAlertArb, (obj) => {
+      expect(() => SafetyAlertSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('PatientProfileSchema accepts all valid PatientProfile objects', () => {
+    fc.assert(fc.property(patientProfileArb, (obj) => {
+      expect(() => PatientProfileSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('AuthUserSchema accepts all valid AuthUser objects', () => {
+    fc.assert(fc.property(authUserArb, (obj) => {
+      expect(() => AuthUserSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('ChatMessageSchema accepts all valid ChatMessage objects', () => {
+    fc.assert(fc.property(chatMessageArb, (obj) => {
+      expect(() => ChatMessageSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('ChatSessionSchema accepts all valid ChatSession objects', () => {
+    fc.assert(fc.property(chatSessionArb, (obj) => {
+      expect(() => ChatSessionSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+
+  it('ConsultationSchema accepts all valid Consultation objects', () => {
+    fc.assert(fc.property(consultationArb, (obj) => {
+      expect(() => ConsultationSchema.parse(obj)).not.toThrow();
+    }), { numRuns: 100 });
+  });
+});
+
+// ─── Property 10: Zod schemas reject invalid objects ─────────────────────────
+// Feature: code-quality — Validates: Requirements 5.3
+
+describe('Property 10: Zod schemas reject invalid objects', () => {
+  it('SymptomSchema rejects objects missing required fields', () => {
+    // Missing duration_days (required number)
+    fc.assert(fc.property(
+      fc.record({ name: fc.string(), severity: fc.string() }),
+      (obj) => {
+        expect(() => SymptomSchema.parse(obj)).toThrow(ZodError);
+      }
+    ), { numRuns: 100 });
+  });
+
+  it('SymptomSchema rejects objects with wrong field types', () => {
+    // duration_days must be a number, not a string
+    fc.assert(fc.property(
+      fc.record({
+        name: fc.string(),
+        severity: fc.string(),
+        duration_days: fc.string(),
+      }),
+      (obj) => {
+        expect(() => SymptomSchema.parse(obj)).toThrow(ZodError);
+      }
+    ), { numRuns: 100 });
+  });
+
+  it('DifferentialDiagnosisSchema rejects probability outside [0, 1]', () => {
+    fc.assert(fc.property(
+      fc.record({
+        condition: fc.string({ minLength: 1 }),
+        probability: fc.oneof(
+          fc.float({ min: Math.fround(1.001), max: Math.fround(1e6), noNaN: true, noDefaultInfinity: true }),
+          fc.float({ min: Math.fround(-1e6), max: Math.fround(-0.001), noNaN: true, noDefaultInfinity: true }),
+        ),
+        concordant_symptoms: fc.array(fc.string()),
+      }),
+      (obj) => {
+        expect(() => DifferentialDiagnosisSchema.parse(obj)).toThrow(ZodError);
+      }
+    ), { numRuns: 100 });
+  });
+
+  it('PrescriptionSchema rejects invalid route values', () => {
+    fc.assert(fc.property(
+      fc.record({
+        antibiotic: fc.string({ minLength: 1 }),
+        dose_mg: fc.float({ min: 0, noNaN: true }),
+        frequency: fc.string({ minLength: 1 }),
+        duration_days: fc.integer({ min: 1 }),
+        route: fc.string().filter(s => !['oral', 'IV', 'IM'].includes(s)),
+        is_capped_to_adult_dose: fc.boolean(),
+      }),
+      (obj) => {
+        expect(() => PrescriptionSchema.parse(obj)).toThrow(ZodError);
+      }
+    ), { numRuns: 100 });
+  });
+
+  it('SafetyAlertSchema rejects invalid level values', () => {
+    fc.assert(fc.property(
+      fc.record({
+        level: fc.string().filter(s => !['critical', 'warning', 'info'].includes(s)),
+        type: alertTypeArb,
+        message: fc.string({ minLength: 1 }),
+      }),
+      (obj) => {
+        expect(() => SafetyAlertSchema.parse(obj)).toThrow(ZodError);
+      }
+    ), { numRuns: 100 });
+  });
+
+  it('PatientProfileSchema rejects objects missing required array fields', () => {
+    // Missing allergies, renalFailure, hepaticFailure, currentMedications
+    fc.assert(fc.property(
+      fc.record({ id: fc.string() }),
+      (obj) => {
+        expect(() => PatientProfileSchema.parse(obj)).toThrow(ZodError);
+      }
+    ), { numRuns: 100 });
+  });
+
+  it('AuthUserSchema rejects invalid role values', () => {
+    fc.assert(fc.property(
+      fc.record({
+        id: fc.string({ minLength: 1 }),
+        email: fc.string({ minLength: 1 }),
+        fullName: fc.string({ minLength: 1 }),
+        role: fc.string().filter(s => !['admin', 'medecin', 'infirmière', 'guest'].includes(s)),
+      }),
+      (obj) => {
+        expect(() => AuthUserSchema.parse(obj)).toThrow(ZodError);
+      }
+    ), { numRuns: 100 });
+  });
+});
+
+// ─── Property 11: Zod schema round-trip serialization ────────────────────────
+// Feature: code-quality — Validates: Requirements 7.1
+
+describe('Property 11: Zod schema round-trip serialization', () => {
+  it('SymptomSchema round-trips through JSON serialization', () => {
+    fc.assert(fc.property(symptomArb, (obj) => {
+      const parsed = SymptomSchema.parse(JSON.parse(JSON.stringify(obj)));
+      expect(JSON.stringify(parsed)).toEqual(JSON.stringify(obj));
+    }), { numRuns: 100 });
+  });
+
+  it('DifferentialDiagnosisSchema round-trips through JSON serialization', () => {
+    fc.assert(fc.property(differentialDiagnosisArb, (obj) => {
+      const serialized = JSON.stringify(obj);
+      const parsed = DifferentialDiagnosisSchema.parse(JSON.parse(serialized));
+      expect(JSON.stringify(parsed)).toEqual(serialized);
+    }), { numRuns: 100 });
+  });
+
+  it('PatientProfileSchema round-trips through JSON serialization', () => {
+    fc.assert(fc.property(patientProfileArb, (obj) => {
+      const serialized = JSON.stringify(obj);
+      const parsed = PatientProfileSchema.parse(JSON.parse(serialized));
+      expect(JSON.stringify(parsed)).toEqual(serialized);
+    }), { numRuns: 100 });
+  });
+
+  it('PrescriptionSchema round-trips through JSON serialization', () => {
+    fc.assert(fc.property(prescriptionArb, (obj) => {
+      const serialized = JSON.stringify(obj);
+      const parsed = PrescriptionSchema.parse(JSON.parse(serialized));
+      expect(JSON.stringify(parsed)).toEqual(serialized);
+    }), { numRuns: 100 });
+  });
+
+  it('ChatSessionSchema round-trips through JSON serialization', () => {
+    fc.assert(fc.property(chatSessionArb, (obj) => {
+      const serialized = JSON.stringify(obj);
+      const parsed = ChatSessionSchema.parse(JSON.parse(serialized));
+      expect(JSON.stringify(parsed)).toEqual(serialized);
+    }), { numRuns: 100 });
+  });
+
+  it('ConsultationSchema round-trips through JSON serialization', () => {
+    fc.assert(fc.property(consultationArb, (obj) => {
+      const serialized = JSON.stringify(obj);
+      const parsed = ConsultationSchema.parse(JSON.parse(serialized));
+      expect(JSON.stringify(parsed)).toEqual(serialized);
+    }), { numRuns: 100 });
+  });
+});
+
+// ─── Existing unit tests ──────────────────────────────────────────────────────
+
 describe('UserRole', () => {
   it('contains exactly the 4 valid RBAC roles', () => {
     const validRoles: UserRole[] = ['admin', 'medecin', 'infirmière', 'guest'];
@@ -35,32 +359,19 @@ describe('UserRole', () => {
   });
 });
 
-// ─── AgeGroup ─────────────────────────────────────────────────────────────────
-
 describe('AgeGroup', () => {
   it('accepts all valid string literals', () => {
     const values: AgeGroup[] = ['neonatal', 'infant', 'child', 'adult'];
     expect(values).toHaveLength(4);
-    expect(values).toContain('neonatal');
-    expect(values).toContain('infant');
-    expect(values).toContain('child');
-    expect(values).toContain('adult');
   });
 });
-
-// ─── AlertLevel ───────────────────────────────────────────────────────────────
 
 describe('AlertLevel', () => {
   it('accepts all valid string literals', () => {
     const values: AlertLevel[] = ['critical', 'warning', 'info'];
     expect(values).toHaveLength(3);
-    expect(values).toContain('critical');
-    expect(values).toContain('warning');
-    expect(values).toContain('info');
   });
 });
-
-// ─── Prescription.route ───────────────────────────────────────────────────────
 
 describe('Prescription', () => {
   it('accepts oral route', () => {
@@ -73,30 +384,6 @@ describe('Prescription', () => {
       is_capped_to_adult_dose: false,
     };
     expect(p.route).toBe('oral');
-  });
-
-  it('accepts IV route', () => {
-    const p: Prescription = {
-      antibiotic: 'Ceftriaxone',
-      dose_mg: 1000,
-      frequency: 'OD',
-      duration_days: 5,
-      route: 'IV',
-      is_capped_to_adult_dose: false,
-    };
-    expect(p.route).toBe('IV');
-  });
-
-  it('accepts IM route', () => {
-    const p: Prescription = {
-      antibiotic: 'Benzylpenicillin',
-      dose_mg: 600,
-      frequency: 'QID',
-      duration_days: 10,
-      route: 'IM',
-      is_capped_to_adult_dose: false,
-    };
-    expect(p.route).toBe('IM');
   });
 
   it('serializes and deserializes without data loss', () => {
@@ -115,8 +402,6 @@ describe('Prescription', () => {
   });
 });
 
-// ─── PatientProfile ───────────────────────────────────────────────────────────
-
 describe('PatientProfile', () => {
   it('constructs a minimal profile with required fields', () => {
     const profile: PatientProfile = {
@@ -126,8 +411,6 @@ describe('PatientProfile', () => {
       currentMedications: [],
     };
     expect(profile.allergies).toEqual([]);
-    expect(profile.renalFailure).toBe(false);
-    expect(profile.hepaticFailure).toBe(false);
   });
 
   it('constructs a full profile with all optional fields', () => {
@@ -142,30 +425,9 @@ describe('PatientProfile', () => {
       hepaticFailure: false,
       currentMedications: ['metformin'],
     };
-    expect(profile.id).toBe('p-001');
     expect(profile.ageGroup).toBe('adult');
-    expect(profile.allergies).toContain('penicillin');
-  });
-
-  it('serializes and deserializes without data loss', () => {
-    const profile: PatientProfile = {
-      id: 'p-002',
-      fullName: 'Ama Koffi',
-      dateOfBirth: '2020-01-10',
-      weightKg: 12,
-      ageGroup: 'child',
-      allergies: ['sulfonamides'],
-      renalFailure: true,
-      hepaticFailure: false,
-      currentMedications: [],
-    };
-    const json = JSON.stringify(profile);
-    const restored: PatientProfile = JSON.parse(json);
-    expect(restored).toEqual(profile);
   });
 });
-
-// ─── SafetyAlert ──────────────────────────────────────────────────────────────
 
 describe('SafetyAlert', () => {
   it('constructs a critical allergy alert', () => {
@@ -176,22 +438,8 @@ describe('SafetyAlert', () => {
       affected_drug: 'Amoxicillin',
     };
     expect(alert.level).toBe('critical');
-    expect(alert.type).toBe('allergy');
-  });
-
-  it('serializes and deserializes without data loss', () => {
-    const alert: SafetyAlert = {
-      level: 'warning',
-      type: 'interaction',
-      message: 'Potential interaction with warfarin',
-    };
-    const json = JSON.stringify(alert);
-    const restored: SafetyAlert = JSON.parse(json);
-    expect(restored).toEqual(alert);
   });
 });
-
-// ─── DifferentialDiagnosis ────────────────────────────────────────────────────
 
 describe('DifferentialDiagnosis', () => {
   it('constructs a diagnosis entry with optional icd_code', () => {
@@ -203,37 +451,16 @@ describe('DifferentialDiagnosis', () => {
     };
     expect(diag.probability).toBeGreaterThanOrEqual(0);
     expect(diag.probability).toBeLessThanOrEqual(1);
-    expect(diag.icd_code).toBe('B54');
-  });
-
-  it('serializes and deserializes without data loss', () => {
-    const diag: DifferentialDiagnosis = {
-      condition: 'Typhoid fever',
-      probability: 0.6,
-      concordant_symptoms: ['fever', 'headache', 'abdominal pain'],
-    };
-    const json = JSON.stringify(diag);
-    const restored: DifferentialDiagnosis = JSON.parse(json);
-    expect(restored).toEqual(diag);
   });
 });
-
-// ─── Symptom ──────────────────────────────────────────────────────────────────
 
 describe('Symptom', () => {
   it('constructs and serializes correctly', () => {
-    const symptom: Symptom = {
-      name: 'fever',
-      severity: 'high',
-      duration_days: 3,
-    };
-    const json = JSON.stringify(symptom);
-    const restored: Symptom = JSON.parse(json);
+    const symptom: Symptom = { name: 'fever', severity: 'high', duration_days: 3 };
+    const restored: Symptom = JSON.parse(JSON.stringify(symptom));
     expect(restored).toEqual(symptom);
   });
 });
-
-// ─── DocumentSource ───────────────────────────────────────────────────────────
 
 describe('DocumentSource', () => {
   it('constructs and serializes correctly', () => {
@@ -242,13 +469,9 @@ describe('DocumentSource', () => {
       section: 'Chapter 3 — Malaria',
       excerpt: 'Artemisinin-based combination therapy is recommended...',
     };
-    const json = JSON.stringify(source);
-    const restored: DocumentSource = JSON.parse(json);
-    expect(restored).toEqual(source);
+    expect(JSON.parse(JSON.stringify(source))).toEqual(source);
   });
 });
-
-// ─── ChatMessage ──────────────────────────────────────────────────────────────
 
 describe('ChatMessage', () => {
   it('constructs a user message', () => {
@@ -261,67 +484,18 @@ describe('ChatMessage', () => {
     expect(msg.role).toBe('user');
     expect(msg.sources).toBeUndefined();
   });
-
-  it('constructs an assistant message with sources', () => {
-    const msg: ChatMessage = {
-      id: 'msg-2',
-      role: 'assistant',
-      content: 'Artemisinin-based combination therapy is recommended.',
-      sources: [{ title: 'OMS AFRO', section: 'Ch3', excerpt: '...' }],
-      timestamp: '2024-01-01T10:00:01Z',
-    };
-    expect(msg.role).toBe('assistant');
-    expect(msg.sources).toHaveLength(1);
-  });
-
-  it('serializes and deserializes without data loss', () => {
-    const msg: ChatMessage = {
-      id: 'msg-3',
-      role: 'assistant',
-      content: 'Take artemether-lumefantrine.',
-      sources: [{ title: 'PNLP', section: 'Malaria', excerpt: 'ACT recommended' }],
-      timestamp: '2024-01-01T10:00:02Z',
-    };
-    const json = JSON.stringify(msg);
-    const restored: ChatMessage = JSON.parse(json);
-    expect(restored).toEqual(msg);
-  });
 });
 
-// ─── ChatSession ──────────────────────────────────────────────────────────────
-
 describe('ChatSession', () => {
-  it('constructs a session with messages and optional patient context', () => {
+  it('constructs a session with messages', () => {
     const session: ChatSession = {
       id: 'session-1',
       messages: [],
       createdAt: '2024-01-01T09:00:00Z',
     };
     expect(session.messages).toHaveLength(0);
-    expect(session.patientContext).toBeUndefined();
-  });
-
-  it('serializes and deserializes without data loss', () => {
-    const session: ChatSession = {
-      id: 'session-2',
-      messages: [
-        { id: 'm1', role: 'user', content: 'Hello', timestamp: '2024-01-01T09:01:00Z' },
-      ],
-      patientContext: {
-        allergies: [],
-        renalFailure: false,
-        hepaticFailure: false,
-        currentMedications: [],
-      },
-      createdAt: '2024-01-01T09:00:00Z',
-    };
-    const json = JSON.stringify(session);
-    const restored: ChatSession = JSON.parse(json);
-    expect(restored).toEqual(session);
   });
 });
-
-// ─── Consultation ─────────────────────────────────────────────────────────────
 
 describe('Consultation', () => {
   it('constructs a one-shot consultation without patientId', () => {
@@ -336,31 +510,5 @@ describe('Consultation', () => {
     };
     expect(consultation.patientId).toBeUndefined();
     expect(consultation.isOneShot).toBe(true);
-  });
-
-  it('serializes and deserializes without data loss', () => {
-    const consultation: Consultation = {
-      id: 'c-002',
-      patientId: 'p-001',
-      symptoms: [{ name: 'cough', severity: 'moderate', duration_days: 5 }],
-      diagnoses: [
-        { condition: 'Pneumonia', probability: 0.75, icd_code: 'J18', concordant_symptoms: ['cough'] },
-      ],
-      prescription: {
-        antibiotic: 'Amoxicillin',
-        dose_mg: 500,
-        frequency: 'TID',
-        duration_days: 7,
-        route: 'oral',
-        is_capped_to_adult_dose: false,
-      },
-      alerts: [],
-      llmUsed: 'qwen3',
-      createdAt: '2024-01-01T08:00:00Z',
-      isOneShot: false,
-    };
-    const json = JSON.stringify(consultation);
-    const restored: Consultation = JSON.parse(json);
-    expect(restored).toEqual(consultation);
   });
 });

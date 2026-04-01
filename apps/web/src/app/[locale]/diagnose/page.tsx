@@ -487,9 +487,9 @@ export default function DiagnosePage() {
                 <div key={`${diag.condition}-${i}`} className={`border rounded-lg p-4 space-y-2 ${borderAccent}`}>
                   <div className="flex items-center justify-between gap-4">
                     <h3 className="font-semibold text-gray-900">{diag.condition}</h3>
-                    {diag.icd_code && (
+                    {diag.icdCode && (
                       <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-mono">
-                        {diag.icd_code}
+                        {diag.icdCode}
                       </span>
                     )}
                   </div>
@@ -513,11 +513,11 @@ export default function DiagnosePage() {
                   </div>
 
                   {/* Matching symptoms */}
-                  {diag.concordant_symptoms && diag.concordant_symptoms.length > 0 && (
+                  {diag.concordantSymptoms && diag.concordantSymptoms.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-gray-500 mb-1">{t('matchingSymptoms')}</p>
                       <div className="flex flex-wrap gap-1">
-                        {diag.concordant_symptoms.map((s, j) => (
+                        {diag.concordantSymptoms.map((s, j) => (
                           <span key={`${s}-${j}`} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
                             {s}
                           </span>

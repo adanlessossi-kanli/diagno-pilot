@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\alert_service.py
+# hypothesis_version: 6.151.9
+
+[1.0, 'allergy', 'antacids', 'azithromycin', 'ciprofloxacin', 'contraindication', 'cotrimoxazole', 'doxycycline', 'drug_a', 'drug_b', 'drug_interactions', 'furosemide', 'gentamicin', 'interaction', 'message', 'metronidazole', 'vancomycin', 'warfarin']

@@ -46,7 +46,7 @@ describe('auth.login', () => {
     const fetchMock = getFetchMock();
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${BASE_URL}/api/v1/auth/login`);
+    expect(url).toBe(`${BASE_URL}/api/auth/login`);
     expect(init?.method).toBe('POST');
     const body = init?.body as string;
     const params = new URLSearchParams(body);
@@ -77,7 +77,7 @@ describe('auth.me', () => {
 
     const fetchMock = getFetchMock();
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${BASE_URL}/api/v1/auth/me`);
+    expect(url).toBe(`${BASE_URL}/api/auth/me`);
     expect(init?.method).toBe('GET');
     expect(init?.credentials).toBe('include');
     // No Authorization header — auth is cookie-based
@@ -90,6 +90,7 @@ describe('auth.me', () => {
 describe('diagnose.getSymptomsDiagnosis', () => {
   it('sends POST to /api/v1/diagnose/symptoms with symptoms array', async () => {
     const diagnosisResponse = {
+      session_id: 'sess-1',
       diagnoses: [{ condition: 'Malaria', probability: 0.9, concordant_symptoms: ['fever'] }],
       llmUsed: 'qwen3',
       sources: [],
@@ -110,7 +111,7 @@ describe('diagnose.getSymptomsDiagnosis', () => {
   });
 
   it('includes patient_profile when provided', async () => {
-    mockFetch(200, { diagnoses: [], llmUsed: 'qwen3', sources: [] });
+    mockFetch(200, { session_id: 'sess-2', diagnoses: [], llmUsed: 'qwen3', sources: [] });
 
     const symptoms = [{ name: 'cough', severity: 'mild', duration_days: 2 }];
     const profile = {
@@ -309,3 +310,248 @@ describe('Property 4: All API client fetch helpers include credentials', () => {
   });
 });
 
+
+// ─── Imports for new tests ────────────────────────────────────────────────────
+import { ZodError, z } from 'zod';
+import {
+  ApiValidationError,
+  normalizeKeys,
+  parseResponse,
+} from './index';
+import {
+  PatientProfileSchema,
+  DifferentialDiagnosisSchema,
+} from '@diagno-pilot/types';
+
+// ─── Helpers for new tests ────────────────────────────────────────────────────
+
+function makeResponse(status: number, body: unknown, contentType = 'application/json'): Response {
+  return new Response(
+    contentType === 'application/json' ? JSON.stringify(body) : String(body),
+    { status, headers: { 'Content-Type': contentType } },
+  );
+}
+
+// ─── Unit tests: ApiValidationError ──────────────────────────────────────────
+// Validates: Requirements 6.2, 6.3, 6.4
+
+describe('ApiValidationError', () => {
+  it('is a subclass of Error', () => {
+    const zodError = z.object({ x: z.string() }).safeParse({}).error!;
+    const err = new ApiValidationError(zodError, { x: 42 });
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(ApiValidationError);
+  });
+
+  it('exposes zodError as a ZodError instance', () => {
+    const zodError = z.object({ x: z.string() }).safeParse({}).error!;
+    const err = new ApiValidationError(zodError, { x: 42 });
+    expect(err.zodError).toBeInstanceOf(ZodError);
+  });
+
+  it('exposes rawData', () => {
+    const zodError = z.object({ x: z.string() }).safeParse({}).error!;
+    const rawData = { x: 42 };
+    const err = new ApiValidationError(zodError, rawData);
+    expect(err.rawData).toBe(rawData);
+  });
+
+  it('has name ApiValidationError', () => {
+    const zodError = z.object({ x: z.string() }).safeParse({}).error!;
+    const err = new ApiValidationError(zodError, {});
+    expect(err.name).toBe('ApiValidationError');
+  });
+
+  it('message contains "API response validation failed"', () => {
+    const zodError = z.object({ x: z.string() }).safeParse({}).error!;
+    const err = new ApiValidationError(zodError, {});
+    expect(err.message).toContain('API response validation failed');
+  });
+});
+
+// ─── Unit tests: parseResponse without schema ─────────────────────────────────
+// Validates: Requirements 6.4 — existing behavior unchanged
+
+describe('parseResponse without schema', () => {
+  it('returns parsed JSON for a 200 response', async () => {
+    const res = makeResponse(200, { foo: 'bar' });
+    const result = await parseResponse(res);
+    expect(result).toEqual({ foo: 'bar' });
+  });
+
+  it('throws ApiError for a 401 response', async () => {
+    const res = makeResponse(401, { detail: 'Unauthorized' });
+    await expect(parseResponse(res)).rejects.toMatchObject({ status: 401, message: 'Unauthorized' });
+  });
+
+  it('returns undefined for a 204 response', async () => {
+    const res = new Response(null, { status: 204 });
+    const result = await parseResponse(res);
+    expect(result).toBeUndefined();
+  });
+});
+
+// ─── Unit tests: parseResponse with schema ────────────────────────────────────
+// Validates: Requirements 6.1, 6.2, 6.3
+
+describe('parseResponse with schema', () => {
+  const SimpleSchema = z.object({ name: z.string(), count: z.number() });
+
+  it('returns parsed value when body matches schema', async () => {
+    const res = makeResponse(200, { name: 'test', count: 5 });
+    const result = await parseResponse(res, SimpleSchema);
+    expect(result).toEqual({ name: 'test', count: 5 });
+  });
+
+  it('throws ApiValidationError when body fails schema', async () => {
+    const res = makeResponse(200, { name: 123, count: 'wrong' });
+    await expect(parseResponse(res, SimpleSchema)).rejects.toBeInstanceOf(ApiValidationError);
+  });
+
+  it('ApiValidationError contains ZodError on mismatch', async () => {
+    const res = makeResponse(200, { name: 123 });
+    try {
+      await parseResponse(res, SimpleSchema);
+      expect.fail('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiValidationError);
+      expect((e as ApiValidationError).zodError).toBeInstanceOf(ZodError);
+    }
+  });
+
+  it('normalizes snake_case keys before validation', async () => {
+    const SnakeSchema = z.object({ fullName: z.string(), allergies: z.array(z.string()), renalFailure: z.boolean(), hepaticFailure: z.boolean(), currentMedications: z.array(z.string()) });
+    const res = makeResponse(200, { full_name: 'Alice', allergies: [], renal_failure: false, hepatic_failure: false, current_medications: [] });
+    const result = await parseResponse(res, SnakeSchema);
+    expect(result.fullName).toBe('Alice');
+  });
+});
+
+// ─── Property 12: ApiValidationError thrown on schema mismatch ───────────────
+// Feature: code-quality — Validates: Requirements 6.1, 6.2, 6.3
+
+describe('Property 12: ApiValidationError thrown on schema mismatch', () => {
+  const TestSchema = z.object({
+    condition: z.string(),
+    probability: z.number().min(0).max(1),
+    concordantSymptoms: z.array(z.string()),
+  });
+
+  // Arbitrary for valid objects matching TestSchema
+  const validArb = fc.record({
+    condition: fc.string({ minLength: 1 }),
+    probability: fc.float({ min: 0, max: 1, noNaN: true }),
+    concordantSymptoms: fc.array(fc.string()),
+  });
+
+  // Arbitrary for invalid objects (missing required fields or wrong types)
+  const invalidArb = fc.oneof(
+    // Missing condition
+    fc.record({ probability: fc.float({ min: 0, max: 1, noNaN: true }), concordantSymptoms: fc.array(fc.string()) }),
+    // Wrong type for probability
+    fc.record({ condition: fc.string({ minLength: 1 }), probability: fc.string(), concordantSymptoms: fc.array(fc.string()) }),
+    // probability out of range
+    fc.record({
+      condition: fc.string({ minLength: 1 }),
+      probability: fc.oneof(
+        fc.float({ min: Math.fround(1.001), max: Math.fround(1e6), noNaN: true, noDefaultInfinity: true }),
+        fc.float({ min: Math.fround(-1e6), max: Math.fround(-0.001), noNaN: true, noDefaultInfinity: true }),
+      ),
+      concordantSymptoms: fc.array(fc.string()),
+    }),
+  );
+
+  it('parseResponse throws ApiValidationError for any body that fails the schema', async () => {
+    await fc.assert(
+      fc.asyncProperty(invalidArb, async (body) => {
+        const res = makeResponse(200, body);
+        await expect(parseResponse(res, TestSchema)).rejects.toBeInstanceOf(ApiValidationError);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('ApiValidationError.zodError is a ZodError instance for any failing body', async () => {
+    await fc.assert(
+      fc.asyncProperty(invalidArb, async (body) => {
+        const res = makeResponse(200, body);
+        try {
+          await parseResponse(res, TestSchema);
+        } catch (e) {
+          expect(e).toBeInstanceOf(ApiValidationError);
+          expect((e as ApiValidationError).zodError).toBeInstanceOf(ZodError);
+        }
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('parseResponse returns parsed value for any body that passes the schema', async () => {
+    await fc.assert(
+      fc.asyncProperty(validArb, async (body) => {
+        const res = makeResponse(200, body);
+        const result = await parseResponse(res, TestSchema);
+        expect(result.condition).toBe(body.condition);
+        expect(result.probability).toBe(body.probability);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// ─── Property 13: snake_case normalization before validation ──────────────────
+// Feature: code-quality — Validates: Requirements 7.2
+
+describe('Property 13: snake_case normalization before validation', () => {
+  // Arbitrary for snake_case patient profile objects structurally equivalent to PatientProfileSchema
+  const snakeCasePatientArb = fc.record({
+    id: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+    full_name: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+    date_of_birth: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+    weight_kg: fc.option(fc.float({ min: 0, max: Math.fround(300), noNaN: true, noDefaultInfinity: true }), { nil: undefined }),
+    age_group: fc.option(fc.constantFrom('neonatal', 'infant', 'child', 'adult'), { nil: undefined }),
+    allergies: fc.array(fc.string()),
+    renal_failure: fc.boolean(),
+    hepatic_failure: fc.boolean(),
+    current_medications: fc.array(fc.string()),
+  });
+
+  it('normalizing snake_case keys then parsing with PatientProfileSchema must succeed', () => {
+    fc.assert(
+      fc.property(snakeCasePatientArb, (snakeObj) => {
+        const normalized = normalizeKeys(snakeObj);
+        expect(() => PatientProfileSchema.parse(normalized)).not.toThrow();
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('normalizeKeys converts top-level snake_case keys to camelCase', () => {
+    fc.assert(
+      fc.property(snakeCasePatientArb, (snakeObj) => {
+        const normalized = normalizeKeys(snakeObj) as Record<string, unknown>;
+        // snake_case keys should not appear in normalized output
+        expect(Object.keys(normalized)).not.toContain('full_name');
+        expect(Object.keys(normalized)).not.toContain('renal_failure');
+        expect(Object.keys(normalized)).not.toContain('hepatic_failure');
+        expect(Object.keys(normalized)).not.toContain('current_medications');
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('normalizeKeys handles nested objects recursively', () => {
+    const nested = { outer_key: { inner_key: 'value', another_key: 42 } };
+    const result = normalizeKeys(nested) as Record<string, Record<string, unknown>>;
+    expect(result).toHaveProperty('outerKey');
+    expect(result['outerKey']).toHaveProperty('innerKey', 'value');
+    expect(result['outerKey']).toHaveProperty('anotherKey', 42);
+  });
+
+  it('normalizeKeys handles arrays of objects recursively', () => {
+    const arr = [{ snake_key: 1 }, { another_snake: 2 }];
+    const result = normalizeKeys(arr) as Record<string, unknown>[];
+    expect(result[0]).toHaveProperty('snakeKey', 1);
+    expect(result[1]).toHaveProperty('anotherSnake', 2);
+  });
+});
