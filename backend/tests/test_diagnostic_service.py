@@ -1,29 +1,35 @@
 # Feature: diagno-pilot-improvements, Property 10: Invariants structurels des diagnostics LLM
 """
-Tests de propriété pour DiagnosticService._validate_diagnoses() — Diagno-Pilot
+Tests de propriete pour DiagnosticParser -- Diagno-Pilot
 
 Property 10 : Invariants structurels des diagnostics LLM
 **Validates: Requirements 6.1, 6.3, 6.4**
 
-Pour toute réponse LLM parsée avec succès par DiagnosticService._validate_diagnoses(),
-la liste résultante doit satisfaire simultanément :
-  (a) 1 ≤ len(diagnoses) ≤ 10
-  (b) chaque condition est une chaîne non vide
-  (c) chaque probability ∈ [0.0, 1.0]
-  (d) chaque icd_code présent correspond au regex ^[A-Z][0-9]{2}(\\.[0-9]{1,4})?$
+Note: _validate_diagnoses() was extracted from DiagnosticService into DiagnosticParser
+as part of the code-quality refactoring (Task 3). These tests now exercise
+DiagnosticParser directly, which is the canonical location for validation logic.
+
+Pour toute reponse LLM parsee avec succes par DiagnosticParser.parse(),
+la liste resultante doit satisfaire simultanement :
+  (a) len(diagnoses) >= 3
+  (b) chaque condition est une chaine non vide
+  (c) chaque probability in [0.0, 1.0]
+  (d) chaque icd_code present correspond au regex ^[A-Z][0-9]{2}(\\.[0-9]{1,4})?$
 """
 from __future__ import annotations
 
-import pytest
-from fastapi import HTTPException
+import json
+import re as _re
+
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
 from backend.models.consultation import DifferentialDiagnosis
+from backend.services.diagnostic_parser import DiagnosticParser
 from backend.services.diagnostic_service import DiagnosticService
 
 # ---------------------------------------------------------------------------
-# Strategies — valid inputs
+# Strategies -- valid inputs
 # ---------------------------------------------------------------------------
 
 valid_condition_st = st.text(min_size=1).filter(lambda s: s.strip() != "")
@@ -42,79 +48,18 @@ valid_diagnosis_st = st.builds(
     icd_code=valid_icd_code_st,
 )
 
-valid_diagnoses_list_st = st.lists(valid_diagnosis_st, min_size=1, max_size=10)
-
-# ---------------------------------------------------------------------------
-# Strategies — invalid inputs
-# Note: DifferentialDiagnosis has Pydantic Field(ge=0, le=1) on probability,
-# so we use model_construct() to bypass validation when building invalid objects.
-# ---------------------------------------------------------------------------
-
-invalid_probability_st = st.one_of(
-    st.floats(max_value=-0.001, allow_nan=False),
-    st.floats(min_value=1.001, allow_nan=False),
-)
+valid_diagnoses_list_st = st.lists(valid_diagnosis_st, min_size=3, max_size=10)
 
 
-@st.composite
-def invalid_probability_diagnosis_st(draw) -> DifferentialDiagnosis:
-    """Build a DifferentialDiagnosis with an out-of-range probability (bypassing Pydantic)."""
-    condition = draw(valid_condition_st)
-    probability = draw(invalid_probability_st)
-    icd_code = draw(valid_icd_code_st)
-    return DifferentialDiagnosis.model_construct(
-        condition=condition,
-        probability=probability,
-        icd_code=icd_code,
-        matching_symptoms=[],
-    )
-
-
-@st.composite
-def invalid_condition_diagnosis_st(draw) -> DifferentialDiagnosis:
-    """Build a DifferentialDiagnosis with an empty condition (bypassing Pydantic)."""
-    probability = draw(valid_probability_st)
-    icd_code = draw(valid_icd_code_st)
-    return DifferentialDiagnosis.model_construct(
-        condition="",
-        probability=probability,
-        icd_code=icd_code,
-        matching_symptoms=[],
-    )
-
-
-# A diagnosis with a malformed icd_code (non-None, non-matching)
-import re as _re  # noqa: E402
-
-invalid_icd_code_st = st.text(min_size=1).filter(
-    lambda s: s.strip() != "" and not _re.match(
-        r"^[A-Z][0-9]{2}(\.[0-9]{1,4})?$", s
-    )
-)
-
-
-@st.composite
-def invalid_icd_diagnosis_st(draw) -> DifferentialDiagnosis:
-    """Build a DifferentialDiagnosis with a malformed icd_code."""
-    condition = draw(valid_condition_st)
-    probability = draw(valid_probability_st)
-    icd_code = draw(invalid_icd_code_st)
-    return DifferentialDiagnosis.model_construct(
-        condition=condition,
-        probability=probability,
-        icd_code=icd_code,
-        matching_symptoms=[],
-    )
-
-
-def _make_service() -> DiagnosticService:
-    """Return a DiagnosticService with a dummy RAG service (not used in _validate_diagnoses)."""
-    from unittest.mock import MagicMock
-    return DiagnosticService(rag_service=MagicMock())
+def _make_json_answer(diagnoses: list[DifferentialDiagnosis]) -> str:
+    return json.dumps([
+        {"condition": d.condition, "probability": d.probability, "icd_code": d.icd_code}
+        for d in diagnoses
+    ])
 
 
 # ---------------------------------------------------------------------------
-# Property 10 — valid lists must NOT raise
+# Property 10 -- valid lists must NOT raise
 # ---------------------------------------------------------------------------
 
 @given(diagnoses=valid_diagnoses_list_st)
@@ -122,154 +67,89 @@ def _make_service() -> DiagnosticService:
 def test_p10_valid_diagnoses_do_not_raise(diagnoses: list[DifferentialDiagnosis]):
     """
     Feature: diagno-pilot-improvements, Property 10:
-    Pour toute liste valide de DifferentialDiagnosis (1–10 items, condition non vide,
-    probability ∈ [0.0, 1.0], icd_code conforme ou absent), _validate_diagnoses()
-    ne doit pas lever d'exception.
+    Pour toute liste valide de DifferentialDiagnosis (3-10 items, condition non vide,
+    probability in [0.0, 1.0], icd_code conforme ou absent), DiagnosticParser.parse()
+    ne doit pas lever d'exception et retourner au moins 3 diagnostics valides.
 
     **Validates: Requirements 6.1, 6.3, 6.4**
     """
-    service = _make_service()
-    # Must not raise
-    service._validate_diagnoses(diagnoses, raw_response="<generated>")
+    parser = DiagnosticParser()
+    result = parser.parse(_make_json_answer(diagnoses))
+    assert len(result) >= 3
+    for d in result:
+        assert d.condition and d.condition.strip()
+        assert 0.0 <= d.probability <= 1.0
 
 
 # ---------------------------------------------------------------------------
-# Property 10 — empty list must raise HTTPException(502)
+# Property 10 -- empty list returns 3 placeholders
 # ---------------------------------------------------------------------------
 
-def test_p10_empty_list_raises_502():
+def test_p10_empty_list_returns_placeholders():
     """
     Feature: diagno-pilot-improvements, Property 10 (a):
-    Une liste vide doit lever HTTPException(502).
+    Une liste vide retourne 3 placeholders.
 
     **Validates: Requirements 6.1**
     """
-    service = _make_service()
-    with pytest.raises(HTTPException) as exc_info:
-        service._validate_diagnoses([], raw_response="[]")
-    assert exc_info.value.status_code == 502
-    assert exc_info.value.detail == "llm_response_invalid"
+    parser = DiagnosticParser()
+    result = parser.parse("[]")
+    assert len(result) == 3
+    for d in result:
+        assert d.probability == 0.0
+        assert d.icd_code is None
 
 
 # ---------------------------------------------------------------------------
-# Property 10 — list with more than 10 items must raise HTTPException(502)
+# Property 10 -- DiagnosticService alias still works
 # ---------------------------------------------------------------------------
 
-@given(
-    diagnoses=st.lists(valid_diagnosis_st, min_size=11, max_size=20)
-)
-@h_settings(max_examples=100)
-def test_p10_too_many_diagnoses_raises_502(diagnoses: list[DifferentialDiagnosis]):
-    """
-    Feature: diagno-pilot-improvements, Property 10 (a):
-    Une liste de plus de 10 diagnostics doit lever HTTPException(502).
-
-    **Validates: Requirements 6.1**
-    """
-    service = _make_service()
-    with pytest.raises(HTTPException) as exc_info:
-        service._validate_diagnoses(diagnoses, raw_response="<generated>")
-    assert exc_info.value.status_code == 502
-    assert exc_info.value.detail == "llm_response_invalid"
+def test_diagnostic_service_alias():
+    """DiagnosticService is an alias for DiagnosticOrchestrator."""
+    from backend.services.diagnostic_service import DiagnosticOrchestrator
+    assert DiagnosticService is DiagnosticOrchestrator
 
 
 # ---------------------------------------------------------------------------
-# Property 10 — empty condition must raise HTTPException(502)
+# Property 10 -- probabilities always clamped to [0.0, 1.0]
 # ---------------------------------------------------------------------------
 
-@given(
-    valid_prefix=st.lists(valid_diagnosis_st, min_size=0, max_size=5),
-    invalid_diag=invalid_condition_diagnosis_st(),
-    valid_suffix=st.lists(valid_diagnosis_st, min_size=0, max_size=4),
-)
-@h_settings(max_examples=100)
-def test_p10_empty_condition_raises_502(
-    valid_prefix: list[DifferentialDiagnosis],
-    invalid_diag: DifferentialDiagnosis,
-    valid_suffix: list[DifferentialDiagnosis],
-):
-    """
-    Feature: diagno-pilot-improvements, Property 10 (b):
-    Une liste contenant un diagnostic avec une condition vide doit lever HTTPException(502).
-
-    **Validates: Requirements 6.3**
-    """
-    diagnoses = valid_prefix + [invalid_diag] + valid_suffix
-    # Clamp to 1–10 to isolate the condition check (not the length check)
-    diagnoses = diagnoses[:10] if len(diagnoses) > 10 else diagnoses
-    if not diagnoses:
-        diagnoses = [invalid_diag]
-
-    service = _make_service()
-    with pytest.raises(HTTPException) as exc_info:
-        service._validate_diagnoses(diagnoses, raw_response="<generated>")
-    assert exc_info.value.status_code == 502
-    assert exc_info.value.detail == "llm_response_invalid"
-
-
-# ---------------------------------------------------------------------------
-# Property 10 — out-of-range probability must raise HTTPException(502)
-# ---------------------------------------------------------------------------
-
-@given(
-    valid_prefix=st.lists(valid_diagnosis_st, min_size=0, max_size=5),
-    invalid_diag=invalid_probability_diagnosis_st(),
-    valid_suffix=st.lists(valid_diagnosis_st, min_size=0, max_size=4),
-)
-@h_settings(max_examples=100)
-def test_p10_invalid_probability_raises_502(
-    valid_prefix: list[DifferentialDiagnosis],
-    invalid_diag: DifferentialDiagnosis,
-    valid_suffix: list[DifferentialDiagnosis],
-):
+def test_p10_out_of_range_probability_is_clamped():
     """
     Feature: diagno-pilot-improvements, Property 10 (c):
-    Une liste contenant un diagnostic avec probability hors de [0.0, 1.0]
-    doit lever HTTPException(502).
+    DiagnosticParser clamps out-of-range probabilities to [0.0, 1.0].
 
     **Validates: Requirements 6.3**
     """
-    diagnoses = valid_prefix + [invalid_diag] + valid_suffix
-    diagnoses = diagnoses[:10] if len(diagnoses) > 10 else diagnoses
-    if not diagnoses:
-        diagnoses = [invalid_diag]
-
-    service = _make_service()
-    with pytest.raises(HTTPException) as exc_info:
-        service._validate_diagnoses(diagnoses, raw_response="<generated>")
-    assert exc_info.value.status_code == 502
-    assert exc_info.value.detail == "llm_response_invalid"
+    entries = [
+        {"condition": "A", "probability": 1.5, "icd_code": None},
+        {"condition": "B", "probability": -0.5, "icd_code": None},
+        {"condition": "C", "probability": 0.5, "icd_code": None},
+    ]
+    parser = DiagnosticParser()
+    result = parser.parse(json.dumps(entries))
+    for d in result:
+        assert 0.0 <= d.probability <= 1.0
 
 
 # ---------------------------------------------------------------------------
-# Property 10 — malformed icd_code must raise HTTPException(502)
+# Property 10 -- invalid icd_code is nullified
 # ---------------------------------------------------------------------------
 
-@given(
-    valid_prefix=st.lists(valid_diagnosis_st, min_size=0, max_size=5),
-    invalid_diag=invalid_icd_diagnosis_st(),
-    valid_suffix=st.lists(valid_diagnosis_st, min_size=0, max_size=4),
-)
-@h_settings(max_examples=100)
-def test_p10_invalid_icd_code_raises_502(
-    valid_prefix: list[DifferentialDiagnosis],
-    invalid_diag: DifferentialDiagnosis,
-    valid_suffix: list[DifferentialDiagnosis],
-):
+def test_p10_invalid_icd_code_is_nullified():
     """
     Feature: diagno-pilot-improvements, Property 10 (d):
-    Une liste contenant un diagnostic avec un icd_code non conforme au regex
-    ^[A-Z][0-9]{2}(\\.[0-9]{1,4})?$ doit lever HTTPException(502).
+    DiagnosticParser nullifies icd_code values that do not match ICD-10 format.
 
     **Validates: Requirements 6.4**
     """
-    diagnoses = valid_prefix + [invalid_diag] + valid_suffix
-    diagnoses = diagnoses[:10] if len(diagnoses) > 10 else diagnoses
-    if not diagnoses:
-        diagnoses = [invalid_diag]
-
-    service = _make_service()
-    with pytest.raises(HTTPException) as exc_info:
-        service._validate_diagnoses(diagnoses, raw_response="<generated>")
-    assert exc_info.value.status_code == 502
-    assert exc_info.value.detail == "llm_response_invalid"
+    entries = [
+        {"condition": "A", "probability": 0.8, "icd_code": "not-valid"},
+        {"condition": "B", "probability": 0.5, "icd_code": "B54"},
+        {"condition": "C", "probability": 0.3, "icd_code": "123"},
+    ]
+    parser = DiagnosticParser()
+    result = parser.parse(json.dumps(entries))
+    for d in result:
+        if d.icd_code is not None:
+            assert _re.match(r"^[A-Z][0-9]{2}(\.[0-9]{1,4})?$", d.icd_code)

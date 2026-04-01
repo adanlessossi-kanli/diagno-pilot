@@ -10,7 +10,11 @@
     "build": "tsc",
     "test": "vitest run"
   },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
   "devDependencies": {
+    "fast-check": "^4.6.0",
     "typescript": "^5",
     "vitest": "^2"
   }

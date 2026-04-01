@@ -7,7 +7,24 @@ from backend.core.config import settings
 
 
 class EmbeddingModel:
-    """Encodes text into embedding vectors using the configured embedding API."""
+    """Encodes text into dense float vectors for semantic similarity search.
+
+    This class wraps an OpenAI-compatible ``/embeddings`` endpoint (e.g.
+    ``text-embedding-3-small`` or a locally hosted equivalent configured via
+    :attr:`~backend.core.config.Settings.EMBED_MODEL`).  The resulting vectors
+    are stored in MongoDB Atlas and queried at inference time by
+    :class:`~backend.services.rag_service.RAGService`.
+
+    Output dimensionality depends on the underlying model:
+        - ``text-embedding-3-small``: 1 536 dimensions.
+        - ``text-embedding-3-large``: 3 072 dimensions.
+        - Locally hosted models (e.g. ``nomic-embed-text``): typically 768
+          dimensions.
+
+    The actual dimension is determined by the model specified in
+    :attr:`~backend.core.config.Settings.EMBED_MODEL` and must match the
+    dimension configured on the MongoDB Atlas vector index.
+    """
 
     def __init__(
         self,
@@ -21,7 +38,28 @@ class EmbeddingModel:
         self.model = model or settings.EMBED_MODEL
 
     async def encode(self, text: str) -> list[float]:
-        """Return the embedding vector for *text*, trying primary then fallback URL."""
+        """Encode *text* into a dense embedding vector.
+
+        Args:
+            text: A single string to embed.  Typical inputs are a clinical
+                query, a document chunk, or a symptom description.  The string
+                is passed directly to the model without any pre-processing or
+                truncation — callers are responsible for keeping the input
+                within the model's token limit.
+
+        Returns:
+            A ``list[float]`` of length equal to the model's output
+            dimensionality (e.g. 1 536 for ``text-embedding-3-small``).  The
+            vector is returned as-is from the API response; **no L2
+            normalisation** is applied by this method.  If the downstream
+            vector index requires normalised vectors, normalisation must be
+            performed by the caller before storage or comparison.
+
+        Raises:
+            :class:`RuntimeError`: If no embedding endpoints are configured.
+            :class:`httpx.HTTPStatusError`: If all configured endpoints return
+                a non-2xx HTTP status.
+        """
         payload = {"model": self.model, "input": text}
 
         urls_and_keys = []

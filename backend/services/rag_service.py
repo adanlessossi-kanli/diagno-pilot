@@ -10,7 +10,33 @@ from backend.services.llm_router import LLMRouter
 
 
 class RAGService:
-    """Encodes a query, retrieves top-k chunks via $vectorSearch, then generates an answer."""
+    """Retrieval-augmented generation service for medical knowledge queries.
+
+    Implements the RAG pipeline in three stages:
+    1. **Embedding** — the query string is encoded into a dense vector via
+       :class:`EmbeddingModel`.
+    2. **Vector search** — the vector is used to retrieve the most relevant
+       document chunks from MongoDB Atlas using the ``$vectorSearch`` aggregation
+       stage against the ``embedding_index`` index on the ``document_chunks``
+       collection.
+    3. **LLM generation** — the retrieved passages (and optional patient context)
+       are forwarded to :class:`LLMRouter`, which produces a grounded natural-
+       language answer.
+
+    MongoDB details:
+        - Collection: ``document_chunks`` (see :attr:`COLLECTION`)
+        - Vector index: ``embedding_index`` (see :attr:`VECTOR_INDEX`)
+        - Database: ``diagno_pilot`` (configurable via the ``db_name`` constructor
+          argument)
+
+    Indexed medical document sources:
+        - **CHU Lomé / CHU Abomey-Calavi** — clinical protocols from the teaching
+          hospitals of Togo and Benin.
+        - **OMS AFRO** — WHO Regional Office for Africa guidelines.
+        - **MSF** — Médecins Sans Frontières clinical guidelines.
+        - **PNLP** — Programme National de Lutte contre le Paludisme (national
+          malaria-control programme) treatment protocols.
+    """
 
     COLLECTION = "document_chunks"
     VECTOR_INDEX = "embedding_index"
@@ -33,7 +59,32 @@ class RAGService:
         context: PatientProfile | None = None,
         top_k: int = 5,
     ) -> RAGResponse:
-        """Retrieve relevant chunks and generate a grounded answer."""
+        """Retrieve relevant document chunks and generate a grounded answer.
+
+        Args:
+            question: The natural-language query to answer (e.g. a clinical
+                question or symptom description).
+            context: Optional patient profile.  When provided, a ``system``
+                message containing the serialised profile is prepended to the
+                LLM context so that the generated answer can be personalised
+                (e.g. adjusted for paediatric weight, renal failure, known
+                allergies).
+            top_k: Number of document chunks to retrieve from the vector index.
+                Higher values increase recall at the cost of a larger LLM
+                context window.  Defaults to ``5``.
+
+        Returns:
+            A :class:`~backend.models.document.RAGResponse` with three fields:
+
+            - ``answer`` (*str*) — the LLM-generated response grounded in the
+              retrieved passages.
+            - ``sources`` (*list[DocumentSource]*) — metadata for each retrieved
+              chunk (document ID, title, source organisation, section, page, and
+              a 200-character excerpt).
+            - ``llm_used`` (*str*) — identifier of the LLM endpoint that
+              produced the answer (primary or fallback), as reported by
+              :class:`~backend.services.llm_router.LLMRouter`.
+        """
         query_vector = await self._embedder.encode(question)
 
         pipeline = [

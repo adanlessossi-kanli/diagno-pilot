@@ -13,17 +13,19 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { MobileSymptomInput } from '../../src/components/MobileSymptomInput';
 import { MobilePrescriptionCard } from '../../src/components/MobilePrescriptionCard';
 import { MobileAlertBanner } from '../../src/components/MobileAlertBanner';
-import type { Symptom, DifferentialDiagnosis, Prescription, SafetyAlert } from '@diagno-pilot/types';
+import type { Symptom, Prescription, SafetyAlert } from '@diagno-pilot/types';
+import type { DiagnosisResponse } from '@diagno-pilot/api-client';
 import { getProbabilityColor } from '../../src/utils/probabilityColor';
 
 type Step = 'symptoms' | 'differential' | 'prescription';
+type DiagnosisEntry = DiagnosisResponse['diagnoses'][number];
 
 export default function DiagnoseScreen() {
   const { apiClient } = useAuth();
   const [step, setStep] = useState<Step>('symptoms');
   const [symptoms, setSymptoms] = useState<Symptom[]>([]);
-  const [diagnoses, setDiagnoses] = useState<DifferentialDiagnosis[]>([]);
-  const [selectedDiagnosis, setSelectedDiagnosis] = useState<DifferentialDiagnosis | null>(null);
+  const [diagnoses, setDiagnoses] = useState<DiagnosisEntry[]>([]);
+  const [selectedDiagnosis, setSelectedDiagnosis] = useState<DiagnosisEntry | null>(null);
   const [prescription, setPrescription] = useState<Prescription | null>(null);
   const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,7 +44,7 @@ export default function DiagnoseScreen() {
     }
   }
 
-  async function handleGetPrescription(diagnosis: DifferentialDiagnosis) {
+  async function handleGetPrescription(diagnosis: DiagnosisEntry) {
     setSelectedDiagnosis(diagnosis);
     setLoading(true);
     try {
@@ -131,12 +133,12 @@ export default function DiagnoseScreen() {
                   <Text style={styles.probText}>{Math.round(d.probability * 100)}%</Text>
                 </View>
               </View>
-              {d.icd_code && (
-                <Text style={styles.icdCode}>CIM-10 : {d.icd_code}</Text>
+              {d.icdCode && (
+                <Text style={styles.icdCode}>CIM-10 : {d.icdCode}</Text>
               )}
-              {d.concordant_symptoms.length > 0 && (
+              {d.concordantSymptoms.length > 0 && (
                 <Text style={styles.concordant}>
-                  Symptômes concordants : {d.concordant_symptoms.join(', ')}
+                  Symptômes concordants : {d.concordantSymptoms.join(', ')}
                 </Text>
               )}
             </TouchableOpacity>

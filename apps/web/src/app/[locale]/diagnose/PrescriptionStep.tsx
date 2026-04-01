@@ -2,13 +2,21 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { DifferentialDiagnosis, Prescription, SafetyAlert } from '@diagno-pilot/types';
+import type { Prescription, SafetyAlert } from '@diagno-pilot/types';
 import type { PrescriptionResponse } from '@diagno-pilot/api-client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** CamelCase diagnosis entry as returned by the API client after key normalization */
+export interface DiagnosisEntry {
+  condition: string;
+  probability: number;
+  icdCode?: string;
+  concordantSymptoms: string[];
+}
+
 export interface PrescriptionStepProps {
-  diagnoses: DifferentialDiagnosis[];
+  diagnoses: DiagnosisEntry[];
   antibiotics: string[];
   onGetPrescription: (antibiotic: string) => Promise<PrescriptionResponse>;
 }
@@ -149,7 +157,7 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
           {diagnoses.map((diag, i) => (
             <option key={`${diag.condition}-${i}`} value={i}>
               {diag.condition}
-              {diag.icd_code ? ` (${diag.icd_code})` : ''}
+              {diag.icdCode ? ` (${diag.icdCode})` : ''}
               {' — '}
               {Math.round(diag.probability * 100)}%
             </option>

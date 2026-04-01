@@ -2,6 +2,8 @@
 // Covers all backend endpoints: /auth, /chat, /diagnose, /patients, /documents, /files, /alerts
 // REQ-01 through REQ-09
 
+import type { ZodSchema } from 'zod';
+import { ZodError, z } from 'zod';
 import type {
   AuthUser,
   PatientProfile,
@@ -13,6 +15,12 @@ import type {
   Prescription,
   SafetyAlert,
   DocumentSource,
+} from '@diagno-pilot/types';
+import {
+  AuthUserSchema,
+  PatientProfileSchema,
+  DifferentialDiagnosisSchema,
+  DocumentSourceSchema,
 } from '@diagno-pilot/types';
 
 // ─── Response types ───────────────────────────────────────────────────────────
@@ -33,8 +41,13 @@ export interface LoginResponse {
 }
 
 export interface DiagnosisResponse {
-  session_id: string;
-  diagnoses: DifferentialDiagnosis[];
+  sessionId: string;
+  diagnoses: {
+    condition: string;
+    probability: number;
+    icdCode?: string;
+    concordantSymptoms: string[];
+  }[];
   // llmUsed and sources are not returned by /diagnose/symptoms — they come
   // from the RAG chat endpoint. Kept optional so UI code can guard safely.
   llmUsed?: string;
@@ -103,7 +116,7 @@ export interface PaginatedResponse<T> {
   items: T[];
   total: number;
   page: number;
-  page_size: number;
+  pageSize: number;
 }
 
 export interface ApiError {
@@ -112,9 +125,60 @@ export interface ApiError {
   detail?: unknown;
 }
 
+// ─── Local Zod schemas for api-client response types ─────────────────────────
+
+const DiagnosisResponseSchema = z.object({
+  sessionId: z.string(),
+  diagnoses: z.array(z.object({
+    condition: z.string(),
+    probability: z.number().min(0).max(1),
+    icdCode: z.string().optional(),
+    concordantSymptoms: z.array(z.string()),
+  })),
+  llmUsed: z.string().optional(),
+  sources: z.array(DocumentSourceSchema).optional(),
+});
+
+const PaginatedPatientResponseSchema = z.object({
+  items: z.array(PatientProfileSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
+// ─── ApiValidationError ───────────────────────────────────────────────────────
+
+export class ApiValidationError extends Error {
+  constructor(
+    public readonly zodError: ZodError,
+    public readonly rawData: unknown,
+  ) {
+    super(`API response validation failed: ${zodError.message}`);
+    this.name = 'ApiValidationError';
+  }
+}
+
+// ─── normalizeKeys ────────────────────────────────────────────────────────────
+
+/** Recursively converts snake_case object keys to camelCase. Handles nested objects and arrays. */
+export function normalizeKeys(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeKeys);
+  }
+  if (value !== null && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+      result[camelKey] = normalizeKeys(val);
+    }
+    return result;
+  }
+  return value;
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-async function parseResponse<T>(res: Response): Promise<T> {
+export async function parseResponse<T>(res: Response, schema?: ZodSchema<T>): Promise<T> {
   const contentType = res.headers.get('content-type') ?? '';
   const isJson = contentType.includes('application/json');
 
@@ -132,7 +196,18 @@ async function parseResponse<T>(res: Response): Promise<T> {
     return undefined as unknown as T;
   }
 
-  return res.json() as Promise<T>;
+  const data = await res.json();
+
+  if (schema) {
+    const normalized = normalizeKeys(data);
+    const result = schema.safeParse(normalized);
+    if (!result.success) {
+      throw new ApiValidationError(result.error, normalized);
+    }
+    return result.data;
+  }
+
+  return data as T;
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -269,13 +344,7 @@ export function createApiClient(baseUrl: string, _getToken?: () => string | null
         headers: {},
         credentials: 'include',
         signal,
-      }).then(parseResponse<Record<string, unknown>>).then((raw) => ({
-        id: raw['id'] as string,
-        email: raw['email'] as string,
-        role: raw['role'] as AuthUser['role'],
-        fullName: (raw['fullName'] ?? raw['full_name']) as string,
-        locale: raw['locale'] as AuthUser['locale'],
-      }));
+      }).then((res) => parseResponse(res, AuthUserSchema));
     },
   };
 
@@ -324,10 +393,16 @@ export function createApiClient(baseUrl: string, _getToken?: () => string | null
       signal?: AbortSignal,
     ): Promise<DiagnosisResponse> {
       // Backend returns { session_id, diagnoses } — no llmUsed/sources at this endpoint
-      return post<DiagnosisResponse>('/api/v1/diagnose/symptoms', {
-        symptoms,
-        patient_profile: serializePatientProfile(patientProfile),
-      }, signal);
+      return fetch(`${base}/api/v1/diagnose/symptoms`, {
+        method: 'POST',
+        headers: csrfHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({
+          symptoms,
+          patient_profile: serializePatientProfile(patientProfile),
+        }),
+        signal,
+      }).then((res) => parseResponse(res, DiagnosisResponseSchema));
     },
 
     /** REQ-03 — Request an antibiotic prescription for a given diagnosis */
@@ -358,10 +433,12 @@ export function createApiClient(baseUrl: string, _getToken?: () => string | null
   const patients = {
     /** REQ-06 — List patients with pagination (REQ 8.1, 8.2, 8.3) */
     listPatients(page = 1, pageSize = 20, signal?: AbortSignal): Promise<PaginatedResponse<PatientProfile>> {
-      return get<PaginatedResponse<PatientProfile>>(
-        `/api/v1/patients?page=${page}&page_size=${pageSize}`,
+      return fetch(`${base}/api/v1/patients?page=${page}&page_size=${pageSize}`, {
+        method: 'GET',
+        headers: headers(),
+        credentials: 'include',
         signal,
-      );
+      }).then((res) => parseResponse(res, PaginatedPatientResponseSchema));
     },
 
     /** Convenience: fetch all patients from page 1 and return the items array directly. */
@@ -380,7 +457,12 @@ export function createApiClient(baseUrl: string, _getToken?: () => string | null
 
     /** REQ-06 — Retrieve a single patient by ID */
     getPatient(id: string, signal?: AbortSignal): Promise<PatientProfile> {
-      return get<PatientProfile>(`/api/v1/patients/${encodeURIComponent(id)}`, signal);
+      return fetch(`${base}/api/v1/patients/${encodeURIComponent(id)}`, {
+        method: 'GET',
+        headers: headers(),
+        credentials: 'include',
+        signal,
+      }).then((res) => parseResponse(res, PatientProfileSchema));
     },
 
     /** REQ-06 — Update an existing patient record */

@@ -65,16 +65,12 @@ def _generate_csrf_token() -> str:
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str, csrf_token: str) -> None:
     secure = settings.ENV == "production"
-    # SameSite=Strict blocks cookies on cross-origin requests (e.g. frontend on :3000,
-    # backend on :8000 in dev). Use Lax in dev so cookies are sent on top-level navigations
-    # and fetch requests with credentials:include. Production keeps Strict.
-    samesite = "strict" if settings.ENV == "production" else "lax"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         secure=secure,
-        samesite=samesite,
+        samesite="strict",
         max_age=settings.JWT_EXPIRE_MINUTES * 60,
     )
     response.set_cookie(
@@ -82,7 +78,7 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         value=refresh_token,
         httponly=True,
         secure=secure,
-        samesite=samesite,
+        samesite="strict",
         max_age=settings.JWT_REFRESH_EXPIRE_DAYS * 86400,
     )
     response.set_cookie(
@@ -90,16 +86,15 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str,
         value=csrf_token,
         httponly=False,
         secure=secure,
-        samesite=samesite,
+        samesite="strict",
         max_age=settings.JWT_REFRESH_EXPIRE_DAYS * 86400,
     )
 
 
 def _clear_auth_cookies(response: Response) -> None:
-    samesite = "strict" if settings.ENV == "production" else "lax"
-    response.set_cookie(key="access_token", value="", httponly=True, samesite=samesite, max_age=0)
-    response.set_cookie(key="refresh_token", value="", httponly=True, samesite=samesite, max_age=0)
-    response.set_cookie(key="csrf_token", value="", httponly=False, samesite=samesite, max_age=0)
+    response.set_cookie(key="access_token", value="", httponly=True, samesite="strict", max_age=0)
+    response.set_cookie(key="refresh_token", value="", httponly=True, samesite="strict", max_age=0)
+    response.set_cookie(key="csrf_token", value="", httponly=False, samesite="strict", max_age=0)
 
 
 # --- Schemas ---

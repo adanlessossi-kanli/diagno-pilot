@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\diagnostic_parser.py
+# hypothesis_version: 6.151.9
+
+[0.0, 1.0, 'Unknown', '\\[.*\\]', 'condition', 'icd_code', 'probability']
