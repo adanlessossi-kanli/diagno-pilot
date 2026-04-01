@@ -38,7 +38,10 @@ async def test_health_includes_redis_ok_field():
     mock_db.get_db.return_value.client.admin.command = AsyncMock(return_value={"ok": 1})
 
     with patch("backend.main.cache_service", mock_cache), \
-         patch("backend.main.db", mock_db):
+         patch("backend.main.db", mock_db), \
+         patch("backend.main._probe_llm_primary", AsyncMock(return_value="ok")), \
+         patch("backend.main._probe_llm_fallback", AsyncMock(return_value="ok")), \
+         patch("backend.main._probe_embedding", AsyncMock(return_value="ok")):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:

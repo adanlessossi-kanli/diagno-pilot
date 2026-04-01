@@ -10,7 +10,7 @@ import pytest
 
 from backend.models.document import RAGResponse
 from backend.services.embedding_service import EmbeddingModel
-from backend.services.llm_router import LLMRouter
+from backend.services.llm_router import LLMResult, LLMRouter
 from backend.services.rag_service import RAGService
 
 
@@ -52,7 +52,7 @@ def _make_rag_service(chunks: list[dict], llm_answer: str = "Use amoxicillin 50 
     embedder.encode = AsyncMock(return_value=[0.1] * 1536)
 
     llm = MagicMock(spec=LLMRouter)
-    llm.generate = AsyncMock(return_value=llm_answer)
+    llm.generate = AsyncMock(return_value=LLMResult(answer=llm_answer, fallback_used=False))
     llm.last_used = "qwen3"
 
     service = RAGService(mongo_client=mock_mongo, llm_router=llm, embedder=embedder)

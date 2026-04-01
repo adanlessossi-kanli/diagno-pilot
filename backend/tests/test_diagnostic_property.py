@@ -18,7 +18,7 @@ from hypothesis import strategies as st
 from backend.models.consultation import DifferentialDiagnosis, Symptom
 from backend.models.document import RAGResponse
 from backend.models.patient import PatientProfile
-from backend.services.diagnostic_service import DiagnosticService
+from backend.services.diagnostic_service import DiagnosticResult, DiagnosticService
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -88,16 +88,16 @@ def test_differential_diagnosis_returns_at_least_3_with_valid_probabilities(
 
     service = DiagnosticService(rag_service=mock_rag)
 
-    result: list[DifferentialDiagnosis] = asyncio.run(
+    result: DiagnosticResult = asyncio.run(
         service.get_differential_diagnosis(symptoms, patient_profile)
     )
 
     # At least 3 diagnoses returned
-    assert len(result) >= 3, (
-        f"Expected at least 3 diagnoses, got {len(result)}"
+    assert len(result.diagnoses) >= 3, (
+        f"Expected at least 3 diagnoses, got {len(result.diagnoses)}"
     )
 
-    for diag in result:
+    for diag in result.diagnoses:
         # Probability must be in [0.0, 1.0]
         assert 0.0 <= diag.probability <= 1.0, (
             f"Probability {diag.probability!r} out of range for condition {diag.condition!r}"

@@ -146,7 +146,7 @@ def test_delegation_returns_parser_result():
 
     result = asyncio.run(orchestrator.get_differential_diagnosis(symptoms, None))
 
-    assert result is expected
+    assert result.diagnoses is expected
 
 
 # ---------------------------------------------------------------------------

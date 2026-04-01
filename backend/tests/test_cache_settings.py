@@ -63,8 +63,14 @@ def test_p11_ttl_rejects_non_integer(field: str, bad_value: str):
 
 def test_redis_url_default():
     """REDIS_URL defaults to redis://localhost:6379/0 when env var is absent."""
-    s = Settings()
-    assert s.REDIS_URL == "redis://localhost:6379/0"
+    import os
+    env_backup = os.environ.pop("REDIS_URL", None)
+    try:
+        s = Settings()
+        assert s.REDIS_URL == "redis://localhost:6379/0"
+    finally:
+        if env_backup is not None:
+            os.environ["REDIS_URL"] = env_backup
 
 
 def test_cache_ttl_defaults():

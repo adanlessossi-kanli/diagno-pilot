@@ -59,7 +59,8 @@ def test_fallback_always_returns_response_when_primary_fails(
         return result
 
     result = asyncio.run(run())
-    assert result == fallback_response
+    assert result.answer == fallback_response
+    assert result.fallback_used is True
     assert router.last_used == "gpt5"
 
 
@@ -92,7 +93,8 @@ def test_primary_used_when_available(
         return result
 
     result = asyncio.run(run())
-    assert result == primary_response
+    assert result.answer == primary_response
+    assert result.fallback_used is False
     assert router.last_used == "qwen3"
 
 
@@ -127,4 +129,4 @@ def test_error_propagates_when_both_llms_fail(prompt: str, context: list[dict]):
         asyncio.run(run())
 
     assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "llm_unavailable"
+    assert exc_info.value.detail == {"error": "llm_unavailable", "code": "LLM_UNAVAILABLE", "retryable": True}

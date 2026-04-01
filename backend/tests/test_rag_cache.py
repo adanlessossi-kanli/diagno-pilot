@@ -147,8 +147,9 @@ def _make_rag_service_with_mock_cache(mock_cache, chunks=None, llm_answer="Test 
     mock_mongo.__getitem__ = MagicMock(return_value=mock_db)
     embedder = MagicMock(spec=EmbeddingModel)
     embedder.encode = AsyncMock(return_value=[0.1] * 1536)
+    from backend.services.llm_router import LLMResult
     llm = MagicMock(spec=LLMRouter)
-    llm.generate = AsyncMock(return_value=llm_answer)
+    llm.generate = AsyncMock(return_value=LLMResult(answer=llm_answer, fallback_used=False))
     llm.last_used = "test-llm"
     service = RAGService(mongo_client=mock_mongo, llm_router=llm, embedder=embedder)
     service._chunks = mock_collection

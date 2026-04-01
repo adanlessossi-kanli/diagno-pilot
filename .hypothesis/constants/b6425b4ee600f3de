@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\retry.py
+# hypothesis_version: 6.151.9
+
+[400, 401, 429, 503, 'T', '__self__', 'base_url']
