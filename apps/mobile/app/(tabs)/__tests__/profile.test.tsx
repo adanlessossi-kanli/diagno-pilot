@@ -29,11 +29,14 @@ jest.mock('expo-secure-store', () => ({
 // ─── Mock useAuth ─────────────────────────────────────────────────────────────
 
 jest.mock('../../../src/contexts/AuthContext', () => ({
-  useAuth: () => ({
-    user: { fullName: 'Test User', email: 'test@example.com', role: 'medecin' },
+  useAuth: jest.fn(() => ({
+    user: { id: '1', fullName: 'Test User', email: 'test@example.com', role: 'medecin' },
+    token: 'tok',
     isLoading: false,
+    login: jest.fn(),
     logout: jest.fn(),
-  }),
+    apiClient: {},
+  })),
 }));
 
 // ─── Mock expo-router (used transitively by expo-router layout) ───────────────
@@ -136,4 +139,103 @@ describe('ProfileScreen — language selector', () => {
     );
     expect(calls.length).toBeGreaterThanOrEqual(1);
   });
+});
+
+// ─── Additional imports for property tests ────────────────────────────────────
+
+import * as fc from 'fast-check';
+import * as AuthContext from '../../../src/contexts/AuthContext';
+
+// Helper to get the mocked useAuth function
+function getMockUseAuth() {
+  return AuthContext.useAuth as jest.MockedFunction<typeof AuthContext.useAuth>;
+}
+
+// ─── Tests: user name and role display (REQ 9.9) ─────────────────────────────
+
+describe('ProfileScreen — user name and role display (REQ 9.9)', () => {
+  it('displays authenticated user full name', async () => {
+    renderWithI18n('fr');
+
+    await waitFor(() => {
+      expect(screen.getByText('Test User')).toBeTruthy();
+    });
+  });
+
+  it('displays authenticated user role', async () => {
+    renderWithI18n('fr');
+
+    await waitFor(() => {
+      expect(screen.getByText('medecin')).toBeTruthy();
+    });
+  });
+
+  it('displays fallback "—" when user is null', async () => {
+    getMockUseAuth().mockReturnValueOnce({
+      user: null,
+      token: null,
+      isLoading: false,
+      login: jest.fn(),
+      logout: jest.fn(),
+      apiClient: {} as ReturnType<typeof import('@diagno-pilot/api-client').createApiClient>,
+    });
+
+    renderWithI18n('fr');
+
+    await waitFor(() => {
+      // Multiple "—" placeholders for name, email, role
+      const dashes = screen.getAllByText('—');
+      expect(dashes.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+});
+
+// ─── Property 18: Mobile profile screen displays user name and role ───────────
+// Feature: testing-coverage, Property 18: Mobile profile screen displays user name and role
+
+describe('Property 18 — Mobile profile screen displays user name and role', () => {
+  afterEach(() => {
+    getMockUseAuth().mockReset();
+    getMockUseAuth().mockImplementation(() => ({
+      user: { id: '1', fullName: 'Test User', email: 'test@example.com', role: 'medecin' as const },
+      token: 'tok',
+      isLoading: false,
+      login: jest.fn(),
+      logout: jest.fn(),
+      apiClient: {} as ReturnType<typeof import('@diagno-pilot/api-client').createApiClient>,
+    }));
+  });
+
+  it('fc.property: any authenticated user with full_name and role → both displayed', async () => {
+    const userArb = fc.record({
+      fullName: fc.string({ minLength: 1, maxLength: 50 }).filter(s => s.trim().length > 0),
+      role: fc.constantFrom('medecin', 'admin', 'infirmière', 'guest'),
+      email: fc.emailAddress(),
+    });
+
+    await fc.assert(
+      fc.asyncProperty(userArb, async ({ fullName, role, email }) => {
+        const trimmedName = fullName.trim();
+
+        getMockUseAuth().mockReturnValue({
+          user: { id: '1', fullName: trimmedName, role, email },
+          token: 'tok',
+          isLoading: false,
+          login: jest.fn(),
+          logout: jest.fn(),
+          apiClient: {} as ReturnType<typeof import('@diagno-pilot/api-client').createApiClient>,
+        });
+
+        const { unmount } = renderWithI18n('fr');
+
+        await waitFor(() => {
+          expect(screen.getByText(trimmedName)).toBeTruthy();
+          expect(screen.getByText(role)).toBeTruthy();
+        });
+
+        unmount();
+      }),
+      { numRuns: 100 }
+    );
+  }, 60000);
 });

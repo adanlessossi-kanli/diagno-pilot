@@ -1,0 +1,26 @@
+﻿node.exe : PASS src/__tests__/probabilityColor.test.ts
+At C:\Program Files\nodejs\npx.ps1:29 char:3
++   & $NODE_EXE $NPX_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (PASS src/__test...tyColor.test.ts:Str 
+   ing) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+PASS src/components/__tests__/MobilePatientCard.test.tsx
+PASS src/components/__tests__/MobileAlertBanner.test.tsx
+PASS app/(tabs)/__tests__/_layout.rbac.test.tsx
+PASS src/components/__tests__/MobileSymptomInput.test.tsx
+PASS app/(tabs)/__tests__/chat.test.tsx
+PASS app/__tests__/login.test.tsx
+PASS app/(tabs)/__tests__/profile.test.tsx
+PASS app/(tabs)/__tests__/diagnose.test.tsx
+PASS app/(tabs)/__tests__/patients.test.tsx (7.774 s)
+PASS app/__tests__/navigation.test.tsx (7.827 s)
+PASS app/patient/__tests__/[id].test.tsx (7.894 s)
+PASS src/contexts/__tests__/AuthContext.test.tsx (13.933 s)
+
+Test Suites: 13 passed, 13 total
+Tests:       102 passed, 102 total
+Snapshots:   0 total
+Time:        14.561 s
+Ran all test suites.
