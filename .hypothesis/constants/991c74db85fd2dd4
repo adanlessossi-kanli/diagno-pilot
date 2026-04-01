@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\rag_service.py
+# hypothesis_version: 6.151.9
+
+[200, '$meta', '$project', '$vectorSearch', 'content', 'diagno_pilot', 'document_chunks', 'document_id', 'embedding', 'embedding_index', 'index', 'limit', 'metadata', 'numCandidates', 'page', 'path', 'queryVector', 'rag', 'role', 'score', 'section', 'source', 'system', 'unknown', 'vectorSearchScore']

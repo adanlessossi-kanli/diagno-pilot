@@ -57,7 +57,7 @@ class TestPrescriptionServiceDoseCalculation:
     def test_adult_dose_equals_adult_max(self):
         """Adult patient receives the adult maximum dose."""
         svc = PrescriptionService()
-        rx = svc.calculate_prescription("amoxicillin", _patient(AgeGroup.ADULT, 70.0))
+        rx = asyncio.run(svc.calculate_prescription("amoxicillin", _patient(AgeGroup.ADULT, 70.0)))
         assert rx.dose_mg == ANTIBIOTIC_PROTOCOLS["amoxicillin"].adult_max_dose_mg
         assert rx.is_capped_to_adult_dose is False
         assert rx.dose_per_kg is None
@@ -66,7 +66,7 @@ class TestPrescriptionServiceDoseCalculation:
         """Child patient: dose = dose_per_kg × weight."""
         svc = PrescriptionService()
         # 10 kg child: 50 mg/kg × 10 = 500 mg < 3000 mg adult max
-        rx = svc.calculate_prescription("amoxicillin", _patient(AgeGroup.CHILD, 10.0))
+        rx = asyncio.run(svc.calculate_prescription("amoxicillin", _patient(AgeGroup.CHILD, 10.0)))
         assert rx.dose_mg == pytest.approx(500.0)
         assert rx.dose_per_kg == 50.0
         assert rx.is_capped_to_adult_dose is False
@@ -75,21 +75,21 @@ class TestPrescriptionServiceDoseCalculation:
         """Heavy child: dose is capped to adult max and flag is set."""
         svc = PrescriptionService()
         # 80 kg child: 50 × 80 = 4000 mg > 3000 mg → capped
-        rx = svc.calculate_prescription("amoxicillin", _patient(AgeGroup.CHILD, 80.0))
+        rx = asyncio.run(svc.calculate_prescription("amoxicillin", _patient(AgeGroup.CHILD, 80.0)))
         assert rx.dose_mg == ANTIBIOTIC_PROTOCOLS["amoxicillin"].adult_max_dose_mg
         assert rx.is_capped_to_adult_dose is True
 
     def test_neonatal_dose_calculated(self):
         """Neonatal patient (3 kg): dose = dose_per_kg × weight."""
         svc = PrescriptionService()
-        rx = svc.calculate_prescription("amoxicillin", _patient(AgeGroup.NEONATAL, 3.0))
+        rx = asyncio.run(svc.calculate_prescription("amoxicillin", _patient(AgeGroup.NEONATAL, 3.0)))
         assert rx.dose_mg == pytest.approx(150.0)
         assert rx.is_capped_to_adult_dose is False
 
     def test_infant_dose_calculated(self):
         """Infant patient (7 kg): dose = dose_per_kg × weight."""
         svc = PrescriptionService()
-        rx = svc.calculate_prescription("amoxicillin", _patient(AgeGroup.INFANT, 7.0))
+        rx = asyncio.run(svc.calculate_prescription("amoxicillin", _patient(AgeGroup.INFANT, 7.0)))
         assert rx.dose_mg == pytest.approx(350.0)
         assert rx.is_capped_to_adult_dose is False
 
@@ -97,9 +97,9 @@ class TestPrescriptionServiceDoseCalculation:
         """Renal failure applies the renal adjustment factor."""
         svc = PrescriptionService()
         protocol = ANTIBIOTIC_PROTOCOLS["amoxicillin"]
-        rx = svc.calculate_prescription(
+        rx = asyncio.run(svc.calculate_prescription(
             "amoxicillin", _patient(AgeGroup.ADULT, 70.0, renal_failure=True)
-        )
+        ))
         expected = protocol.adult_max_dose_mg * protocol.renal_adjustment_factor
         assert rx.dose_mg == pytest.approx(expected)
 
@@ -107,9 +107,9 @@ class TestPrescriptionServiceDoseCalculation:
         """Hepatic failure applies the hepatic adjustment factor."""
         svc = PrescriptionService()
         protocol = ANTIBIOTIC_PROTOCOLS["metronidazole"]
-        rx = svc.calculate_prescription(
+        rx = asyncio.run(svc.calculate_prescription(
             "metronidazole", _patient(AgeGroup.ADULT, 70.0, hepatic_failure=True)
-        )
+        ))
         expected = protocol.adult_max_dose_mg * protocol.hepatic_adjustment_factor
         assert rx.dose_mg == pytest.approx(expected)
 
@@ -121,10 +121,10 @@ class TestPrescriptionServiceDoseCalculation:
         # metronidazole has hepatic=0.5, renal=1.0
         # For stacking, use amoxicillin with both flags (hepatic factor is 1.0 so no change)
         protocol = ANTIBIOTIC_PROTOCOLS["amoxicillin"]
-        rx = svc.calculate_prescription(
+        rx = asyncio.run(svc.calculate_prescription(
             "amoxicillin",
             _patient(AgeGroup.ADULT, 70.0, renal_failure=True, hepatic_failure=True),
-        )
+        ))
         expected = (
             protocol.adult_max_dose_mg
             * protocol.renal_adjustment_factor
@@ -137,7 +137,7 @@ class TestPrescriptionServiceDoseCalculation:
         from fastapi import HTTPException
         svc = PrescriptionService()
         with pytest.raises(HTTPException) as exc_info:
-            svc.calculate_prescription("unknown_drug_xyz", _patient())
+            asyncio.run(svc.calculate_prescription("unknown_drug_xyz", _patient()))
         assert exc_info.value.status_code == 422
         assert exc_info.value.detail == "unknown_antibiotic"
 
@@ -145,14 +145,14 @@ class TestPrescriptionServiceDoseCalculation:
         """Paediatric patient without weight raises ValueError."""
         svc = PrescriptionService()
         with pytest.raises(ValueError, match="weight_kg"):
-            svc.calculate_prescription(
+            asyncio.run(svc.calculate_prescription(
                 "amoxicillin", _patient(AgeGroup.CHILD, weight_kg=None)
-            )
+            ))
 
     def test_prescription_fields_populated(self):
         """Prescription contains all required fields."""
         svc = PrescriptionService()
-        rx = svc.calculate_prescription("ceftriaxone", _patient(AgeGroup.ADULT))
+        rx = asyncio.run(svc.calculate_prescription("ceftriaxone", _patient(AgeGroup.ADULT)))
         assert rx.antibiotic == "ceftriaxone"
         assert rx.frequency
         assert rx.duration_days > 0
@@ -418,7 +418,7 @@ class TestPrescriptionServiceDBPriority:
         # Use an adult patient (no weight-based calculation, uses adult_max_dose_mg directly)
         patient = _patient(AgeGroup.ADULT, weight_kg=70.0)
 
-        rx = svc.calculate_prescription(protocol_name, patient)
+        rx = asyncio.run(svc.calculate_prescription(protocol_name, patient))
 
         # The prescription must use the DB dose, not the hardcoded one
         assert rx.dose_mg == pytest.approx(round(db_adult_max_dose, 2)), (

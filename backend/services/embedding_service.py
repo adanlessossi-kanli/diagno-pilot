@@ -1,8 +1,12 @@
 """EmbeddingModel — encodes text to float vectors via an OpenAI-compatible API."""
 from __future__ import annotations
 
+import hashlib
+import json
+
 import httpx
 
+from backend.core.cache import cache_hits_total, cache_misses_total, cache_service
 from backend.core.config import settings
 
 
@@ -60,6 +64,23 @@ class EmbeddingModel:
             :class:`httpx.HTTPStatusError`: If all configured endpoints return
                 a non-2xx HTTP status.
         """
+        # Cache lookup
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        cache_key = cache_service.make_key("embedding", digest)
+
+        cached = await cache_service.get(cache_key)
+        if cached is not None:
+            cache_hits_total.labels(cache="embedding").inc()
+            return json.loads(cached)
+
+        cache_misses_total.labels(cache="embedding").inc()
+
+        vector = await self._call_api(text)
+        await cache_service.set(cache_key, json.dumps(vector), ttl=settings.CACHE_TTL_EMBEDDINGS)
+        return vector
+
+    async def _call_api(self, text: str) -> list[float]:
+        """Call the OpenAI-compatible embeddings API and return the vector."""
         payload = {"model": self.model, "input": text}
 
         urls_and_keys = []

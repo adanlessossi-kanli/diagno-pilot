@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\cache.py
+# hypothesis_version: 6.151.9
+
+[100, 'Cache hits', 'Cache misses', 'cache', 'cache_degraded', 'cache_hits_total', 'cache_misses_total', 'settings.__class__', 'utf-8']

@@ -9,6 +9,8 @@ Handles:
 """
 from __future__ import annotations
 
+import dataclasses
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -248,6 +250,16 @@ class PrescriptionService:
                 "PrescriptionService: loaded %d protocols from MongoDB",
                 len(self._protocols_cache),
             )
+            # Store each protocol in Redis cache
+            from backend.core.cache import cache_service
+            from backend.core.config import settings as _settings
+            for name, protocol in self._protocols_cache.items():
+                key = cache_service.make_key("protocol", name)
+                await cache_service.set(
+                    key,
+                    json.dumps(dataclasses.asdict(protocol)),
+                    ttl=_settings.CACHE_TTL_PROTOCOLS,
+                )
         else:
             self._protocols_cache = dict(ANTIBIOTIC_PROTOCOLS)
             logger.warning(
@@ -256,22 +268,30 @@ class PrescriptionService:
                 len(self._protocols_cache),
             )
 
-    async def reload_protocols(self) -> None:
+    async def reload_protocols(self, name: str | None = None) -> None:
         """Refresh the in-memory cache from MongoDB.
 
         Called after each PUT/POST admin operation (REQ 11.4).
+        If *name* is provided, only that protocol's cache key is invalidated.
+        Otherwise all protocol:* keys are flushed before reloading.
         """
+        from backend.core.cache import cache_service
+        if name is not None:
+            key = cache_service.make_key("protocol", name)
+            await cache_service.delete(key)
+        else:
+            pattern = cache_service.make_key("protocol", "*")
+            await cache_service.flush_pattern(pattern)
         await self.load_protocols_from_db()
 
-    def _get_protocol(self, key: str) -> AntibioticProtocol:
-        """Look up an antibiotic protocol using a two-level cache strategy.
+    async def _get_protocol(self, key: str) -> AntibioticProtocol:
+        """Look up an antibiotic protocol using a three-level cache strategy.
 
         Lookup order:
-            1. **In-memory cache** (``self._protocols_cache``) — populated at
-               startup from MongoDB via ``load_protocols_from_db``.  This is
-               the primary source and reflects any admin updates made since the
-               last reload.
-            2. **Built-in dictionary** (``ANTIBIOTIC_PROTOCOLS``) — consulted
+            1. **Redis cache** — checked first via ``CacheService.get()``.
+            2. **In-memory cache** (``self._protocols_cache``) — populated at
+               startup from MongoDB via ``load_protocols_from_db``.
+            3. **Built-in dictionary** (``ANTIBIOTIC_PROTOCOLS``) — consulted
                only when the cache is empty or the key is absent, providing a
                safe fallback for the representative subset of protocols bundled
                with the application.
@@ -286,11 +306,21 @@ class PrescriptionService:
             HTTPException 422 (``unknown_antibiotic``): If the antibiotic name
                 is not found in either the cache or the built-in dictionary.
         """
-        # DB cache (populated at startup or after reload)
+        # 1. Redis cache
+        from backend.core.cache import cache_service
+        cache_key = cache_service.make_key("protocol", key)
+        raw = await cache_service.get(cache_key)
+        if raw is not None:
+            try:
+                return _doc_to_protocol(json.loads(raw))
+            except Exception:
+                pass  # fall through to in-process dict
+
+        # 2. DB cache (populated at startup or after reload)
         protocol = self._protocols_cache.get(key)
         if protocol is not None:
             return protocol
-        # Fallback to built-in dict (in case cache was never loaded)
+        # 3. Fallback to built-in dict (in case cache was never loaded)
         protocol = ANTIBIOTIC_PROTOCOLS.get(key)
         if protocol is not None:
             return protocol
@@ -299,7 +329,7 @@ class PrescriptionService:
             detail="unknown_antibiotic",
         )
 
-    def calculate_prescription(
+    async def calculate_prescription(
         self,
         antibiotic: str,
         patient: PatientProfile,
@@ -349,7 +379,7 @@ class PrescriptionService:
                 for a paediatric patient.
         """
         key = antibiotic.lower()
-        protocol = self._get_protocol(key)
+        protocol = await self._get_protocol(key)
 
         age_group = patient.age_group
         is_paediatric = age_group in _PAEDIATRIC_GROUPS
