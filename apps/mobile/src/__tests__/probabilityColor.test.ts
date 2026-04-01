@@ -32,6 +32,17 @@ describe('getProbabilityColor', () => {
     );
   });
 
+  // Feature: testing-coverage, Property 21: probabilityColor returns non-empty string
+  it('returns non-empty string for all valid probabilities', () => {
+    // **Validates: Requirements 11.5**
+    fc.assert(
+      fc.property(fc.float({ min: 0.0, max: 1.0 }), (p) => {
+        return getProbabilityColor(p).length > 0;
+      }),
+      { numRuns: 100 },
+    );
+  });
+
   // Boundary tests
   it('returns green at exactly 0.7', () => {
     expect(getProbabilityColor(0.7)).toBe(colors.success.border);

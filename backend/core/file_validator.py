@@ -207,7 +207,7 @@ class FileValidator:
                 "File rejected",
                 extra={
                     "ip": ip,
-                    "filename": filename,
+                    "upload_filename": filename,
                     "detected_mime": detected_mime,
                     "declared_mime": declared_mime,
                     "reason": reason,

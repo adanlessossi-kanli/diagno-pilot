@@ -17,6 +17,7 @@ Key flows to cover across all layers: auth login/logout/refresh, diagnose sympto
 - **Test_Suite**: The complete automated test collection for a given layer (backend, web, mobile).
 - **Integration_Test**: A test that exercises multiple real components together, including real infrastructure (database, object storage) rather than mocks.
 - **E2E_Backend_Test**: A backend integration test that uses real MongoDB and real LocalStack S3 containers via Testcontainers, exercising the full FastAPI request/response cycle.
+- **HTTP_Stub**: A test-time intercept of outbound HTTP calls made by the backend using `respx` (the standard mock transport for `httpx`). All LLM and embedding service calls in integration tests SHALL be intercepted via `respx.mock` rather than reaching real external endpoints.
 - **Testcontainers**: A Python library (`testcontainers`) that starts and stops Docker containers (MongoDB Atlas Local, LocalStack) programmatically during test execution.
 - **MongoDB_Container**: A Docker container running `mongodb/mongodb-atlas-local` used exclusively during backend integration tests.
 - **LocalStack_Container**: A Docker container running LocalStack that emulates AWS S3, used exclusively during backend integration tests.
@@ -90,7 +91,7 @@ Key flows to cover across all layers: auth login/logout/refresh, diagnose sympto
 
 #### Acceptance Criteria
 
-1. WHEN a symptom list is submitted to `POST /api/v1/diagnose/symptoms` with a real LLM service stubbed at the HTTP boundary, THE E2E_Backend_Test SHALL assert that the response contains at least 3 differential diagnoses each with a `probability` between 0.0 and 1.0 and a non-empty `icd_code`.
+1. WHEN a symptom list is submitted to `POST /api/v1/diagnose/symptoms` with the LLM service stubbed at the HTTP boundary via `respx.mock`, THE E2E_Backend_Test SHALL assert that the response contains at least 3 differential diagnoses each with a `probability` between 0.0 and 1.0 and a non-empty `icd_code`.
 2. WHEN a prescription request is submitted for a patient with a known allergy to the prescribed antibiotic, THE E2E_Backend_Test SHALL assert that the response contains at least one alert with `level = "critical"` and `type = "allergy"` and a non-null `alternative`.
 3. WHEN a prescription request is submitted for a child patient with a fluoroquinolone antibiotic, THE E2E_Backend_Test SHALL assert that the response contains at least one alert with `level = "critical"` and `type = "contraindication"`.
 4. WHEN a prescription request is submitted for a patient with renal failure, THE E2E_Backend_Test SHALL assert that the prescribed `dose_mg` is reduced relative to the standard adult dose.
@@ -118,7 +119,7 @@ Key flows to cover across all layers: auth login/logout/refresh, diagnose sympto
 
 #### Acceptance Criteria
 
-1. WHEN a chat message is submitted to `POST /api/v1/chat/message` with the LLM endpoint stubbed, THE E2E_Backend_Test SHALL assert that the response contains a non-empty `answer` and a `sources` list.
+1. WHEN a chat message is submitted to `POST /api/v1/chat/message` with the LLM endpoint stubbed via `respx.mock`, THE E2E_Backend_Test SHALL assert that the response contains a non-empty `answer` and a `sources` list.
 2. WHEN multiple messages are sent in the same session, THE E2E_Backend_Test SHALL assert that `GET /api/v1/chat/history/{session_id}` returns all messages in chronological order.
 3. WHEN a chat message is submitted, THE E2E_Backend_Test SHALL assert that the message and response are persisted in the MongoDB_Container.
 4. WHEN a chat request is submitted by an unauthenticated user, THE E2E_Backend_Test SHALL assert that the response is HTTP 401.
@@ -216,3 +217,4 @@ Key flows to cover across all layers: auth login/logout/refresh, diagnose sympto
 4. THE Test_Suite SHALL allow running only mobile tests via `npx jest --passWithNoTests` from `apps/mobile/`.
 5. WHEN a Testcontainers-based test fails due to a container startup timeout, THE Test_Suite SHALL report the failure with a message that includes the container image name and the timeout duration.
 6. THE Test_Suite SHALL not introduce any test that requires a running Diagno-Pilot application server (i.e., all tests must be self-contained).
+7. THE Test_Suite SHALL use `respx` as the sole HTTP stubbing library for intercepting outbound `httpx` calls in backend integration tests; no test SHALL allow real network calls to LLM or embedding endpoints.

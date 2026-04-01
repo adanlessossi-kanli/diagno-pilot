@@ -158,7 +158,7 @@ export default function DiagnoseScreen() {
 
           {/* Critical alerts block prescription */}
           {criticalAlerts.length > 0 && (
-            <View style={styles.criticalBlock}>
+            <View style={styles.criticalBlock} testID="alert-critical">
               <Text style={styles.criticalBlockTitle}>⛔ Alertes critiques</Text>
               {criticalAlerts.map((a, i) => (
                 <MobileAlertBanner key={`critical-${a.type}-${i}`} alert={a} />
