@@ -22,7 +22,7 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
   const { locale } = await params;
 
   // Validate locale
-  if (!routing.locales.includes(locale as 'fr' | 'en')) {
+  if (!routing.locales.includes(locale as 'fr-TG' | 'fr-BJ' | 'en')) {
     notFound();
   }
 

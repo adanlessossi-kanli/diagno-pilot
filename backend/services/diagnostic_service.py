@@ -10,7 +10,19 @@ from backend.services.diagnostic_parser import DiagnosticParser
 from backend.services.prompt_builder import PromptBuilder
 from backend.services.rag_service import RAGService
 
+try:
+    import langdetect
+except ImportError:
+    langdetect = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
+
+_LOCALE_LANG_MAP: dict[str, str] = {
+    "fr-TG": "fr",
+    "fr-BJ": "fr",
+    "fr": "fr",
+    "en": "en",
+}
 
 
 @dataclass
@@ -19,6 +31,8 @@ class DiagnosticResult:
     diagnoses: list[DifferentialDiagnosis]
     fallback_used: bool
     degraded_warning: str | None
+    locale: str = "fr-TG"
+    language_mismatch: bool = False
 
 
 class DiagnosticOrchestrator:
@@ -50,6 +64,8 @@ class DiagnosticOrchestrator:
         self,
         symptoms: list[Symptom],
         patient_profile: PatientProfile | None = None,
+        locale: str = "fr-TG",
+        region: str | None = None,
     ) -> DiagnosticResult:
         """Return at least 3 differential diagnoses for the given symptoms.
 
@@ -66,25 +82,47 @@ class DiagnosticOrchestrator:
         Args:
             symptoms: List of symptoms with name, severity, and duration.
             patient_profile: Optional patient profile to personalise the results.
+            locale: BCP-47 locale string (e.g. ``fr-TG``, ``fr-BJ``, ``en``).
+                Defaults to ``fr-TG``.
+            region: ISO 3166-1 alpha-2 country code or ``None``.
 
         Returns:
-            DiagnosticResult with diagnoses, fallback_used, and degraded_warning
-            propagated unchanged from RAGService.
+            DiagnosticResult with diagnoses, fallback_used, degraded_warning,
+            locale, and language_mismatch fields.
 
         Raises:
             HTTPException: Propagated from RAGService if the LLM is unavailable.
         """
-        prompt = self._prompt_builder.build(symptoms, patient_profile)
+        prompt = self._prompt_builder.build(symptoms, patient_profile, locale=locale, region=region)
         rag_response = await self._rag.query(
             question=prompt,
             context=patient_profile,
             top_k=5,
+            region=region,
         )
         diagnoses = self._diagnostic_parser.parse(rag_response.answer)
+
+        # Language mismatch detection
+        language_mismatch = False
+        expected_lang = _LOCALE_LANG_MAP.get(locale, "fr")
+        if langdetect is not None:
+            try:
+                detected_lang = langdetect.detect(rag_response.answer)
+                if detected_lang != expected_lang:
+                    language_mismatch = True
+                    logger.warning(
+                        "Language mismatch: requested locale=%r (expected lang=%r) but detected=%r",
+                        locale, expected_lang, detected_lang,
+                    )
+            except Exception:
+                pass  # langdetect failure is non-fatal
+
         return DiagnosticResult(
             diagnoses=diagnoses,
             fallback_used=rag_response.fallback_used,
             degraded_warning=rag_response.degraded_warning,
+            locale=locale,
+            language_mismatch=language_mismatch,
         )
 
 

@@ -2,13 +2,16 @@
 Router admin — Protocoles antibiotiques configurables (REQ 11) + Gestion des utilisateurs (RBAC)
 
 Endpoints:
-  GET  /api/v1/admin/protocols          — liste complète (authentifié)
-  POST /api/v1/admin/protocols          — création (rôle admin requis)
-  PUT  /api/v1/admin/protocols/{name}   — mise à jour (rôle admin requis)
-  GET  /api/v1/admin/users              — liste des utilisateurs (admin)
-  POST /api/v1/admin/users              — création d'utilisateur (admin)
-  PUT  /api/v1/admin/users/{id}         — mise à jour d'utilisateur (admin)
-  GET  /api/v1/admin/stats              — statistiques globales (admin)
+  GET    /api/v1/admin/protocols                            — liste complète avec filtre région (authentifié)
+  POST   /api/v1/admin/protocols                            — création avec region scoping (rôle admin requis)
+  PUT    /api/v1/admin/protocols/{id}                       — mise à jour avec region scoping (rôle admin requis)
+  DELETE /api/v1/admin/protocols/{id}                       — suppression avec garde last-variant (rôle admin requis)
+  GET    /api/v1/admin/protocols/{id}/version/{version_id}  — récupérer une version historique (authentifié)
+  POST   /api/v1/admin/documents                            — upload document médical avec champ region requis (admin)
+  GET    /api/v1/admin/users                                — liste des utilisateurs (admin)
+  POST   /api/v1/admin/users                                — création d'utilisateur (admin)
+  PUT    /api/v1/admin/users/{id}                           — mise à jour d'utilisateur (admin)
+  GET    /api/v1/admin/stats                                — statistiques globales (admin)
 
 Chaque modification est journalisée dans le journal d'audit avec :
   user_id, action, valeurs avant/après (REQ 11.6, 5.4)
@@ -21,7 +24,7 @@ from typing import Any
 
 import bcrypt
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user, require_role
@@ -41,6 +44,9 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # Pydantic schemas
 # ---------------------------------------------------------------------------
 
+_VALID_REGIONS = {"TG", "BJ", "ALL"}
+
+
 class AntibioticProtocolBase(BaseModel):
     paediatric_dose_per_kg: float
     adult_max_dose_mg: float
@@ -51,6 +57,11 @@ class AntibioticProtocolBase(BaseModel):
     hepatic_adjustment_factor: float = Field(ge=0.0, le=1.0)
     contraindicated_age_groups: list[str] = []
     alternative: str | None = None
+    region: str = Field(default="ALL", description="Region scope: TG, BJ, or ALL")
+    available_regions: list[str] = Field(default_factory=lambda: ["TG", "BJ"])
+    atc_class: str = ""
+    first_line: bool = True
+    names: dict[str, str] = Field(default_factory=dict)
 
 
 class AntibioticProtocolCreate(AntibioticProtocolBase):
@@ -65,6 +76,27 @@ class AntibioticProtocol(AntibioticProtocolBase):
     name: str
     updated_by: str
     updated_at: datetime
+
+
+class ProtocolVariantResponse(BaseModel):
+    """Response model for a Protocol_Variant retrieved by version identifier (Requirement 11.4)."""
+    name: str
+    region: str = "ALL"
+    available_regions: list[str] = []
+    atc_class: str = ""
+    first_line: bool = True
+    names: dict[str, str] = {}
+    paediatric_dose_per_kg: float
+    adult_max_dose_mg: float
+    frequency: str
+    duration_days: int
+    route: str
+    renal_adjustment_factor: float = 1.0
+    hepatic_adjustment_factor: float = 1.0
+    contraindicated_age_groups: list[str] = []
+    alternative: str | None = None
+    version: str = ""
+    created_at: str = ""
 
 
 class DrugInteractionCreate(BaseModel):
@@ -100,6 +132,11 @@ def _doc_to_protocol(doc: dict[str, Any]) -> AntibioticProtocol:
         hepatic_adjustment_factor=doc.get("hepatic_adjustment_factor", 1.0),
         contraindicated_age_groups=doc.get("contraindicated_age_groups", []),
         alternative=doc.get("alternative"),
+        region=doc.get("region", "ALL"),
+        available_regions=doc.get("available_regions", ["TG", "BJ"]),
+        atc_class=doc.get("atc_class", ""),
+        first_line=bool(doc.get("first_line", True)),
+        names=doc.get("names", {}),
         updated_by=doc.get("updated_by", ""),
         updated_at=doc.get("updated_at", datetime.now(timezone.utc)),
     )
@@ -113,48 +150,136 @@ def _doc_to_protocol(doc: dict[str, Any]) -> AntibioticProtocol:
     "/protocols",
     response_model=list[AntibioticProtocol],
     status_code=status.HTTP_200_OK,
-    summary="Liste complète des protocoles antibiotiques",
+    summary="Liste complète des protocoles antibiotiques avec filtre région optionnel",
 )
 async def list_protocols(
+    region: str | None = None,
     current_user: dict = Depends(get_current_user),
 ):
-    """GET /api/v1/admin/protocols — retourne tous les protocoles depuis MongoDB."""
+    """GET /api/v1/admin/protocols — retourne les protocoles depuis MongoDB, filtrés par région si fournie.
+
+    Requirements: 8.1, 8.3
+    """
     database = db.get_db()
+    query: dict[str, Any] = {}
+    if region is not None:
+        region_upper = region.upper()
+        if region_upper not in _VALID_REGIONS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid region '{region}'. Must be one of: TG, BJ, ALL",
+            )
+        query["region"] = region_upper
     async with timed_db_op("antibiotic_protocols", "find"):
-        cursor = database["antibiotic_protocols"].find({})
+        cursor = database["antibiotic_protocols"].find(query)
         docs = await cursor.to_list(length=None)
     return [_doc_to_protocol(doc) for doc in docs]
+
+
+@router.get(
+    "/protocols/{protocol_id}/version/{version_id}",
+    response_model=ProtocolVariantResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Récupérer une version historique d'un protocole (Requirement 11.4)",
+)
+async def get_protocol_version(
+    protocol_id: str,
+    version_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    GET /api/v1/admin/protocols/{protocol_id}/version/{version_id}
+
+    Retrieve a Protocol_Variant by its version identifier for audit and review.
+
+    - `protocol_id`: the protocol name (e.g. ``amoxicillin``).
+    - `version_id`: the version timestamp string stored in the ``version`` field
+      (e.g. ``2025-01-15T00:00:00Z``).
+
+    Returns HTTP 404 when no document matches the (name, version) pair.
+
+    Requirements: 11.4
+    """
+    database = db.get_db()
+    name = protocol_id.lower().strip()
+
+    async with timed_db_op("antibiotic_protocols", "find_one"):
+        doc = await database["antibiotic_protocols"].find_one(
+            {"name": name, "version": version_id}
+        )
+
+    if doc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Protocol '{name}' version '{version_id}' not found",
+        )
+
+    return ProtocolVariantResponse(
+        name=doc["name"],
+        region=doc.get("region", "ALL"),
+        available_regions=doc.get("available_regions", []),
+        atc_class=doc.get("atc_class", ""),
+        first_line=bool(doc.get("first_line", True)),
+        names=doc.get("names", {}),
+        paediatric_dose_per_kg=float(doc["paediatric_dose_per_kg"]),
+        adult_max_dose_mg=float(doc["adult_max_dose_mg"]),
+        frequency=doc["frequency"],
+        duration_days=int(doc["duration_days"]),
+        route=doc["route"],
+        renal_adjustment_factor=float(doc.get("renal_adjustment_factor", 1.0)),
+        hepatic_adjustment_factor=float(doc.get("hepatic_adjustment_factor", 1.0)),
+        contraindicated_age_groups=doc.get("contraindicated_age_groups", []),
+        alternative=doc.get("alternative"),
+        version=doc.get("version", ""),
+        created_at=str(doc.get("created_at", "")),
+    )
 
 
 @router.post(
     "/protocols",
     response_model=AntibioticProtocol,
     status_code=status.HTTP_201_CREATED,
-    summary="Créer un nouveau protocole antibiotique (admin)",
+    summary="Créer un nouveau protocole antibiotique avec region scoping (admin)",
 )
 async def create_protocol(
     request: Request,
     data: AntibioticProtocolCreate,
     current_user: dict = Depends(require_role(["admin"])),
 ):
-    """POST /api/v1/admin/protocols — crée un protocole. Rôle admin requis."""
+    """POST /api/v1/admin/protocols — crée un Protocol_Variant. Rôle admin requis.
+
+    Requirements: 8.1, 8.3
+    """
     database = db.get_db()
     name = data.name.lower().strip()
+    region = data.region.upper() if data.region else "ALL"
 
-    # Vérifier l'unicité
+    if region not in _VALID_REGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid region '{region}'. Must be one of: TG, BJ, ALL",
+        )
+
+    # Vérifier l'unicité par (name, region)
     async with timed_db_op("antibiotic_protocols", "find_one"):
-        existing = await database["antibiotic_protocols"].find_one({"name": name})
+        existing = await database["antibiotic_protocols"].find_one({"name": name, "region": region})
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Protocol '{name}' already exists",
+            detail=f"Protocol '{name}' for region '{region}' already exists",
         )
 
     now = datetime.now(timezone.utc)
     user_id = str(current_user["_id"])
+    version_ts = now.isoformat()
 
     doc = {
         "name": name,
+        "region": region,
+        "available_regions": data.available_regions,
+        "atc_class": data.atc_class,
+        "first_line": data.first_line,
+        "names": data.names,
         "paediatric_dose_per_kg": data.paediatric_dose_per_kg,
         "adult_max_dose_mg": data.adult_max_dose_mg,
         "frequency": data.frequency,
@@ -164,6 +289,8 @@ async def create_protocol(
         "hepatic_adjustment_factor": data.hepatic_adjustment_factor,
         "contraindicated_age_groups": data.contraindicated_age_groups,
         "alternative": data.alternative,
+        "version": version_ts,
+        "created_at": version_ts,
         "updated_by": user_id,
         "updated_at": now,
     }
@@ -177,13 +304,13 @@ async def create_protocol(
         user_id=user_id,
         action="create_protocol",
         resource="antibiotic_protocols",
-        resource_id=name,
-        details={"after": {k: v for k, v in doc.items() if k != "_id"}},
+        resource_id=f"{name}:{region}",
+        details={"after": {k: v for k, v in doc.items() if k not in ("_id",)}},
         ip_address=ip,
     )
 
-    logger.info("Protocol '%s' created by user %s", name, user_id)
-    await prescription_service.reload_protocols()
+    logger.info("Protocol '%s' (region=%s) created by user %s", name, region, user_id)
+    await prescription_service.reload_protocols(name)
     return _doc_to_protocol(doc)
 
 
@@ -191,7 +318,7 @@ async def create_protocol(
     "/protocols/{name}",
     response_model=AntibioticProtocol,
     status_code=status.HTTP_200_OK,
-    summary="Mettre à jour un protocole antibiotique (admin)",
+    summary="Mettre à jour un protocole antibiotique avec region scoping (admin)",
 )
 async def update_protocol(
     name: str,
@@ -199,24 +326,49 @@ async def update_protocol(
     data: AntibioticProtocolUpdate,
     current_user: dict = Depends(require_role(["admin"])),
 ):
-    """PUT /api/v1/admin/protocols/{name} — met à jour un protocole. Rôle admin requis."""
+    """PUT /api/v1/admin/protocols/{name} — crée une nouvelle version du protocole.
+
+    Accepts a `region` field in the request body to scope the update.
+    Creates a new document (immutable versioning) rather than overwriting.
+    Calls `prescription_service.reload_protocols(name)` synchronously before returning 200 OK.
+
+    Requirements: 8.1, 8.2, NFR 1
+    """
     database = db.get_db()
     name = name.lower().strip()
+    region = data.region.upper() if data.region else "ALL"
+
+    if region not in _VALID_REGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid region '{region}'. Must be one of: TG, BJ, ALL",
+        )
 
     async with timed_db_op("antibiotic_protocols", "find_one"):
-        existing = await database["antibiotic_protocols"].find_one({"name": name})
+        existing = await database["antibiotic_protocols"].find_one(
+            {"name": name, "region": region},
+            sort=[("created_at", -1)],
+        )
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Protocol '{name}' not found",
+            detail=f"Protocol '{name}' for region '{region}' not found",
         )
 
     now = datetime.now(timezone.utc)
     user_id = str(current_user["_id"])
+    version_ts = now.isoformat()
 
     before_snapshot = {k: v for k, v in existing.items() if k not in ("_id",)}
 
-    update_fields = {
+    # Create a new version document (immutable versioning — Requirements 11.1, 11.2)
+    new_doc = {
+        "name": name,
+        "region": region,
+        "available_regions": data.available_regions,
+        "atc_class": data.atc_class,
+        "first_line": data.first_line,
+        "names": data.names,
         "paediatric_dose_per_kg": data.paediatric_dose_per_kg,
         "adult_max_dose_mg": data.adult_max_dose_mg,
         "frequency": data.frequency,
@@ -226,17 +378,14 @@ async def update_protocol(
         "hepatic_adjustment_factor": data.hepatic_adjustment_factor,
         "contraindicated_age_groups": data.contraindicated_age_groups,
         "alternative": data.alternative,
+        "version": version_ts,
+        "created_at": version_ts,
         "updated_by": user_id,
         "updated_at": now,
     }
 
-    async with timed_db_op("antibiotic_protocols", "update_one"):
-        await database["antibiotic_protocols"].update_one(
-            {"name": name},
-            {"$set": update_fields},
-        )
-
-    after_snapshot = {"name": name, **update_fields}
+    async with timed_db_op("antibiotic_protocols", "insert_one"):
+        await database["antibiotic_protocols"].insert_one(new_doc)
 
     # Journal d'audit (REQ 11.6)
     ip = request.client.host if request.client else None
@@ -244,15 +393,181 @@ async def update_protocol(
         user_id=user_id,
         action="update_protocol",
         resource="antibiotic_protocols",
-        resource_id=name,
-        details={"before": before_snapshot, "after": after_snapshot},
+        resource_id=f"{name}:{region}",
+        details={"before": before_snapshot, "after": {k: v for k, v in new_doc.items() if k not in ("_id",)}},
         ip_address=ip,
     )
 
-    logger.info("Protocol '%s' updated by user %s", name, user_id)
-    await prescription_service.reload_protocols()
-    return _doc_to_protocol(after_snapshot)
+    logger.info("Protocol '%s' (region=%s) updated by user %s (new version %s)", name, region, user_id, version_ts)
+    # Synchronously reload cache before returning 200 OK (NFR 1 — within 5 s SLA)
+    await prescription_service.reload_protocols(name)
+    return _doc_to_protocol(new_doc)
 
+
+@router.delete(
+    "/protocols/{name}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+    summary="Supprimer un protocole antibiotique avec garde last-variant (admin)",
+)
+async def delete_protocol(
+    name: str,
+    request: Request,
+    region: str = "ALL",
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """DELETE /api/v1/admin/protocols/{name} — supprime un Protocol_Variant.
+
+    Rejects deletion if the protocol is the only variant across all regions.
+    Returns HTTP 409 with an explanatory error message in that case.
+
+    Requirements: 8.5
+    """
+    database = db.get_db()
+    name = name.lower().strip()
+    region_upper = region.upper()
+
+    if region_upper not in _VALID_REGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid region '{region}'. Must be one of: TG, BJ, ALL",
+        )
+
+    # Check the variant to delete exists
+    async with timed_db_op("antibiotic_protocols", "find_one"):
+        target = await database["antibiotic_protocols"].find_one({"name": name, "region": region_upper})
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Protocol '{name}' for region '{region_upper}' not found",
+        )
+
+    # Last-variant guard: count distinct regions for this antibiotic name
+    async with timed_db_op("antibiotic_protocols", "distinct"):
+        distinct_regions = await database["antibiotic_protocols"].distinct("region", {"name": name})
+
+    if len(distinct_regions) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot delete protocol '{name}' (region='{region_upper}'): "
+                "it is the only variant across all regions. "
+                "Create a variant for another region before deleting this one."
+            ),
+        )
+
+    user_id = str(current_user["_id"])
+    before_snapshot = {k: v for k, v in target.items() if k not in ("_id",)}
+
+    async with timed_db_op("antibiotic_protocols", "delete_one"):
+        await database["antibiotic_protocols"].delete_one({"name": name, "region": region_upper})
+
+    # Journal d'audit
+    ip = request.client.host if request.client else None
+    await audit_service.log_action(
+        user_id=user_id,
+        action="delete_protocol",
+        resource="antibiotic_protocols",
+        resource_id=f"{name}:{region_upper}",
+        details={"before": before_snapshot},
+        ip_address=ip,
+    )
+
+    logger.info("Protocol '%s' (region=%s) deleted by user %s", name, region_upper, user_id)
+    await prescription_service.reload_protocols(name)
+
+
+# ---------------------------------------------------------------------------
+# Admin document upload with region field (Requirements 8.4)
+# ---------------------------------------------------------------------------
+
+class AdminDocumentResponse(BaseModel):
+    id: str | None = None
+    title: str
+    source: str
+    region: str
+    chunk_count: int = 0
+
+
+@router.post(
+    "/documents",
+    response_model=AdminDocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a medical document with required region field (admin)",
+)
+async def upload_admin_document(
+    request: Request,
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    source: str = Form(""),
+    region: str = Form(..., description="Source region: TG, BJ, or ALL"),
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """POST /api/v1/admin/documents — upload a medical document with a required region field.
+
+    Validates that the region is one of TG, BJ, or ALL.
+    Stores metadata.region on the resulting document_chunks documents.
+
+    Requirements: 8.4
+    """
+    from backend.services.document_service import SUPPORTED_FORMATS, DocumentService
+    from backend.services.embedding_service import EmbeddingModel
+    from backend.services.s3_service import s3_service
+    from backend.core.cache import cache_service
+
+    region_upper = region.upper()
+    if region_upper not in _VALID_REGIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid region '{region}'. Must be one of: TG, BJ, ALL",
+        )
+
+    filename = file.filename or ""
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if extension not in SUPPORTED_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported file format '{extension}'. Supported: {sorted(SUPPORTED_FORMATS)}",
+        )
+
+    database = db.get_db()
+    embedder = EmbeddingModel()
+    svc = DocumentService(database=database, embedder=embedder, s3=s3_service)
+
+    try:
+        doc = await svc.ingest(file=file, title=title, source=source, region=region_upper)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+    flushed = await cache_service.flush_pattern(cache_service.make_key("rag", "*"))
+    logger.info("Flushed %d RAG cache entries after admin document upload (region=%s)", flushed, region_upper)
+
+    user_id = str(current_user["_id"])
+    ip = request.client.host if request.client else None
+    await audit_service.log_action(
+        user_id=user_id,
+        action="upload_document",
+        resource="document_chunks",
+        resource_id=doc.id,
+        details={"title": doc.title, "source": doc.source, "region": region_upper},
+        ip_address=ip,
+        region=region_upper,
+    )
+
+    return AdminDocumentResponse(
+        id=doc.id,
+        title=doc.title,
+        source=doc.source,
+        region=region_upper,
+        chunk_count=doc.chunk_count,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drug interactions (admin)
+# ---------------------------------------------------------------------------
 
 @router.post(
     "/drug-interactions",

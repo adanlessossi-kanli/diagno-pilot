@@ -68,6 +68,7 @@ class RAGService:
         question: str,
         context: PatientProfile | None = None,
         top_k: int = 5,
+        region: str | None = None,
     ) -> RAGResponse:
         """Retrieve relevant document chunks and generate a grounded answer.
 
@@ -82,6 +83,12 @@ class RAGService:
             top_k: Number of document chunks to retrieve from the vector index.
                 Higher values increase recall at the cost of a larger LLM
                 context window.  Defaults to ``5``.
+            region: Optional ISO 3166-1 alpha-2 region code (e.g. ``"TG"``,
+                ``"BJ"``).  When provided and not ``"ALL"``, the
+                ``$vectorSearch`` pipeline is extended with a pre-filter that
+                restricts results to documents whose ``metadata.region`` is
+                either the requested region or ``"ALL"``.  When ``None`` or
+                ``"ALL"``, no filter is applied and all documents are eligible.
 
         Returns:
             A :class:`~backend.models.document.RAGResponse` with three fields:
@@ -102,6 +109,8 @@ class RAGService:
             identifier = f"{q_hash}:{ctx_hash}"
         else:
             identifier = q_hash
+        if region and region != "ALL":
+            identifier = f"{identifier}:region={region}"
         key = cache_service.make_key("rag", identifier)
 
         cached = await cache_service.get(key)
@@ -119,16 +128,20 @@ class RAGService:
         chunks: list[dict[str, Any]] = []
 
         # --- Vector search (with keyword fallback on failure) ---
+        vector_search_stage: dict[str, Any] = {
+            "index": self.VECTOR_INDEX,
+            "path": "embedding",
+            "queryVector": query_vector,
+            "numCandidates": top_k * 10,
+            "limit": top_k,
+        }
+        if region and region != "ALL":
+            vector_search_stage["filter"] = {
+                "metadata.region": {"$in": [region, "ALL"]}
+            }
+
         pipeline: list[dict[str, Any]] = [
-            {
-                "$vectorSearch": {
-                    "index": self.VECTOR_INDEX,
-                    "path": "embedding",
-                    "queryVector": query_vector,
-                    "numCandidates": top_k * 10,
-                    "limit": top_k,
-                }
-            },
+            {"$vectorSearch": vector_search_stage},
             {
                 "$project": {
                     "content": 1,

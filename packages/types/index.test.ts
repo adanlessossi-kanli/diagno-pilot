@@ -38,7 +38,7 @@ import type {
 const ageGroupArb = fc.constantFrom('neonatal', 'infant', 'child', 'adult');
 const alertLevelArb = fc.constantFrom('critical', 'warning', 'info');
 const userRoleArb = fc.constantFrom('admin', 'medecin', 'infirmière', 'guest');
-const localeArb = fc.constantFrom('fr', 'en');
+const localeArb = fc.constantFrom('fr', 'en', 'fr-TG', 'fr-BJ');
 const routeArb = fc.constantFrom('oral', 'IV', 'IM');
 const alertTypeArb = fc.constantFrom('allergy', 'interaction', 'contraindication');
 const chatRoleArb = fc.constantFrom('user', 'assistant');

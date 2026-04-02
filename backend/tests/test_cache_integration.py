@@ -349,9 +349,10 @@ async def test_warmup_populates_protocol_cache(svc: CacheService):
         await ps.load_protocols_from_db()
 
     for name in protocol_names:
-        key = svc.make_key("protocol", name)
+        # Key format is v1:protocol:<name>:<region>; docs have no region so default to "ALL"
+        key = svc.make_key("protocol", f"{name}:ALL")
         raw = await svc.get(key)
-        assert raw is not None, f"Expected protocol '{name}' in cache"
+        assert raw is not None, f"Expected protocol '{name}' in cache under key '{key}'"
         restored = _doc_to_protocol(json.loads(raw))
         assert restored.name == name
 

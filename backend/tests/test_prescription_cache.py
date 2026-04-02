@@ -257,10 +257,11 @@ async def test_load_protocols_stores_in_cache():
         with patch("backend.core.database.db.get_db", return_value=mock_db):
             await svc.load_protocols_from_db()
 
-    # Verify cache.set was called for the protocol
+    # Verify cache.set was called for the protocol (key includes region suffix)
     mock_cache.set.assert_called_once()
     call_args = mock_cache.set.call_args
-    assert call_args[0][0] == "v1:protocol:amoxicillin"
+    # Key format is v1:protocol:<name>:<region>; doc has no region so defaults to "ALL"
+    assert call_args[0][0] == "v1:protocol:amoxicillin:ALL"
     stored = json.loads(call_args[0][1])
     assert stored["name"] == "amoxicillin"
 
@@ -288,7 +289,14 @@ async def test_reload_protocols_invalidates_single_key():
         with patch("backend.core.database.db.get_db", return_value=mock_db):
             await svc.reload_protocols(name="amoxicillin")
 
-    mock_cache.delete.assert_called_once_with("v1:protocol:amoxicillin")
+    # reload_protocols(name=...) deletes keys for all regions (TG, BJ, ALL)
+    assert mock_cache.delete.call_count == 3
+    deleted_keys = {call.args[0] for call in mock_cache.delete.call_args_list}
+    assert deleted_keys == {
+        "v1:protocol:amoxicillin:TG",
+        "v1:protocol:amoxicillin:BJ",
+        "v1:protocol:amoxicillin:ALL",
+    }
     mock_cache.flush_pattern.assert_not_called()
 
 

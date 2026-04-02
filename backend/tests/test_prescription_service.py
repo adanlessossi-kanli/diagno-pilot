@@ -413,7 +413,7 @@ class TestPrescriptionServiceDBPriority:
 
         # Create a fresh service and populate the cache with the DB version
         svc = PrescriptionService()
-        svc._protocols_cache = {protocol_name: db_protocol}
+        svc._protocols_cache = {(protocol_name, "ALL"): db_protocol}
 
         # Use an adult patient (no weight-based calculation, uses adult_max_dose_mg directly)
         patient = _patient(AgeGroup.ADULT, weight_kg=70.0)

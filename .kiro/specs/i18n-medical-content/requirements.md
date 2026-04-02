@@ -25,6 +25,8 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 - **Accept-Language**: The HTTP request header used by clients to communicate the preferred locale to the backend.
 - **Diagnosis_Response**: The structured object returned by the LLM_Adapter containing differential diagnoses, ICD-10 codes, and concordant symptoms.
 - **PrescriptionService**: The existing Python service that calculates antibiotic prescriptions; extended in this feature to be region-aware.
+- **Web_App**: The Next.js web application that consumes the backend API and renders medical content for web users.
+- **Admin_Interface**: The administrative web UI used to manage Protocol_Variants, drug catalogue entries, and medical documents.
 
 ---
 
@@ -39,9 +41,11 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 1. THE Medical_Content_Service SHALL accept a locale parameter on every API endpoint that returns medical content, transmitted via the `Accept-Language` HTTP header.
 2. WHEN the `Accept-Language` header contains a supported locale (`fr-TG`, `fr-BJ`, or `en`), THE Medical_Content_Service SHALL use that locale for all content localisation in the response.
 3. WHEN the `Accept-Language` header is absent or contains an unsupported locale, THE Medical_Content_Service SHALL fall back to `fr-TG` as the default locale.
-4. THE i18n_Package SHALL export the extended locale type including `fr-TG` and `fr-BJ` in addition to the existing `fr` and `en` values.
-5. WHEN a client sends locale `fr`, THE Medical_Content_Service SHALL treat it as `fr-TG` for backward compatibility.
-6. THE Medical_Content_Service SHALL derive the Region from the locale tag (e.g., `TG` from `fr-TG`) and apply it to Protocol_Variant selection.
+4. WHEN the request originates from a region other than `TG` or `BJ` (unsupported region), THE Medical_Content_Service SHALL default to the `fr-TG` locale.
+5. THE Medical_Content_Service SHALL read the default locale from the `DEFAULT_LOCALE` environment variable; if the variable is absent, THE Medical_Content_Service SHALL use `fr-TG`.
+6. THE i18n_Package SHALL export the extended locale type including `fr-TG` and `fr-BJ` in addition to the existing `fr` and `en` values.
+7. WHEN a client sends locale `fr`, THE Medical_Content_Service SHALL treat it as `fr-TG` for backward compatibility.
+8. THE Medical_Content_Service SHALL derive the Region from the locale tag (e.g., `TG` from `fr-TG`) and apply it to Protocol_Variant selection.
 
 ---
 
@@ -56,7 +60,7 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 3. WHEN no region-specific Protocol_Variant exists for a given antibiotic and Region, THE PrescriptionService SHALL use the `ALL` variant as the fallback.
 4. THE Protocol_Repository SHALL store localised display names for each protocol in a `names` map keyed by locale (e.g., `{"fr": "Amoxicilline", "en": "Amoxicillin"}`).
 5. WHEN a prescription response is serialised, THE Medical_Content_Service SHALL include the localised drug display name for the requested locale.
-6. THE Protocol_Repository SHALL store a `available_regions` list per protocol entry; WHEN a protocol is not listed as available in the request's Region, THE PrescriptionService SHALL exclude it from the selectable antibiotic list and suggest the nearest available alternative.
+6. THE Protocol_Repository SHALL store a `available_regions` list per protocol entry; WHEN a protocol is not listed as available in the request's Region, THE PrescriptionService SHALL exclude it from the selectable antibiotic list and SHALL suggest the alternative with the same ATC drug class and first-line status; IF no such alternative exists, THE PrescriptionService SHALL suggest any available alternative in the same ATC drug class.
 7. WHEN protocols are loaded from MongoDB at startup, THE PrescriptionService SHALL index them by `(name, region)` composite key to enable O(1) region-aware lookup.
 
 ---
@@ -87,6 +91,7 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 4. THE LLM_Adapter SHALL include the locale in the structured Diagnosis_Response metadata so that downstream consumers can verify the language of the content.
 5. IF the LLM returns a response in a language that does not match the requested locale, THEN THE LLM_Adapter SHALL log a language mismatch warning and include a `language_mismatch: true` flag in the Diagnosis_Response.
 6. THE LLM_Adapter SHALL pass the Region to the RAG retrieval step so that region-specific source documents (CHU Lomé vs CHU Abomey-Calavi) are prioritised in the context window.
+7. WHEN THE LLM_Adapter receives a Diagnosis_Response that does not include a locale metadata field, THE LLM_Adapter SHALL log a missing-locale warning and set the locale field to the requested locale as a fallback.
 
 ---
 
@@ -97,7 +102,7 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 #### Acceptance Criteria
 
 1. THE Content_Localiser SHALL expose a `localise(content_object, locale)` function that selects the correct localised string from a `translations` map within the content object.
-2. WHEN the exact locale key is not present in the `translations` map, THE Content_Localiser SHALL apply the Fallback_Chain (`fr-TG` → `fr` → `en`) before returning a `null` value.
+2. WHEN the exact locale key is not present in the `translations` map, THE Content_Localiser SHALL apply the Fallback_Chain (`fr-TG` → `fr` → `en` for Togo requests, or `fr-BJ` → `fr` → `en` for Bénin requests) before returning a `null` value.
 3. THE Content_Localiser SHALL expose a `parse_locale(accept_language_header)` function that parses a BCP-47 `Accept-Language` header and returns the best matching supported locale.
 4. FOR ALL valid locale strings in `{"fr-TG", "fr-BJ", "en", "fr"}`, parsing then formatting then parsing the locale SHALL produce an equivalent locale value (round-trip property).
 5. THE Content_Localiser SHALL expose a `extract_region(locale)` function that returns the ISO 3166-1 alpha-2 country code from a locale tag, or `None` for locales without a region subtag.
@@ -116,6 +121,7 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 3. THE Web_App SHALL pass the resolved locale as the `Accept-Language` header on all API requests to the backend.
 4. WHEN a user's browser locale matches `fr-TG` or `fr-BJ`, THE Web_App SHALL automatically select the corresponding locale without requiring manual selection.
 5. WHERE a user explicitly selects a locale in the profile settings, THE Web_App SHALL persist the selection and use it on subsequent requests, overriding browser detection.
+6. THE Web_App next-intl configuration SHALL set `fr-TG` as the `defaultLocale` so that locale routing does not conflict with region-specific routes.
 
 ---
 
@@ -140,7 +146,7 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 #### Acceptance Criteria
 
 1. THE Admin_Interface SHALL allow an administrator to create, update, and delete Protocol_Variants scoped to a specific Region (`TG`, `BJ`, or `ALL`).
-2. WHEN a Protocol_Variant is saved, THE PrescriptionService SHALL reload the protocol cache within 5 seconds without requiring a service restart.
+2. WHEN a Protocol_Variant is saved, THE PrescriptionService SHALL reload the protocol cache without requiring a service restart.
 3. THE Admin_Interface SHALL display the Region and locale-specific display names for each protocol entry.
 4. WHEN an administrator uploads a medical document, THE Admin_Interface SHALL require the administrator to specify the source Region (`TG`, `BJ`, or `ALL`) so that the RAG retrieval step can filter by region.
 5. THE Admin_Interface SHALL prevent deletion of a Protocol_Variant if it is the only available variant for a given antibiotic across all regions, and SHALL display an explanatory error message.
@@ -156,5 +162,38 @@ Target locales: `fr-TG` (French / Togo), `fr-BJ` (French / Bénin), `en` (Englis
 1. WHEN an existing client sends `Accept-Language: fr`, THE Medical_Content_Service SHALL return content localised for `fr-TG` without error.
 2. WHEN an existing client sends `Accept-Language: en`, THE Medical_Content_Service SHALL return content localised for `en` without error.
 3. THE Protocol_Repository migration SHALL preserve all existing protocol documents by assigning them `region: "ALL"` if no region field is present.
-4. THE Locale type in the i18n_Package SHALL remain assignable from the existing `'fr' | 'en'` union type so that existing TypeScript consumers do not require immediate updates.
+4. THE Locale type in the i18n_Package TypeScript types SHALL remain assignable from the existing `'fr' | 'en'` union type so that existing TypeScript consumers do not require immediate updates. This criterion applies to the shared i18n_Package TypeScript types only and does not apply to the Python backend.
 5. WHEN the `names` map is absent from a protocol document (legacy document), THE Medical_Content_Service SHALL return the raw `name` field as the display name without error.
+
+---
+
+### Requirement 10: Audit Logging
+
+**User Story:** As a compliance officer, I want all locale and region selections to be logged so that I can audit which guidelines were applied to a given prescription.
+
+#### Acceptance Criteria
+
+1. THE Medical_Content_Service SHALL log the resolved locale and region for every request that returns medical content.
+2. THE PrescriptionService SHALL include the resolved locale and region in the prescription audit record stored in MongoDB.
+3. Audit log entries SHALL be immutable once written.
+
+---
+
+### Requirement 11: Protocol Version History
+
+**User Story:** As a clinician, I want historical prescriptions to reference the protocol version that was active at the time of prescribing so that I can review past decisions against the guidelines that were in effect.
+
+#### Acceptance Criteria
+
+1. THE Protocol_Repository SHALL store a version identifier and a `created_at` timestamp on each Protocol_Variant.
+2. WHEN a Protocol_Variant is updated, THE Protocol_Repository SHALL create a new version rather than overwriting the existing document.
+3. THE PrescriptionService SHALL store the protocol version identifier in the prescription record at the time of prescribing.
+4. THE Medical_Content_Service SHALL expose an endpoint to retrieve a Protocol_Variant by version identifier for audit and review purposes.
+
+---
+
+## Non-Functional Requirements
+
+### NFR 1: Protocol Cache Reload SLA
+
+THE PrescriptionService SHALL reload the protocol cache within 5 seconds of a Protocol_Variant being saved, without requiring a service restart.

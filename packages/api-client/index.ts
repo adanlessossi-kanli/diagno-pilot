@@ -248,14 +248,21 @@ export function getCsrfToken(): string {
  * Auth is handled via httpOnly cookies; CSRF token is read from the `csrf_token` cookie.
  *
  * @param baseUrl - Root URL of the FastAPI backend, e.g. "http://localhost:8000"
- * @deprecated The `getToken` parameter is no longer used. Auth is cookie-based. Remove it when updating callers.
+ * @param _getToken - Deprecated. Auth is cookie-based. Remove when updating callers.
+ * @param getLocale - Optional getter for the active locale; injected as `Accept-Language` header (REQ-7.3, REQ-6.3).
  */
-export function createApiClient(baseUrl: string, _getToken?: () => string | null) {
+export function createApiClient(
+  baseUrl: string,
+  _getToken?: () => string | null,
+  getLocale?: () => string,
+) {
   const base = baseUrl.replace(/\/$/, '');
 
   function headers(extra?: Record<string, string>): Record<string, string> {
+    const locale = getLocale?.();
     return {
       'Content-Type': 'application/json',
+      ...(locale ? { 'Accept-Language': locale } : {}),
       ...extra,
     };
   }

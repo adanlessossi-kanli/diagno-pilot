@@ -1,6 +1,6 @@
 import createMiddleware from 'next-intl/middleware';
 import { NextRequest, NextResponse } from 'next/server';
-import { routing } from './i18n/routing';
+import { routing, resolveLocale } from './i18n/routing';
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -47,18 +47,35 @@ function isQaPath(pathname: string): boolean {
   return false;
 }
 
-/** Extract the locale prefix from the pathname, defaulting to the default locale */
-function extractLocale(pathname: string): string {
+/** Extract and resolve the locale from the pathname or cookie (Requirements 6.4, 9.1) */
+function extractLocale(pathname: string, cookieLocale?: string): 'fr-TG' | 'fr-BJ' | 'en' {
+  // Cookie preference overrides browser detection (Requirement 6.5)
+  if (cookieLocale) {
+    const resolved = resolveLocale(cookieLocale);
+    if (resolved !== 'fr-TG' || cookieLocale === 'fr-TG') return resolved;
+  }
   const segments = pathname.split('/').filter(Boolean);
   const supportedLocales = routing.locales as readonly string[];
   if (segments.length > 0 && supportedLocales.includes(segments[0])) {
-    return segments[0];
+    return resolveLocale(segments[0]);
   }
-  return routing.defaultLocale;
+  return routing.defaultLocale as 'fr-TG';
 }
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Read diagno_locale cookie for user preference (Requirement 6.4, 6.5)
+  const cookieLocale = request.cookies.get('diagno_locale')?.value;
+  const locale = extractLocale(pathname, cookieLocale);
+
+  // Rewrite fr → fr-TG in the URL for backward compatibility (Requirement 9.1)
+  if (pathname.startsWith('/fr/') || pathname === '/fr') {
+    const newPath = pathname.replace(/^\/fr(\/|$)/, `/fr-TG$1`);
+    const url = request.nextUrl.clone();
+    url.pathname = newPath;
+    return NextResponse.redirect(url);
+  }
 
   // Always let public paths through (login, qa)
   if (isPublicPath(pathname)) {
@@ -67,7 +84,6 @@ export async function middleware(request: NextRequest) {
 
   const token = request.cookies.get('access_token')?.value;
   const role = token ? decodeRoleFromJwt(token) : null;
-  const locale = extractLocale(pathname);
 
   // Protect /[locale]/admin — redirect non-admins to home
   if (pathname.includes('/admin') && role !== 'admin') {

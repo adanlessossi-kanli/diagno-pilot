@@ -16,8 +16,8 @@ export type AlertLevel = z.infer<typeof AlertLevelSchema>;
 export const UserRoleSchema = z.enum(['admin', 'medecin', 'infirmière', 'guest']);
 export type UserRole = z.infer<typeof UserRoleSchema>;
 
-/** Supported application locales (REQ-12) */
-export const LocaleSchema = z.enum(['fr', 'en']);
+/** Supported application locales (REQ-12, REQ-i18n-1.6, REQ-i18n-9.4) */
+export const LocaleSchema = z.enum(['fr', 'en', 'fr-TG', 'fr-BJ']);
 export type Locale = z.infer<typeof LocaleSchema>;
 
 // ─── Object schemas ───────────────────────────────────────────────────────────

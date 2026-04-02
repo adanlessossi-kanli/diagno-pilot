@@ -842,7 +842,8 @@ class TestFullFlow:
 
         # Step 5: Verify audit log was created for login (REQ-10)
         assert audit_col.insert_one.called
-        login_audit = audit_col.insert_one.call_args[0][0]
+        # call_args_list[0] is the first audit entry (login); call_args is the last
+        login_audit = audit_col.insert_one.call_args_list[0][0][0]
         assert login_audit["action"] == "login"
 
     async def test_complete_flow_child_with_allergy(self):

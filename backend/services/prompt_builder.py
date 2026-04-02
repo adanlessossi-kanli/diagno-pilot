@@ -4,6 +4,21 @@ from __future__ import annotations
 from backend.models.consultation import Symptom
 from backend.models.patient import PatientProfile
 
+# Mapping from locale prefix to (language label, guideline reference)
+_LOCALE_LANGUAGE: dict[str, str] = {
+    "fr-TG": "French",
+    "fr-BJ": "French",
+    "fr":    "French",
+    "en":    "English",
+}
+
+_LOCALE_GUIDELINES: dict[str, str] = {
+    "fr-TG": "CHU Lomé (TG)",
+    "fr-BJ": "CHU Abomey-Calavi (BJ)",
+    "fr":    "CHU Lomé (TG)",
+    "en":    "OMS AFRO / MSF",
+}
+
 
 class PromptBuilder:
     """Stateless prompt constructor for the differential diagnosis pipeline.
@@ -15,6 +30,7 @@ class PromptBuilder:
 
     Prompt structure produced by :meth:`build`:
 
+    0. ``## Language and guidelines`` system instruction block (locale/region).
     1. Optional ``## Patient profile`` section (age group, weight,
        comorbidities, allergies) — omitted when *patient_profile* is ``None``.
     2. ``## Symptoms`` section listing each symptom with severity and duration.
@@ -26,6 +42,8 @@ class PromptBuilder:
         self,
         symptoms: list[Symptom],
         patient_profile: PatientProfile | None,
+        locale: str = "fr-TG",
+        region: str | None = None,
     ) -> str:
         """Build and return the LLM prompt string.
 
@@ -37,12 +55,29 @@ class PromptBuilder:
                 provided, age group, weight, comorbidities, and allergies are
                 included in the prompt.  When ``None``, the patient-profile
                 section is omitted entirely.
+            locale: BCP-47 locale string (``fr-TG``, ``fr-BJ``, or ``en``).
+                Defaults to ``fr-TG``.
+            region: ISO 3166-1 alpha-2 country code (``TG``, ``BJ``) or
+                ``None``.  When ``None``, the region line shows ``(none)``.
 
         Returns:
             A plain-text prompt string.  The same arguments always produce the
             same string (pure / deterministic).
         """
         lines: list[str] = []
+
+        # ------------------------------------------------------------------
+        # System instruction block: language and guidelines
+        # ------------------------------------------------------------------
+        language = _LOCALE_LANGUAGE.get(locale, "French")
+        guidelines = _LOCALE_GUIDELINES.get(locale, "CHU Lomé (TG)")
+        region_label = region if region else "(none)"
+
+        lines.append("## Language and guidelines")
+        lines.append(f"- Respond in: {language}")
+        lines.append(f"- Prioritise guidelines from: {guidelines}")
+        lines.append(f"- Region: {region_label}")
+        lines.append("")
 
         if patient_profile is not None:
             lines.append("## Patient profile")

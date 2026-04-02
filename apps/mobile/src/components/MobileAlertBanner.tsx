@@ -1,9 +1,11 @@
-// REQ-09: AlertBanner adapté React Native (StyleSheet vs CSS)
+﻿// REQ-09: AlertBanner adapté React Native (StyleSheet vs CSS)
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius, typography } from '@diagno-pilot/ui/src/tokens';
 import type { SafetyAlert } from '@diagno-pilot/types';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+const { Ionicons } = require('@expo/vector-icons') as { Ionicons: any };
 
 export interface MobileAlertBannerProps {
   alert: SafetyAlert;
@@ -16,7 +18,7 @@ const levelTokens = {
   info:     { bg: colors.info.bg,    border: colors.info.border,    text: colors.info.text    },
 } as const;
 
-const levelIcons: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+const levelIcons: Record<string, string> = {
   critical: 'alert-circle',
   warning:  'warning',
   info:     'information-circle',

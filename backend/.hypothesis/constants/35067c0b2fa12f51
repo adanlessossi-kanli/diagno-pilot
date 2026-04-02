@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\prompt_builder.py
+# hypothesis_version: 6.151.9
+
+['## Patient profile', '## Symptoms', '(none)', 'CHU Lomé (TG)', 'English', 'French', 'OMS AFRO / MSF', 'en', 'fr', 'fr-BJ', 'fr-TG', 'hepatic failure', 'renal failure']
