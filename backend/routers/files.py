@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 
 from backend.core.auth import get_current_user
 from backend.core.database import db
+from backend.core.db_metrics import timed_db_op
 from backend.core.file_validator import file_validator
 from backend.models.patient_file import PatientFile
 from backend.services.s3_service import s3_service
@@ -58,7 +59,8 @@ async def upload_file(
     }
 
     database = db.get_db()
-    result = await database["patient_files"].insert_one(doc)
+    async with timed_db_op("patient_files", "insert_one"):
+        result = await database["patient_files"].insert_one(doc)
 
     return PatientFileResponse(
         id=str(result.inserted_id),
@@ -86,7 +88,8 @@ async def get_file(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
     database = db.get_db()
-    doc = await database["patient_files"].find_one({"_id": oid})
+    async with timed_db_op("patient_files", "find_one"):
+        doc = await database["patient_files"].find_one({"_id": oid})
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 

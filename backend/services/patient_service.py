@@ -11,6 +11,7 @@ from bson import ObjectId
 from fastapi import HTTPException, status
 
 from backend.core.database import db
+from backend.core.db_metrics import timed_db_op
 from backend.models.common import AgeGroup
 from backend.models.patient import PatientCreate, PatientProfile, Comorbidities
 from backend.utils.age import compute_age_group as _compute_age_group
@@ -50,15 +51,17 @@ async def list_patients(
     """
     database = db.get_db()
     query = {"created_by": ObjectId(created_by)}
-    total = await database["patients"].count_documents(query)
+    async with timed_db_op("patients", "count_documents"):
+        total = await database["patients"].count_documents(query)
 
     skip = (page - 1) * page_size
     # Si la page demandée dépasse le total, retourner une liste vide (REQ 8.3)
     if total == 0 or skip >= total:
         return [], total
 
-    cursor = database["patients"].find(query).skip(skip).limit(page_size)
-    docs = await cursor.to_list(length=page_size)
+    async with timed_db_op("patients", "find"):
+        cursor = database["patients"].find(query).skip(skip).limit(page_size)
+        docs = await cursor.to_list(length=page_size)
     return [_doc_to_profile(d) for d in docs], total
 
 
@@ -86,7 +89,8 @@ async def create_patient(data: PatientCreate, created_by: str) -> PatientProfile
     }
 
     database = db.get_db()
-    result = await database["patients"].insert_one(doc)
+    async with timed_db_op("patients", "insert_one"):
+        result = await database["patients"].insert_one(doc)
     doc["_id"] = result.inserted_id
     doc["age_group"] = age_group
     return _doc_to_profile(doc)
@@ -100,7 +104,8 @@ async def get_patient(patient_id: str, created_by: str) -> PatientProfile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
     database = db.get_db()
-    doc = await database["patients"].find_one({"_id": oid, "created_by": ObjectId(created_by)})
+    async with timed_db_op("patients", "find_one"):
+        doc = await database["patients"].find_one({"_id": oid, "created_by": ObjectId(created_by)})
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
     return _doc_to_profile(doc)
@@ -133,11 +138,12 @@ async def update_patient(patient_id: str, data: PatientCreate, created_by: str) 
     }
 
     database = db.get_db()
-    result = await database["patients"].find_one_and_update(
-        {"_id": oid, "created_by": ObjectId(created_by)},
-        {"$set": update_fields},
-        return_document=True,
-    )
+    async with timed_db_op("patients", "update_one"):
+        result = await database["patients"].find_one_and_update(
+            {"_id": oid, "created_by": ObjectId(created_by)},
+            {"$set": update_fields},
+            return_document=True,
+        )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
     result["age_group"] = age_group

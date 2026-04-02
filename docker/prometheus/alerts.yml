@@ -1,0 +1,25 @@
+groups:
+  - name: diagno-pilot
+    rules:
+      - alert: LLMHighErrorRate
+        expr: |
+          (
+            sum(rate(diagno_pilot_llm_requests_total{status="error"}[5m]))
+            /
+            sum(rate(diagno_pilot_llm_requests_total[5m]))
+          ) > 0.05
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM error rate exceeds 5%"
+          description: "LLM error ratio is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: CircuitBreakerOpen
+        expr: increase(diagno_pilot_circuit_breaker_open_total[1m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker has been open for > 60 seconds"
+          description: "Service {{ $labels.service }} circuit breaker opened and has not recovered."

@@ -10,6 +10,7 @@ from bson import ObjectId
 from fastapi import HTTPException, status
 
 from backend.core.database import db
+from backend.core.db_metrics import timed_db_op
 from backend.models.consultation import Consultation, ConsultationCreate
 
 
@@ -36,10 +37,11 @@ async def list_consultations(patient_id: str, user_id: str) -> list[Consultation
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
     database = db.get_db()
-    cursor = database["consultations"].find(
-        {"patient_id": patient_oid, "user_id": ObjectId(user_id)}
-    )
-    docs = await cursor.to_list(length=None)
+    async with timed_db_op("consultations", "find"):
+        cursor = database["consultations"].find(
+            {"patient_id": patient_oid, "user_id": ObjectId(user_id)}
+        )
+        docs = await cursor.to_list(length=None)
     return [_doc_to_consultation(d) for d in docs]
 
 
@@ -65,6 +67,7 @@ async def create_consultation(
     }
 
     database = db.get_db()
-    result = await database["consultations"].insert_one(doc)
+    async with timed_db_op("consultations", "insert_one"):
+        result = await database["consultations"].insert_one(doc)
     doc["_id"] = result.inserted_id
     return _doc_to_consultation(doc)

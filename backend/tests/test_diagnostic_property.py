@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
-from backend.models.consultation import DifferentialDiagnosis, Symptom
+from backend.models.consultation import Symptom
 from backend.models.document import RAGResponse
 from backend.models.patient import PatientProfile
 from backend.services.diagnostic_service import DiagnosticResult, DiagnosticService

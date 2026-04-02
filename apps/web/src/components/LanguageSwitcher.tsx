@@ -14,6 +14,7 @@ export default function LanguageSwitcher() {
 
   const handleSwitch = (newLocale: string) => {
     // Persist the locale choice via cookie (1 year duration)
+    // eslint-disable-next-line react-hooks/immutability
     document.cookie = `${COOKIE_NAME}=${newLocale}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`;
     // Update the interface without full page reload via next-intl router
     router.replace(pathname, { locale: newLocale });

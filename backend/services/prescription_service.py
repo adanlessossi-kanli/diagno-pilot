@@ -232,11 +232,13 @@ class PrescriptionService:
             collection.
         """
         from backend.core.database import db
+        from backend.core.db_metrics import timed_db_op
 
         try:
             database = db.get_db()
-            cursor = database["antibiotic_protocols"].find({})
-            docs = await cursor.to_list(length=None)
+            async with timed_db_op("antibiotic_protocols", "find"):
+                cursor = database["antibiotic_protocols"].find({})
+                docs = await cursor.to_list(length=None)
         except Exception:
             logger.warning(
                 "Failed to load protocols from MongoDB; using built-in fallback",

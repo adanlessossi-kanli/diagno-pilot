@@ -102,7 +102,7 @@ class LLMRouter:
 
         self._primary = _LLMClient(primary_url, primary_api_key, self.PRIMARY_MODEL)
         self._fallback = _LLMClient(fallback_url, fallback_api_key, self.FALLBACK_MODEL)
-        self._primary_cb = circuit_breaker or CircuitBreaker()
+        self._primary_cb = circuit_breaker or CircuitBreaker(service_name="qwen3")
         self._fallback_cb = fallback_circuit_breaker or CircuitBreaker()
 
         # Keep last_used for backward compat with RAGService (updated below)
@@ -126,9 +126,9 @@ class LLMRouter:
             answer = await self._primary_cb.call_fn(
                 self._primary.generate, prompt, context, deadline=deadline
             )
-            llm_duration_seconds.labels(model="qwen3").observe(time.perf_counter() - t0)
-            llm_requests_total.labels(model="qwen3", status="success").inc()
-            self.last_used = "qwen3"
+            llm_duration_seconds.labels(model=self.PRIMARY_MODEL, status="success").observe(time.perf_counter() - t0)
+            llm_requests_total.labels(model=self.PRIMARY_MODEL, status="success").inc()
+            self.last_used = self.PRIMARY_MODEL
             return LLMResult(answer=answer, fallback_used=False)
 
         except CircuitOpenError:
@@ -137,7 +137,8 @@ class LLMRouter:
 
         except LLMUnavailableError:
             # call_fn already recorded the failure on _primary_cb
-            llm_requests_total.labels(model="qwen3", status="error").inc()
+            llm_duration_seconds.labels(model=self.PRIMARY_MODEL, status="error").observe(time.perf_counter() - t0)
+            llm_requests_total.labels(model=self.PRIMARY_MODEL, status="error").inc()
             logger.warning("Primary LLM exhausted retries — trying fallback.")
 
         # --- Fallback LLM attempt ---
@@ -146,9 +147,9 @@ class LLMRouter:
             answer = await self._fallback_cb.call_fn(
                 self._fallback.generate, prompt, context, deadline=deadline
             )
-            llm_duration_seconds.labels(model="gpt5").observe(time.perf_counter() - t0)
-            llm_requests_total.labels(model="gpt5", status="success").inc()
-            self.last_used = "gpt5"
+            llm_duration_seconds.labels(model=self.FALLBACK_MODEL, status="success").observe(time.perf_counter() - t0)
+            llm_requests_total.labels(model=self.FALLBACK_MODEL, status="success").inc()
+            self.last_used = self.FALLBACK_MODEL
             return LLMResult(answer=answer, fallback_used=True)
 
         except CircuitOpenError:
@@ -159,7 +160,8 @@ class LLMRouter:
 
         except LLMUnavailableError as exc:
             # call_fn already recorded the failure on _fallback_cb
-            llm_requests_total.labels(model="gpt5", status="error").inc()
+            llm_duration_seconds.labels(model=self.FALLBACK_MODEL, status="error").observe(time.perf_counter() - t0)
+            llm_requests_total.labels(model=self.FALLBACK_MODEL, status="error").inc()
             logger.critical(
                 "Both LLMs are unavailable. primary_skipped=%s, error=%s",
                 primary_skipped,

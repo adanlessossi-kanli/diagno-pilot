@@ -61,7 +61,7 @@ def test_fallback_always_returns_response_when_primary_fails(
     result = asyncio.run(run())
     assert result.answer == fallback_response
     assert result.fallback_used is True
-    assert router.last_used == "gpt5"
+    assert router.last_used == LLMRouter.FALLBACK_MODEL
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ def test_primary_used_when_available(
     result = asyncio.run(run())
     assert result.answer == primary_response
     assert result.fallback_used is False
-    assert router.last_used == "qwen3"
+    assert router.last_used == LLMRouter.PRIMARY_MODEL
 
 
 # ---------------------------------------------------------------------------

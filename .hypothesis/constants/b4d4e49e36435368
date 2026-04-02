@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\document_service.py
+# hypothesis_version: 6.151.9
+
+[500, '$set', ', ', '.', '_id', 'chunk_count', 'content', 'created_at', 'csv', 'delete_one', 'document_chunks', 'document_id', 'docx', 'embedding', 'find', 'find_one', 'indexed_at', 'insert_one', 'medical_documents', 'metadata', 'page', 'pdf', 'replace', 's3_key', 'section', 'source', 'text', 'title', 'txt', 'unknown', 'update_one', 'utf-8']

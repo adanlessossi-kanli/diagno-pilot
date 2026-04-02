@@ -36,15 +36,20 @@ class CircuitBreaker:
     Args:
         failure_threshold: Number of consecutive failures before opening.
         recovery_timeout:  Seconds to wait in OPEN state before probing.
+        service_name:      Label value for the ``circuit_breaker_open_total``
+                           Prometheus counter.  Defaults to ``"llm_primary"``
+                           for backward compatibility.
     """
 
     def __init__(
         self,
         failure_threshold: int = 5,
         recovery_timeout: float = 120.0,
+        service_name: str = "llm_primary",
     ) -> None:
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
+        self._service_name = service_name
 
         self._state: CircuitState = CircuitState.CLOSED
         self._failure_count: int = 0
@@ -168,6 +173,6 @@ class CircuitBreaker:
         )
         # Increment Prometheus counter (REQ 18.4)
         try:
-            circuit_breaker_open_total.labels(service="llm_primary").inc()
+            circuit_breaker_open_total.labels(service=self._service_name).inc()
         except Exception:
             pass  # Never let metrics errors affect circuit breaker logic

@@ -7,8 +7,10 @@ from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from backend.core.cache import cache_hits_total, cache_misses_total, cache_service
+from backend.core.cache import cache_service
+from backend.core.metrics import cache_hits_total, cache_misses_total
 from backend.core.config import settings
+from backend.core.db_metrics import timed_db_op
 from backend.models.document import DocumentSource, RAGResponse
 from backend.models.patient import PatientProfile
 from backend.services.embedding_service import EmbeddingModel
@@ -138,7 +140,8 @@ class RAGService:
         ]
 
         try:
-            chunks = await self._chunks.aggregate(pipeline).to_list(top_k)
+            async with timed_db_op(self.COLLECTION, "aggregate"):
+                chunks = await self._chunks.aggregate(pipeline).to_list(top_k)
         except Exception as exc:
             logger.warning(
                 "Vector Search failed — attempting keyword fallback. error=%s", exc
@@ -149,7 +152,8 @@ class RAGService:
                     {"$match": {"$text": {"$search": question}}},
                     {"$limit": top_k},
                 ]
-                chunks = await self._chunks.aggregate(keyword_pipeline).to_list(top_k)
+                async with timed_db_op(self.COLLECTION, "aggregate"):
+                    chunks = await self._chunks.aggregate(keyword_pipeline).to_list(top_k)
             except Exception:
                 chunks = []
 

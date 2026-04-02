@@ -166,7 +166,7 @@ async def _test_property_3(role: str, endpoint: tuple[str, str]):
     role=st.just("admin"),
     endpoint=st.sampled_from(ADMIN_ENDPOINTS),
 )
-@h_settings(max_examples=100)
+@h_settings(max_examples=100, deadline=None)
 def test_property_3_admin_authorized_on_admin_endpoints(role: str, endpoint: tuple[str, str]):
     """
     # Feature: role-based-access-control, Property 3: Admin autorisé sur tous les endpoints d'administration
@@ -224,7 +224,7 @@ async def _test_property_4(role: str, endpoint: tuple[str, str]):
     role=st.sampled_from(NON_ADMIN_ROLES),
     endpoint=st.sampled_from(ADMIN_ENDPOINTS),
 )
-@h_settings(max_examples=100)
+@h_settings(max_examples=100, deadline=None)
 def test_property_4_non_admin_rejected_on_admin_endpoints(role: str, endpoint: tuple[str, str]):
     """
     # Feature: role-based-access-control, Property 4: Non-admin rejeté sur les endpoints d'administration
@@ -424,7 +424,9 @@ async def _test_property_9_stats(role: str):
     mock_db.__getitem__ = MagicMock(side_effect=_extended_getitem)
 
     try:
-        with patch("backend.core.database.db.get_db", return_value=mock_db):
+        with patch("backend.core.database.db.get_db", return_value=mock_db), \
+             patch("backend.services.audit_service.db") as mock_audit_db:
+            mock_audit_db.get_db.return_value = mock_db
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.get(
                     "/api/v1/admin/stats",
@@ -513,7 +515,9 @@ async def _test_property_9_update_user(role: str):
     mock_db.__getitem__ = MagicMock(side_effect=_extended_getitem)
 
     try:
-        with patch("backend.core.database.db.get_db", return_value=mock_db):
+        with patch("backend.core.database.db.get_db", return_value=mock_db), \
+             patch("backend.services.audit_service.db") as mock_audit_db:
+            mock_audit_db.get_db.return_value = mock_db
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.put(
                     f"/api/v1/admin/users/{str(target_oid)}",

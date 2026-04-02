@@ -355,8 +355,8 @@ async def test_p10_embedding_miss_then_hit_increments_counters(texts: list[str])
 
     unique_texts = list(dict.fromkeys(texts))  # deduplicate while preserving order
 
-    with patch("backend.core.cache.cache_hits_total", fresh_hits), \
-         patch("backend.core.cache.cache_misses_total", fresh_misses), \
+    with patch("backend.core.metrics.cache_hits_total", fresh_hits), \
+         patch("backend.core.metrics.cache_misses_total", fresh_misses), \
          patch("backend.services.embedding_service.cache_service", svc), \
          patch("backend.services.embedding_service.cache_hits_total", fresh_hits), \
          patch("backend.services.embedding_service.cache_misses_total", fresh_misses), \

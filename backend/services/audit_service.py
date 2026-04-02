@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend.core.database import db
+from backend.core.db_metrics import timed_db_op
 
 
 class AuditService:
@@ -35,7 +36,8 @@ class AuditService:
             "created_at": datetime.now(timezone.utc),
         }
         database = db.get_db()
-        result = await database["audit_logs"].insert_one(document)
+        async with timed_db_op("audit_logs", "insert_one"):
+            result = await database["audit_logs"].insert_one(document)
         return str(result.inserted_id)
 
 

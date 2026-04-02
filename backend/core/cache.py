@@ -11,33 +11,11 @@ import json
 import logging
 
 import redis.asyncio as aioredis
-from prometheus_client import Counter, Gauge
 
 from backend.core.config import settings
+from backend.core.metrics import cache_degraded
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Prometheus metrics — registered at module level so they are available as
-# soon as the module is imported (before any CacheService instance is created).
-# ---------------------------------------------------------------------------
-
-cache_hits_total = Counter(
-    "cache_hits_total",
-    "Cache hits",
-    ["cache"],
-)
-
-cache_misses_total = Counter(
-    "cache_misses_total",
-    "Cache misses",
-    ["cache"],
-)
-
-cache_degraded = Gauge(
-    "cache_degraded",
-    "1 when cache is in degraded mode",
-)
 
 
 # ---------------------------------------------------------------------------

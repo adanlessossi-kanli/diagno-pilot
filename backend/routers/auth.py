@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from backend.core.config import settings
 from backend.core.database import db
+from backend.core.db_metrics import timed_db_op
 from backend.core.rate_limit import limiter
 from backend.core.auth import get_current_user
 from backend.models.common import Locale, UserRole
@@ -120,7 +121,8 @@ class UserResponse(BaseModel):
 async def login(request: Request, response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
     """Authenticate with email + password, set auth cookies, return slim TokenResponse."""
     database = db.get_db()
-    user_doc = await database["users"].find_one({"email": form_data.username})
+    async with timed_db_op("users", "find_one"):
+        user_doc = await database["users"].find_one({"email": form_data.username})
     ip = request.client.host if request.client else None
 
     if user_doc is None or not verify_password(form_data.password, user_doc["password_hash"]):
@@ -136,18 +138,20 @@ async def login(request: Request, response: Response, form_data: OAuth2PasswordR
     # Create and store refresh token
     refresh_token_value = create_refresh_token()
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_EXPIRE_DAYS)
-    await database["refresh_tokens"].insert_one({
-        "token": refresh_token_value,
-        "user_id": user_id,
-        "expires_at": expires_at,
-        "revoked": False,
-    })
+    async with timed_db_op("refresh_tokens", "insert_one"):
+        await database["refresh_tokens"].insert_one({
+            "token": refresh_token_value,
+            "user_id": user_id,
+            "expires_at": expires_at,
+            "revoked": False,
+        })
 
     # Update last_login
-    await database["users"].update_one(
-        {"_id": user_doc["_id"]},
-        {"$set": {"last_login": datetime.now(timezone.utc)}},
-    )
+    async with timed_db_op("users", "update_one"):
+        await database["users"].update_one(
+            {"_id": user_doc["_id"]},
+            {"$set": {"last_login": datetime.now(timezone.utc)}},
+        )
 
     await audit_service.log_action(
         user_id=user_id,
@@ -189,7 +193,8 @@ async def refresh(request: Request, response: Response):
     database = db.get_db()
     now = datetime.now(timezone.utc)
 
-    token_doc = await database["refresh_tokens"].find_one({"token": refresh_token_value})
+    async with timed_db_op("refresh_tokens", "find_one"):
+        token_doc = await database["refresh_tokens"].find_one({"token": refresh_token_value})
 
     if (
         token_doc is None
@@ -199,10 +204,11 @@ async def refresh(request: Request, response: Response):
         return _error_401()
 
     # Revoke the old token (rotation)
-    await database["refresh_tokens"].update_one(
-        {"token": refresh_token_value},
-        {"$set": {"revoked": True}},
-    )
+    async with timed_db_op("refresh_tokens", "update_one"):
+        await database["refresh_tokens"].update_one(
+            {"token": refresh_token_value},
+            {"$set": {"revoked": True}},
+        )
 
     # Issue new tokens
     user_id = token_doc["user_id"]
@@ -211,7 +217,8 @@ async def refresh(request: Request, response: Response):
     except Exception:
         return _error_401()
 
-    user_doc = await database["users"].find_one({"_id": oid})
+    async with timed_db_op("users", "find_one"):
+        user_doc = await database["users"].find_one({"_id": oid})
     if user_doc is None:
         return _error_401()
 
@@ -219,12 +226,13 @@ async def refresh(request: Request, response: Response):
     new_refresh_token_value = create_refresh_token()
     new_expires_at = now + timedelta(days=settings.JWT_REFRESH_EXPIRE_DAYS)
 
-    await database["refresh_tokens"].insert_one({
-        "token": new_refresh_token_value,
-        "user_id": user_id,
-        "expires_at": new_expires_at,
-        "revoked": False,
-    })
+    async with timed_db_op("refresh_tokens", "insert_one"):
+        await database["refresh_tokens"].insert_one({
+            "token": new_refresh_token_value,
+            "user_id": user_id,
+            "expires_at": new_expires_at,
+            "revoked": False,
+        })
 
     new_csrf_token = _generate_csrf_token()
     _set_auth_cookies(response, new_access_token, new_refresh_token_value, new_csrf_token)
