@@ -5,7 +5,13 @@
     "diagnose": "Guided Diagnosis",
     "patients": "Patients",
     "admin": "Administration",
+    "documents": "Documents",
+    "adminPanel": "Admin",
     "logout": "Logout"
+  },
+  "home": {
+    "tagline": "The intelligent medical assistant for Africa",
+    "cta": "Get started"
   },
   "auth": {
     "login": "Login",

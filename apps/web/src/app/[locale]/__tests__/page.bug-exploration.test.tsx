@@ -21,6 +21,11 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useParams: () => ({ locale: 'fr-TG' }),
+}));
+
 vi.mock('next/image', () => ({
   default: (props: Record<string, unknown>) => (
     // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text

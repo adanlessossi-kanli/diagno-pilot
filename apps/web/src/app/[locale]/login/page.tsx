@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '../../../contexts/AuthContext';
 import { IMAGES } from '@/lib/images';
+import DiagnoPilotLogo from '../../../components/DiagnoPilotLogo';
 
 export default function LoginPage() {
   const t = useTranslations('auth');
@@ -21,7 +22,7 @@ export default function LoginPage() {
   // Redirect if already authenticated
   useEffect(() => {
     if (!isLoading && user) {
-      router.replace(user.role === 'admin' ? '../admin' : '..');
+      router.replace('..');
     }
   }, [user, isLoading, router]);
 
@@ -58,7 +59,8 @@ export default function LoginPage() {
       </div>
 
       <div className="w-full max-w-md p-8 bg-white rounded-xl shadow-md">
-        <p className="text-primary-600 font-bold text-2xl mb-2">Diagno-Pilot</p>
+        <DiagnoPilotLogo size={40} className="mb-2" />
+        <span className="text-primary-600 font-bold text-2xl">Diagno-Pilot</span>
         <h1 className="text-2xl font-bold mb-6">{t('login')}</h1>
 
         {error && (

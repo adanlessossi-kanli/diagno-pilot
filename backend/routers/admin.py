@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 import bcrypt
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user, require_role
@@ -38,6 +38,7 @@ from backend.services.prescription_service import prescription_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+audit_router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +643,35 @@ class UserResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# New schemas for PATCH endpoints and audit log (Task 3.1)
+# ---------------------------------------------------------------------------
+
+class PatchRoleRequest(BaseModel):
+    role: UserRole
+
+
+class PatchStatusRequest(BaseModel):
+    is_active: bool
+
+
+class AuditLogResponse(BaseModel):
+    id: str
+    timestamp: datetime
+    actor_id: str
+    actor_email: str
+    action: str
+    resource: str
+    resource_id: Optional[str] = None
+
+
+class PaginatedAuditResponse(BaseModel):
+    items: list[AuditLogResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# ---------------------------------------------------------------------------
 # User management endpoints (Task 4.1)
 # ---------------------------------------------------------------------------
 
@@ -740,6 +770,13 @@ async def update_user(
     except Exception:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    # Self-guard: prevent admin from modifying their own account via PUT
+    if user_id == str(current_user["_id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot change your own role",
+        )
+
     async with timed_db_op("users", "find_one"):
         existing = await database["users"].find_one({"_id": oid})
     if existing is None:
@@ -793,6 +830,136 @@ async def update_user(
 
 
 # ---------------------------------------------------------------------------
+# PATCH /users/{id}/role — role-only update with self-guard (Task 3.2)
+# ---------------------------------------------------------------------------
+
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mettre à jour uniquement le rôle d'un utilisateur (admin)",
+)
+async def patch_user_role(
+    user_id: str,
+    request: Request,
+    data: PatchRoleRequest,
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """PATCH /api/v1/admin/users/{id}/role — met à jour uniquement le rôle. Rôle admin requis."""
+    database = db.get_db()
+
+    # Self-guard
+    if user_id == str(current_user["_id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot change your own role",
+        )
+
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    async with timed_db_op("users", "find_one"):
+        existing = await database["users"].find_one({"_id": oid})
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    async with timed_db_op("users", "update_one"):
+        await database["users"].update_one({"_id": oid}, {"$set": {"role": data.role.value}})
+
+    async with timed_db_op("users", "find_one"):
+        updated = await database["users"].find_one({"_id": oid})
+
+    ip = request.client.host if request.client else None
+    admin_id = str(current_user["_id"])
+    await audit_service.log_action(
+        user_id=admin_id,
+        action="update_user_role",
+        resource="users",
+        resource_id=user_id,
+        details={"before": {"role": existing.get("role")}, "after": {"role": data.role.value}},
+        ip_address=ip,
+    )
+
+    logger.info("User '%s' role updated to '%s' by admin %s", user_id, data.role.value, admin_id)
+
+    return UserResponse(
+        id=str(updated["_id"]),
+        email=updated["email"],
+        role=updated["role"],
+        full_name=updated.get("full_name", ""),
+        is_active=updated.get("is_active", True),
+        created_at=updated.get("created_at", datetime.now(timezone.utc)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# PATCH /users/{id}/status — status-only update with self-guard (Task 3.3)
+# ---------------------------------------------------------------------------
+
+@router.patch(
+    "/users/{user_id}/status",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Activer ou désactiver un utilisateur (admin)",
+)
+async def patch_user_status(
+    user_id: str,
+    request: Request,
+    data: PatchStatusRequest,
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """PATCH /api/v1/admin/users/{id}/status — met à jour uniquement is_active. Rôle admin requis."""
+    database = db.get_db()
+
+    # Self-guard: prevent admin from deactivating themselves
+    if user_id == str(current_user["_id"]) and data.is_active is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot deactivate your own account",
+        )
+
+    try:
+        oid = ObjectId(user_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    async with timed_db_op("users", "find_one"):
+        existing = await database["users"].find_one({"_id": oid})
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    async with timed_db_op("users", "update_one"):
+        await database["users"].update_one({"_id": oid}, {"$set": {"is_active": data.is_active}})
+
+    async with timed_db_op("users", "find_one"):
+        updated = await database["users"].find_one({"_id": oid})
+
+    ip = request.client.host if request.client else None
+    admin_id = str(current_user["_id"])
+    await audit_service.log_action(
+        user_id=admin_id,
+        action="update_user_status",
+        resource="users",
+        resource_id=user_id,
+        details={"before": {"is_active": existing.get("is_active", True)}, "after": {"is_active": data.is_active}},
+        ip_address=ip,
+    )
+
+    logger.info("User '%s' status updated to is_active=%s by admin %s", user_id, data.is_active, admin_id)
+
+    return UserResponse(
+        id=str(updated["_id"]),
+        email=updated["email"],
+        role=updated["role"],
+        full_name=updated.get("full_name", ""),
+        is_active=updated.get("is_active", True),
+        created_at=updated.get("created_at", datetime.now(timezone.utc)),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stats endpoint (Task 4.2)
 # ---------------------------------------------------------------------------
 
@@ -818,6 +985,21 @@ async def get_stats(
         async with timed_db_op("users", "count_documents"):
             users_by_role[role] = await database["users"].count_documents({"role": role})
 
+    # New fields (Task 3.4)
+    try:
+        async with timed_db_op("consultations", "count_documents"):
+            total_consultations = await database["consultations"].count_documents({})
+    except Exception:
+        total_consultations = 0
+    try:
+        async with timed_db_op("document_chunks", "distinct"):
+            distinct_doc_ids = await database["document_chunks"].distinct("document_id")
+            total_documents = len(distinct_doc_ids)
+    except Exception:
+        total_documents = 0
+    async with timed_db_op("users", "count_documents"):
+        active_users = await database["users"].count_documents({"is_active": True})
+
     # Audit log (Task 4.2)
     ip = request.client.host if request.client else None
     await audit_service.log_action(
@@ -831,4 +1013,76 @@ async def get_stats(
         "total_users": total_users,
         "users_by_role": users_by_role,
         "total_patients": total_patients,
+        "totalConsultations": total_consultations,
+        "totalDocuments": total_documents,
+        "activeUsers": active_users,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/audit — paginated audit log (Task 3.5)
+# ---------------------------------------------------------------------------
+
+@audit_router.get(
+    "",
+    response_model=PaginatedAuditResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Journal d'audit paginé (admin)",
+)
+async def get_audit_log(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1),
+    current_user: dict = Depends(require_role(["admin"])),
+):
+    """GET /api/v1/audit — retourne le journal d'audit paginé. Rôle admin requis."""
+    # Clamp page_size to max 100
+    if page_size > 100:
+        page_size = 100
+
+    database = db.get_db()
+
+    async with timed_db_op("audit_logs", "count_documents"):
+        total = await database["audit_logs"].count_documents({})
+
+    skip = (page - 1) * page_size
+    async with timed_db_op("audit_logs", "find"):
+        cursor = (
+            database["audit_logs"]
+            .find({})
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(page_size)
+        )
+        docs = await cursor.to_list(length=page_size)
+
+    # Resolve actor emails by joining with users collection
+    items: list[AuditLogResponse] = []
+    for doc in docs:
+        actor_id = doc.get("user_id", "")
+        actor_email = ""
+        if actor_id:
+            try:
+                user_doc = await database["users"].find_one({"_id": ObjectId(actor_id)})
+                if user_doc:
+                    actor_email = user_doc.get("email", "")
+            except Exception:
+                pass
+
+        items.append(
+            AuditLogResponse(
+                id=str(doc["_id"]),
+                timestamp=doc.get("created_at", datetime.now(timezone.utc)),
+                actor_id=actor_id,
+                actor_email=actor_email,
+                action=doc.get("action", ""),
+                resource=doc.get("resource", ""),
+                resource_id=doc.get("resource_id"),
+            )
+        )
+
+    return PaginatedAuditResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )

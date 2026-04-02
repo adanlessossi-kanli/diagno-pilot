@@ -114,7 +114,7 @@ describe('AuthContext — login', () => {
     expect(bffCalls).toHaveLength(0);
   });
 
-  it('redirects admin to /fr/admin after login', async () => {
+  it('redirects admin to locale root after login', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
       .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
@@ -124,7 +124,7 @@ describe('AuthContext — login', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => { await result.current.login('admin@example.com', 'password'); });
-    expect(mockPush).toHaveBeenCalledWith('/fr/admin');
+    expect(mockPush).toHaveBeenCalledWith('/fr');
   });
 
   it('redirects non-admin to locale root after login', async () => {

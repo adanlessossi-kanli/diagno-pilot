@@ -4,243 +4,326 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
-import type { PatientDocument } from '@diagno-pilot/api-client';
 import { useAuth } from '../../../contexts/AuthContext';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface AdminUser {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+}
+
+interface AdminStats {
+  total_patients: number;
+  total_consultations: number;
+  total_documents: number;
+  active_users: number;
+}
+
+interface AuditEntry {
+  id: string;
+  timestamp: string;
+  actorEmail: string;
+  action: string;
+  resource: string;
+  resourceId?: string | null;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDate(iso?: string): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('fr-FR');
+function formatTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString('fr-FR');
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Section 1: User Management ───────────────────────────────────────────────
 
-const SOURCES = ['CHU_LOME', 'CHU_ABOMEY_CALAVI', 'OMS_AFRO', 'MSF', 'PNLP'] as const;
-type DocumentSource = (typeof SOURCES)[number];
+const ROLES = ['admin', 'medecin', 'infirmière', 'guest'] as const;
 
-const ACCEPTED_FORMATS = '.pdf,.docx,.txt,.csv';
-
-// ─── Upload form state ────────────────────────────────────────────────────────
-
-interface UploadFormState {
-  title: string;
-  source: DocumentSource | '';
-  file: File | null;
-}
-
-const EMPTY_UPLOAD: UploadFormState = {
-  title: '',
-  source: '',
-  file: null,
-};
-
-// ─── Document row ─────────────────────────────────────────────────────────────
-
-function DocumentRow({
-  doc,
-  onDelete,
-  t,
-  tCommon,
+function UserManagementSection({
+  apiBase,
+  currentUserId,
 }: {
-  doc: PatientDocument;
-  onDelete: (id: string) => void;
-  t: ReturnType<typeof useTranslations<'admin'>>;
-  tCommon: ReturnType<typeof useTranslations<'common'>>;
+  apiBase: string;
+  currentUserId: string;
 }) {
-  const [deleting, setDeleting] = useState(false);
-
-  async function handleDelete() {
-    if (!window.confirm(t('confirmDelete'))) return;
-    setDeleting(true);
-    onDelete(doc.id);
-  }
-
-  const sourceLabel = SOURCES.includes(doc.source as DocumentSource)
-    ? t(`sources.${doc.source as DocumentSource}`)
-    : doc.source;
-
-  return (
-    <tr className="border-b last:border-0 hover:bg-gray-50 transition-colors">
-      <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs truncate">
-        {doc.title || '—'}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-        {sourceLabel}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-        {formatDate(doc.indexedAt ?? doc.createdAt)}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500 text-right">
-        {doc.chunkCount != null && doc.chunkCount > 0 ? doc.chunkCount : (doc.sizeBytes ? `${Math.round(doc.sizeBytes / 1024)} KB` : '—')}
-      </td>
-      <td className="px-4 py-3 text-sm">
-        <button
-          type="button"
-          onClick={() => void handleDelete()}
-          disabled={deleting}
-          className="text-red-600 hover:text-red-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          aria-label={`${tCommon('delete')} ${doc.title}`}
-        >
-          {deleting ? '…' : tCommon('delete')}
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-// ─── Upload form ──────────────────────────────────────────────────────────────
-
-function UploadForm({
-  onUploaded,
-  t,
-  tCommon,
-  apiClient,
-}: {
-  onUploaded: (doc: PatientDocument) => void;
-  t: ReturnType<typeof useTranslations<'admin'>>;
-  tCommon: ReturnType<typeof useTranslations<'common'>>;
-  apiClient: ReturnType<typeof createApiClient>;
-}) {
-  const [form, setForm] = useState<UploadFormState>(EMPTY_UPLOAD);
-  const [submitting, setSubmitting] = useState(false);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [actionError, setActionError] = useState('');
 
-  function set<K extends keyof UploadFormState>(key: K, value: UploadFormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
     setError('');
-    setSuccess('');
+    try {
+      const res = await fetch(`${apiBase}/api/v1/admin/users`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as AdminUser[];
+      setUsers(data);
+    } catch {
+      setError('Erreur lors du chargement des utilisateurs.');
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => { void fetchUsers(); }, [fetchUsers]);
+
+  async function handleRoleChange(userId: string, role: string) {
+    setActionError('');
+    try {
+      const res = await fetch(`${apiBase}/api/v1/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ role }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { detail?: string };
+        throw new Error(body.detail ?? `HTTP ${res.status}`);
+      }
+      const updated = (await res.json()) as AdminUser;
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: updated.role } : u)));
+    } catch (err) {
+      setActionError((err as Error).message);
+    }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.file) return;
-    setError('');
-    setSuccess('');
-    setSubmitting(true);
+  async function handleStatusToggle(userId: string, isActive: boolean) {
+    setActionError('');
     try {
-      const result = await apiClient.documents.uploadDocument(form.file, {
-        title: form.title || undefined,
-        source: form.source || undefined,
+      const res = await fetch(`${apiBase}/api/v1/admin/users/${userId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ is_active: isActive }),
       });
-      // Build a minimal PatientDocument from the upload response for optimistic UI
-      const newDoc: PatientDocument = {
-        id: result.id,
-        title: result.title,
-        source: form.source || '',
-        s3Key: '',
-        originalName: form.file.name,
-        sizeBytes: form.file.size,
-        indexedAt: result.createdAt,
-        createdAt: result.createdAt,
-      };
-      onUploaded(newDoc);
-      setForm(EMPTY_UPLOAD);
-      setSuccess(t('uploadSuccess'));
-    } catch {
-      setError(t('errorUpload'));
-    } finally {
-      setSubmitting(false);
+      if (!res.ok) {
+        const body = (await res.json()) as { detail?: string };
+        throw new Error(body.detail ?? `HTTP ${res.status}`);
+      }
+      const updated = (await res.json()) as AdminUser;
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive: updated.isActive } : u)));
+    } catch (err) {
+      setActionError((err as Error).message);
     }
   }
 
   return (
-    <section className="border rounded-lg p-6 bg-white">
-      <h2 className="text-lg font-semibold mb-4">{t('uploadTitle')}</h2>
-
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-        {/* Title */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            {t('documentTitle')}
-          </label>
-          <input
-            type="text"
-            value={form.title}
-            onChange={(e) => set('title', e.target.value)}
-            placeholder={t('documentTitlePlaceholder')}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        {/* Source */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            {t('documentSource')}
-          </label>
-          <select
-            value={form.source}
-            onChange={(e) => set('source', e.target.value as DocumentSource | '')}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">— {t('selectSource')} —</option>
-            {SOURCES.map((src) => (
-              <option key={src} value={src}>
-                {t(`sources.${src}`)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* File */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            {t('documentFile')} <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="file"
-            required
-            accept={ACCEPTED_FORMATS}
-            onChange={(e) => set('file', e.target.files?.[0] ?? null)}
-            className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:border-gray-300 file:text-sm file:font-medium file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100 cursor-pointer"
-          />
-        </div>
-
-        {/* Feedback */}
-        {error && (
+    <section className="border rounded-lg bg-white overflow-hidden">
+      <div className="px-6 py-4 border-b">
+        <h2 className="text-lg font-semibold">Gestion des utilisateurs</h2>
+      </div>
+      {actionError && (
+        <div className="px-6 py-3">
           <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-            {error}
+            {actionError}
           </p>
-        )}
-        {success && (
-          <p role="status" className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
-            {success}
-          </p>
-        )}
+        </div>
+      )}
+      {loading && <p className="px-6 py-4 text-sm text-gray-500">Chargement…</p>}
+      {!loading && error && (
+        <p role="alert" className="px-6 py-4 text-sm text-red-600">{error}</p>
+      )}
+      {!loading && !error && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Nom</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Email</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Rôle</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Statut</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 text-gray-900">{u.fullName}</td>
+                  <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={u.role}
+                      disabled={u.id === currentUserId}
+                      onChange={(e) => void handleRoleChange(u.id, e.target.value)}
+                      className="border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {ROLES.map((r) => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${u.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {u.isActive ? 'Actif' : 'Inactif'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      disabled={u.id === currentUserId && u.isActive}
+                      onClick={() => void handleStatusToggle(u.id, !u.isActive)}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {u.isActive ? 'Désactiver' : 'Activer'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
 
-        {/* Submit */}
-        <button
-          type="submit"
-          disabled={submitting || !form.file}
-          className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {submitting ? t('uploading') : t('upload')}
-        </button>
-      </form>
+// ─── Section 2: Statistics Dashboard ─────────────────────────────────────────
+
+function StatCard({ label, value }: { label: string; value: number | undefined }) {
+  return (
+    <div className="border rounded-lg bg-white p-6 flex flex-col gap-2">
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-3xl font-bold text-blue-600">
+        {value !== undefined ? value.toLocaleString('fr-FR') : '—'}
+      </span>
+    </div>
+  );
+}
+
+function StatsDashboardSection({ apiBase }: { apiBase: string }) {
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function fetchStats() {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await fetch(`${apiBase}/api/v1/admin/stats`, { credentials: 'include' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as AdminStats;
+        setStats(data);
+      } catch {
+        setError('Erreur lors du chargement des statistiques.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    void fetchStats();
+  }, [apiBase]);
+
+  return (
+    <section>
+      <h2 className="text-lg font-semibold mb-4">Tableau de bord statistiques</h2>
+      {loading && <p className="text-sm text-gray-500">Chargement…</p>}
+      {!loading && error && (
+        <p role="alert" className="text-sm text-red-600">{error}</p>
+      )}
+      {!loading && !error && stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="Patients" value={stats.total_patients} />
+          <StatCard label="Consultations" value={stats.total_consultations} />
+          <StatCard label="Documents" value={stats.total_documents} />
+          <StatCard label="Utilisateurs actifs" value={stats.active_users} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Section 3: Audit Log ─────────────────────────────────────────────────────
+
+function AuditLogSection({ apiBase }: { apiBase: string }) {
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function fetchAudit() {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await fetch(`${apiBase}/api/v1/audit?page=1&page_size=50`, {
+          credentials: 'include',
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { items: AuditEntry[] };
+        setEntries(data.items);
+      } catch {
+        setError("Erreur lors du chargement du journal d'audit.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    void fetchAudit();
+  }, [apiBase]);
+
+  return (
+    <section className="border rounded-lg bg-white overflow-hidden">
+      <div className="px-6 py-4 border-b">
+        <h2 className="text-lg font-semibold">Journal d&apos;audit</h2>
+      </div>
+      {loading && <p className="px-6 py-4 text-sm text-gray-500">Chargement…</p>}
+      {!loading && error && (
+        <p role="alert" className="px-6 py-4 text-sm text-red-600">{error}</p>
+      )}
+      {!loading && !error && entries.length === 0 && (
+        <p className="px-6 py-4 text-sm text-gray-500">Aucune entrée d&apos;audit.</p>
+      )}
+      {!loading && !error && entries.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Horodatage</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Acteur</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Action</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">Ressource</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-700">ID ressource</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatTimestamp(entry.timestamp)}</td>
+                  <td className="px-4 py-3 text-gray-600">{entry.actorEmail}</td>
+                  <td className="px-4 py-3 text-gray-900 font-mono text-xs">{entry.action}</td>
+                  <td className="px-4 py-3 text-gray-600">{entry.resource}</td>
+                  <td className="px-4 py-3 text-gray-400 font-mono text-xs">{entry.resourceId ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export default function AdminPage() {
-  const t = useTranslations('admin');
+export default function AdminPanelPage() {
   const tCommon = useTranslations('common');
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
-  const apiClient = useMemo(() => {
+  // Use createApiClient consistent with the rest of the app; derive base URL for admin fetch calls
+  const apiBase = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
+    // Instantiate client to follow the same pattern as other pages; admin endpoints
+    // are called via fetch directly since they are not yet in the typed client surface.
+    createApiClient(baseUrl);
+    return baseUrl;
   }, []);
 
-  const [documents, setDocuments] = useState<PatientDocument[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState('');
-  const [deleteError, setDeleteError] = useState('');
-
-  // Auth guard — redirect non-admins
+  // RBAC guard — redirect non-admins to /
   useEffect(() => {
     if (!authLoading) {
       if (!user) {
@@ -250,39 +333,6 @@ export default function AdminPage() {
       }
     }
   }, [authLoading, user, router]);
-
-  const fetchDocuments = useCallback(async () => {
-    setLoading(true);
-    setFetchError('');
-    try {
-      const list = await apiClient.documents.listDocuments();
-      setDocuments(list);
-    } catch {
-      setFetchError(t('errorFetch'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t, apiClient]);
-
-  useEffect(() => {
-    if (user?.role === 'admin') {
-      void fetchDocuments();
-    }
-  }, [user, fetchDocuments]);
-
-  async function handleDelete(id: string) {
-    setDeleteError('');
-    try {
-      await apiClient.documents.deleteDocument(id);
-      setDocuments((prev) => prev.filter((d) => d.id !== id));
-    } catch {
-      setDeleteError(t('errorDelete'));
-    }
-  }
-
-  function handleUploaded(doc: PatientDocument) {
-    setDocuments((prev) => [doc, ...prev]);
-  }
 
   // Loading auth
   if (authLoading) {
@@ -297,78 +347,23 @@ export default function AdminPage() {
   if (!user || user.role !== 'admin') {
     return (
       <main className="min-h-screen p-8 flex items-center justify-center">
-        <p className="text-red-600">{t('accessDenied')}</p>
+        <p className="text-red-600">Accès refusé.</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen p-8 max-w-5xl mx-auto space-y-8">
-      <h1 className="text-2xl font-bold">{t('title')}</h1>
+    <main className="min-h-screen p-8 max-w-6xl mx-auto space-y-10">
+      <h1 className="text-2xl font-bold">Panneau d&apos;administration</h1>
 
-      {/* Upload form */}
-      <UploadForm onUploaded={handleUploaded} t={t} tCommon={tCommon} apiClient={apiClient} />
+      {/* Section 1 — User Management */}
+      <UserManagementSection apiBase={apiBase} currentUserId={user.id} />
 
-      {/* Document list */}
-      <section className="border rounded-lg bg-white overflow-hidden">
-        <div className="px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold">{t('documents')}</h2>
-        </div>
+      {/* Section 2 — Statistics Dashboard */}
+      <StatsDashboardSection apiBase={apiBase} />
 
-        {/* Delete error */}
-        {deleteError && (
-          <div className="px-6 py-3">
-            <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-              {deleteError}
-            </p>
-          </div>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <p className="px-6 py-4 text-sm text-gray-500">{t('loadingDocuments')}</p>
-        )}
-
-        {/* Fetch error */}
-        {!loading && fetchError && (
-          <p role="alert" className="px-6 py-4 text-sm text-red-600">
-            {fetchError}
-          </p>
-        )}
-
-        {/* Empty state */}
-        {!loading && !fetchError && documents.length === 0 && (
-          <p className="px-6 py-4 text-sm text-gray-500">{t('noDocuments')}</p>
-        )}
-
-        {/* Table */}
-        {!loading && !fetchError && documents.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-700">{t('columnTitle')}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-700">{t('columnSource')}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-700">{t('columnDate')}</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-700">{t('columnChunks')}</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-700">{t('columnActions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((doc) => (
-                  <DocumentRow
-                    key={doc.id}
-                    doc={doc}
-                    onDelete={(id) => void handleDelete(id)}
-                    t={t}
-                    tCommon={tCommon}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      {/* Section 3 — Audit Log */}
+      <AuditLogSection apiBase={apiBase} />
     </main>
   );
 }

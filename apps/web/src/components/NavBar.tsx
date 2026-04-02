@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePathname } from '../i18n/navigation';
 import type { UserRole } from '@diagno-pilot/types';
 import LanguageSwitcher from './LanguageSwitcher';
+import DiagnoPilotLogo from './DiagnoPilotLogo';
 
 interface NavBarProps {
   locale: string;
@@ -30,12 +31,12 @@ export default function NavBar({ locale }: NavBarProps) {
   const base = `/${locale}`;
 
   const links: NavLink[] = [
-    { href: base, label: t('home'), path: '/' },
     { href: `${base}/chat`, label: t('chat'), path: '/chat' },
     { href: `${base}/diagnose`, label: t('diagnose'), path: '/diagnose' },
     { href: `${base}/patients`, label: t('patients'), path: '/patients' },
+    { href: `${base}/documents`, label: t('documents'), path: '/documents' },
     ...(user?.role === 'admin'
-      ? [{ href: `${base}/admin`, label: t('admin'), path: '/admin' }]
+      ? [{ href: `${base}/admin`, label: t('adminPanel'), path: '/admin' }]
       : []),
   ];
 
@@ -49,9 +50,10 @@ export default function NavBar({ locale }: NavBarProps) {
   return (
     <nav aria-label="Main navigation" className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between relative">
       {/* Wordmark */}
-      <span className="text-base font-bold text-primary-600 tracking-tight select-none">
-        Diagno-Pilot
-      </span>
+      <Link href={base} className="flex items-center gap-2 text-base font-bold text-primary-600 tracking-tight select-none">
+        <DiagnoPilotLogo size={28} />
+        <span>Diagno-Pilot</span>
+      </Link>
 
       {/* Desktop links */}
       <div className="hidden md:flex items-center gap-6">

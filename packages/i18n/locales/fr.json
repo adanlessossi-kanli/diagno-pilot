@@ -5,7 +5,13 @@
     "diagnose": "Diagnostic guidé",
     "patients": "Patients",
     "admin": "Administration",
+    "documents": "Documents",
+    "adminPanel": "Admin",
     "logout": "Déconnexion"
+  },
+  "home": {
+    "tagline": "L'assistant médical intelligent pour l'Afrique",
+    "cta": "Commencer"
   },
   "auth": {
     "login": "Connexion",

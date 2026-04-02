@@ -57,7 +57,7 @@ async def main() -> None:
     uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/diagno_pilot")
     db_name = uri.rsplit("/", 1)[-1].split("?")[0] or "diagno_pilot"
 
-    client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=5000)
+    client: AsyncIOMotorClient = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=5000)
     try:
         db = client[db_name]
         await migrate(db)

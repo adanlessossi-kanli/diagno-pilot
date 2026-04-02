@@ -111,7 +111,7 @@ def attempt_delete(store: InMemoryProtocolStore, name: str, region: str) -> dict
 _region_strategy = st.sampled_from(["TG", "BJ", "ALL"])
 _name_strategy = st.text(
     min_size=1, max_size=20,
-    alphabet=st.characters(whitelist_categories=("Ll",), whitelist_characters="-"),
+    alphabet=st.characters(whitelist_categories=["Ll"], whitelist_characters="-"),
 )
 
 
