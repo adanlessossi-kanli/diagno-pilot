@@ -40,7 +40,7 @@ The backend is Python 3.12 + FastAPI. Prometheus metrics are already exposed at 
 
 #### Acceptance Criteria
 
-1. THE Metrics_Service SHALL expose a Histogram named `diagno_pilot_llm_duration_seconds` with labels `model` (values: `qwen3`, `gpt5`) and `status` (values: `success`, `error`).
+1. THE Metrics_Service SHALL expose a Histogram named `diagno_pilot_llm_duration_seconds` with labels `model` and `status` (values: `success`, `error`). The `model` label value SHALL match the actual model identifier string used by `LLM_Router` (e.g. `qwen3`, `gpt-5`, or `gpt-5-turbo`) rather than a hardcoded alias.
 2. WHEN `LLM_Router` completes a generation request, THE Metrics_Service SHALL record the wall-clock duration in seconds in `diagno_pilot_llm_duration_seconds` with the appropriate `model` and `status` labels.
 3. THE `diagno_pilot_llm_duration_seconds` Histogram SHALL use buckets `[0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]` to reflect realistic LLM response times.
 4. THE Metrics_Service SHALL expose a Counter named `diagno_pilot_llm_requests_total` with labels `model` and `status` that is incremented on every completed LLM call.
@@ -75,6 +75,7 @@ The backend is Python 3.12 + FastAPI. Prometheus metrics are already exposed at 
 4. THE Metrics_Service SHALL expose a Counter named `diagno_pilot_db_errors_total` with labels `collection` and `operation` that is incremented whenever a MongoDB operation raises an exception.
 5. WHEN the `/metrics` endpoint is scraped, all DB metrics SHALL be present in the Prometheus exposition format.
 6. THE instrumentation SHALL be implemented as a thin wrapper or decorator applied at the service layer, without modifying the Motor driver internals.
+7. THE Metrics_Service SHALL provide a shared utility function or base repository class in `backend/core/` that all service files use to apply DB instrumentation, ensuring consistent metric coverage across every repository without requiring per-file boilerplate.
 
 ---
 
@@ -90,6 +91,7 @@ The backend is Python 3.12 + FastAPI. Prometheus metrics are already exposed at 
 4. WHEN `Cache_Service` does not find a cached value, THE Metrics_Service SHALL increment `diagno_pilot_cache_misses_total` with the corresponding `cache` label.
 5. THE Metrics_Service SHALL expose a Gauge named `diagno_pilot_cache_degraded` set to `1` when the Cache_Service is operating in degraded mode (Redis unreachable) and `0` otherwise.
 6. WHEN the `/metrics` endpoint is scraped, all cache metrics SHALL be present in the Prometheus exposition format.
+7. THE `cache` label values (`protocol`, `interaction`, `embedding`, `rag`) SHALL remain in sync with the cache type definitions in the caching-and-performance spec. WHEN a new cache type is added to `Cache_Service`, THE Metrics_Service SHALL update the permitted label values in `backend/core/metrics.py` before the new cache type is used in production.
 
 ---
 
@@ -116,7 +118,7 @@ The backend is Python 3.12 + FastAPI. Prometheus metrics are already exposed at 
 2. THE `docker-compose.yml` SHALL include a `promtail` service using the `grafana/promtail` image configured to tail Docker container log files and forward them to the `loki` service.
 3. THE `docker-compose.yml` SHALL include a `grafana` service using the `grafana/grafana` image exposed on port `3001` (to avoid conflict with the frontend on port `3000`).
 4. WHEN Grafana starts, THE `grafana` service SHALL have Loki pre-configured as a datasource so developers do not need to configure it manually.
-5. THE `promtail` service SHALL parse the structured JSON log lines emitted by the backend and extract the fields `level`, `message`, `request_id`, `path`, `method`, `status_code`, and `duration_ms` as Loki labels or structured metadata.
+5. THE `promtail` service SHALL parse the structured JSON log lines emitted by the backend and extract fields as follows: low-cardinality fields (`level`, `method`, `status_code`) SHALL be stored as Loki labels; high-cardinality fields (`request_id`, `path`, `duration_ms`, `message`) SHALL be stored as Loki structured metadata and MUST NOT be used as Loki labels, to prevent label cardinality explosion.
 6. THE Loki and Promtail configurations SHALL be stored as files in `docker/loki/` and `docker/promtail/` respectively and mounted as read-only volumes.
 7. THE `grafana` service SHALL depend on `loki` and SHALL not start until `loki` reports healthy.
 8. WHILE running in the local Docker Compose stack, THE `loki` service SHALL retain logs for a maximum of 72 hours to limit disk usage on developer machines.
@@ -132,7 +134,7 @@ The backend is Python 3.12 + FastAPI. Prometheus metrics are already exposed at 
 
 1. WHEN the backend emits a structured JSON log line, THE Log_Pipeline SHALL deliver it to Loki within 10 seconds.
 2. WHEN a log line is delivered to Loki, THE Log_Pipeline SHALL preserve the original `timestamp`, `level`, and `message` fields without modification.
-3. IF the `loki` service is unavailable, THEN THE `promtail` service SHALL buffer log lines locally and retry delivery without dropping entries, up to a buffer of 10 000 lines.
+3. IF the `loki` service is unavailable, THEN THE `promtail` service SHALL buffer log lines locally and retry delivery without dropping entries, up to a buffer of approximately 10 MB.
 4. THE Log_Pipeline SHALL handle log lines up to 64 KB in size without truncation (to accommodate large LLM response logs).
 5. WHEN the Docker Compose stack is restarted, THE Log_Pipeline SHALL resume tailing from the last successfully shipped log position without re-sending previously delivered lines.
 
@@ -152,7 +154,7 @@ The backend is Python 3.12 + FastAPI. Prometheus metrics are already exposed at 
 6. THE Ops_Guide SHALL include a section on bandwidth optimisation for West African deployments covering: Prometheus scrape interval recommendations (≥60 s), Loki log volume reduction via `LOG_LEVEL=WARNING` in production, and Grafana dashboard export for offline use.
 7. THE Ops_Guide SHALL document the `/health` endpoint response schema and specify that a load balancer health check SHOULD poll `/health` at an interval of no less than 10 seconds.
 8. THE Ops_Guide SHALL include a secrets rotation procedure for `JWT_SECRET` that describes the steps to rotate the secret without invalidating active user sessions.
-9. THE Ops_Guide SHALL be written in both French and English, given that the target deployment teams operate in Togo and Bénin.
+9. THE Ops_Guide SHALL be produced as two separate documents — `ops-guide.en.md` (English) and `ops-guide.fr.md` (French) — so that each language version is independently maintainable. Both documents SHALL cover the same content, given that the target deployment teams operate in Togo and Bénin.
 
 ---
 
@@ -167,3 +169,31 @@ The backend is Python 3.12 + FastAPI. Prometheus metrics are already exposed at 
 3. WHERE a Prometheus server is included, THE `grafana` service SHALL have Prometheus pre-configured as a second datasource alongside Loki.
 4. WHERE a Prometheus server is included, THE Prometheus configuration file SHALL be stored in `docker/prometheus/` and mounted as a read-only volume.
 5. WHERE a Prometheus server is included, THE `prometheus` service SHALL retain metrics data for a maximum of 7 days to limit disk usage on developer machines.
+
+---
+
+### Requirement 10: Alerting Rules
+
+**User Story:** As a backend engineer, I want basic alerting rules for LLM error rate and circuit breaker state, so that I can be notified of critical failures in the clinical pipeline.
+
+#### Acceptance Criteria
+
+1. WHEN the LLM error rate (ratio of `diagno_pilot_llm_requests_total{status="error"}` to all `diagno_pilot_llm_requests_total`) exceeds 5% over a 5-minute window, THE Metrics_Service SHALL fire a Prometheus alert named `LLMHighErrorRate`.
+2. WHEN the circuit breaker has been in the open state for more than 60 consecutive seconds (as measured by `diagno_pilot_circuit_breaker_open_total`), THE Metrics_Service SHALL fire a Prometheus alert named `CircuitBreakerOpen`.
+3. THE alert rules SHALL be stored in `docker/prometheus/alerts.yml` in standard Prometheus alerting rule format.
+4. THE `prometheus` service configuration SHALL reference `alerts.yml` via a `rule_files` entry so that Prometheus loads the alert rules on startup.
+
+---
+
+### Requirement 11: Grafana Dashboard Provisioning
+
+**User Story:** As a developer, I want a pre-built Grafana dashboard available when the stack starts, so that I can immediately visualise LLM latency, cache hit rates, and log volume without manual setup.
+
+#### Acceptance Criteria
+
+1. THE `grafana` service SHALL include a dashboard JSON file stored under `docker/grafana/dashboards/` that is automatically loaded on startup.
+2. THE `grafana` service SHALL include a Grafana provisioning configuration file that references the `docker/grafana/dashboards/` directory so that dashboards are loaded without manual import.
+3. THE dashboard SHALL include a panel displaying LLM request duration percentiles (p50, p95, p99) sourced from `diagno_pilot_llm_duration_seconds`.
+4. THE dashboard SHALL include a panel displaying the cache hit ratio (hits / (hits + misses)) per cache name sourced from `diagno_pilot_cache_hits_total` and `diagno_pilot_cache_misses_total`.
+5. THE dashboard SHALL include a panel displaying MongoDB query duration by collection sourced from `diagno_pilot_db_query_duration_seconds`.
+6. THE dashboard SHALL include a panel displaying log volume over time sourced from Loki.

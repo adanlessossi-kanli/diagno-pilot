@@ -109,11 +109,13 @@ class AlertService:
         is empty (REQ 12.5).
         """
         from backend.core.database import db
+        from backend.core.db_metrics import timed_db_op
 
         try:
             database = db.get_db()
-            cursor = database["drug_interactions"].find({})
-            docs = await cursor.to_list(length=None)
+            async with timed_db_op("drug_interactions", "find"):
+                cursor = database["drug_interactions"].find({})
+                docs = await cursor.to_list(length=None)
         except Exception:
             logger.warning(
                 "Failed to load drug interactions from MongoDB; using built-in fallback",

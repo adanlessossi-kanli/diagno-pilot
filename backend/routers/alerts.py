@@ -51,6 +51,7 @@ async def check_alerts(
     - patient_id: (optional) patient id to load allergies / comorbidities from DB
     """
     from backend.core.database import db
+    from backend.core.db_metrics import timed_db_op
     from backend.models.patient import Comorbidities
     from bson import ObjectId
 
@@ -64,7 +65,8 @@ async def check_alerts(
         patient: PatientProfile | None = None
         if oid:
             database = db.get_db()
-            doc = await database["patients"].find_one({"_id": oid})
+            async with timed_db_op("patients", "find_one"):
+                doc = await database["patients"].find_one({"_id": oid})
             if doc:
                 comorbidities_raw = doc.get("comorbidities", {})
                 patient = PatientProfile(

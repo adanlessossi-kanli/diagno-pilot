@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user, require_role
 from backend.core.database import db
+from backend.core.db_metrics import timed_db_op
 from backend.models.common import UserRole
 from backend.services.alert_service import alert_service
 from backend.services.audit_service import audit_service
@@ -119,8 +120,9 @@ async def list_protocols(
 ):
     """GET /api/v1/admin/protocols — retourne tous les protocoles depuis MongoDB."""
     database = db.get_db()
-    cursor = database["antibiotic_protocols"].find({})
-    docs = await cursor.to_list(length=None)
+    async with timed_db_op("antibiotic_protocols", "find"):
+        cursor = database["antibiotic_protocols"].find({})
+        docs = await cursor.to_list(length=None)
     return [_doc_to_protocol(doc) for doc in docs]
 
 
@@ -140,7 +142,8 @@ async def create_protocol(
     name = data.name.lower().strip()
 
     # Vérifier l'unicité
-    existing = await database["antibiotic_protocols"].find_one({"name": name})
+    async with timed_db_op("antibiotic_protocols", "find_one"):
+        existing = await database["antibiotic_protocols"].find_one({"name": name})
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -165,7 +168,8 @@ async def create_protocol(
         "updated_at": now,
     }
 
-    await database["antibiotic_protocols"].insert_one(doc)
+    async with timed_db_op("antibiotic_protocols", "insert_one"):
+        await database["antibiotic_protocols"].insert_one(doc)
 
     # Journal d'audit (REQ 11.6)
     ip = request.client.host if request.client else None
@@ -199,7 +203,8 @@ async def update_protocol(
     database = db.get_db()
     name = name.lower().strip()
 
-    existing = await database["antibiotic_protocols"].find_one({"name": name})
+    async with timed_db_op("antibiotic_protocols", "find_one"):
+        existing = await database["antibiotic_protocols"].find_one({"name": name})
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -225,10 +230,11 @@ async def update_protocol(
         "updated_at": now,
     }
 
-    await database["antibiotic_protocols"].update_one(
-        {"name": name},
-        {"$set": update_fields},
-    )
+    async with timed_db_op("antibiotic_protocols", "update_one"):
+        await database["antibiotic_protocols"].update_one(
+            {"name": name},
+            {"$set": update_fields},
+        )
 
     after_snapshot = {"name": name, **update_fields}
 
@@ -272,7 +278,8 @@ async def create_drug_interaction(
         "created_at": now,
     }
 
-    await database["drug_interactions"].insert_one(doc)
+    async with timed_db_op("drug_interactions", "insert_one"):
+        await database["drug_interactions"].insert_one(doc)
 
     logger.info(
         "Drug interaction '%s' <-> '%s' created by user %s",
@@ -334,8 +341,9 @@ async def list_users(
 ):
     """GET /api/v1/admin/users — retourne tous les utilisateurs (sans password_hash)."""
     database = db.get_db()
-    cursor = database["users"].find({}, {"password_hash": 0})
-    docs = await cursor.to_list(length=None)
+    async with timed_db_op("users", "find"):
+        cursor = database["users"].find({}, {"password_hash": 0})
+        docs = await cursor.to_list(length=None)
     return [
         UserResponse(
             id=str(doc["_id"]),
@@ -362,7 +370,8 @@ async def create_user(
     """POST /api/v1/admin/users — crée un utilisateur. Rôle admin requis."""
     database = db.get_db()
 
-    existing = await database["users"].find_one({"email": data.email})
+    async with timed_db_op("users", "find_one"):
+        existing = await database["users"].find_one({"email": data.email})
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -382,7 +391,8 @@ async def create_user(
         "created_at": now,
     }
 
-    result = await database["users"].insert_one(doc)
+    async with timed_db_op("users", "insert_one"):
+        result = await database["users"].insert_one(doc)
     logger.info("User '%s' created by admin %s", data.email, str(current_user["_id"]))
 
     return UserResponse(
@@ -415,7 +425,8 @@ async def update_user(
     except Exception:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    existing = await database["users"].find_one({"_id": oid})
+    async with timed_db_op("users", "find_one"):
+        existing = await database["users"].find_one({"_id": oid})
     if existing is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -430,9 +441,11 @@ async def update_user(
         update_fields["is_active"] = data.is_active
 
     if update_fields:
-        await database["users"].update_one({"_id": oid}, {"$set": update_fields})
+        async with timed_db_op("users", "update_one"):
+            await database["users"].update_one({"_id": oid}, {"$set": update_fields})
 
-    updated = await database["users"].find_one({"_id": oid})
+    async with timed_db_op("users", "find_one"):
+        updated = await database["users"].find_one({"_id": oid})
 
     new_role = updated.get("role")
     new_is_active = updated.get("is_active", True)
@@ -480,12 +493,15 @@ async def get_stats(
     """GET /api/v1/admin/stats — retourne les statistiques globales. Rôle admin requis."""
     database = db.get_db()
 
-    total_users = await database["users"].count_documents({})
-    total_patients = await database["patients"].count_documents({})
+    async with timed_db_op("users", "count_documents"):
+        total_users = await database["users"].count_documents({})
+    async with timed_db_op("patients", "count_documents"):
+        total_patients = await database["patients"].count_documents({})
 
     users_by_role: dict[str, int] = {}
     for role in ["admin", "medecin", "infirmière", "guest"]:
-        users_by_role[role] = await database["users"].count_documents({"role": role})
+        async with timed_db_op("users", "count_documents"):
+            users_by_role[role] = await database["users"].count_documents({"role": role})
 
     # Audit log (Task 4.2)
     ip = request.client.host if request.client else None

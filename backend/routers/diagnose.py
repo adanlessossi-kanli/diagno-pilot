@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.core.auth import require_role
 from backend.core.database import db
+from backend.core.db_metrics import timed_db_op
 from backend.core.rate_limit import limiter
 from backend.models.alert import SafetyAlert
 from backend.models.consultation import Consultation, DifferentialDiagnosis, Prescription, Symptom
@@ -94,7 +95,8 @@ async def diagnose_symptoms(
     }
 
     database = db.get_db()
-    await database["consultations"].insert_one(doc)
+    async with timed_db_op("consultations", "insert_one"):
+        await database["consultations"].insert_one(doc)
 
     fallback_warning = FALLBACK_WARNING if result.fallback_used else None
     warnings_present = bool(fallback_warning or result.degraded_warning)
@@ -122,7 +124,8 @@ async def get_diagnosis_session(
     Retrieves a stored diagnosis session from MongoDB by session_id.
     """
     database = db.get_db()
-    doc = await database["consultations"].find_one({"session_id": session_id})
+    async with timed_db_op("consultations", "find_one"):
+        doc = await database["consultations"].find_one({"session_id": session_id})
 
     if doc is None:
         raise HTTPException(

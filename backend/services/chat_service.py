@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from backend.core.db_metrics import timed_db_op
 from backend.models.document import DocumentSource, RAGResponse
 from backend.models.patient import PatientProfile
 from backend.services.rag_service import RAGService
@@ -89,37 +90,40 @@ class ChatService:
             "timestamp": now,
         }
 
-        await self._db[self.COLLECTION].update_one(
-            {"session_id": session_id},
-            {
-                "$push": {"messages": {"$each": [user_turn, assistant_turn]}},
-                "$setOnInsert": {
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "patient_context": patient_context.model_dump() if patient_context else None,
-                    "created_at": now,
+        async with timed_db_op(self.COLLECTION, "update_one"):
+            await self._db[self.COLLECTION].update_one(
+                {"session_id": session_id},
+                {
+                    "$push": {"messages": {"$each": [user_turn, assistant_turn]}},
+                    "$setOnInsert": {
+                        "session_id": session_id,
+                        "user_id": user_id,
+                        "patient_context": patient_context.model_dump() if patient_context else None,
+                        "created_at": now,
+                    },
+                    "$set": {"updated_at": now},
                 },
-                "$set": {"updated_at": now},
-            },
-            upsert=True,
-        )
+                upsert=True,
+            )
 
         return session_id, rag_response
 
     async def get_history(self, session_id: str) -> dict | None:
         """Return the full session document or None if not found."""
-        return await self._db[self.COLLECTION].find_one(
-            {"session_id": session_id},
-            {"_id": 0},
-        )
+        async with timed_db_op(self.COLLECTION, "find_one"):
+            return await self._db[self.COLLECTION].find_one(
+                {"session_id": session_id},
+                {"_id": 0},
+            )
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     async def _load_history(self, session_id: str) -> list[dict]:
-        doc = await self._db[self.COLLECTION].find_one(
-            {"session_id": session_id},
-            {"messages": 1, "_id": 0},
-        )
+        async with timed_db_op(self.COLLECTION, "find_one"):
+            doc = await self._db[self.COLLECTION].find_one(
+                {"session_id": session_id},
+                {"messages": 1, "_id": 0},
+            )
         return doc.get("messages", []) if doc else []

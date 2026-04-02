@@ -19,6 +19,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from backend.models.document import MedicalDocument
 from backend.services.embedding_service import EmbeddingModel
 from backend.services.s3_service import S3Service
+from backend.core.db_metrics import timed_db_op
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -164,14 +165,16 @@ class DocumentService:
             "chunk_count": 0,
             "created_at": now,
         }
-        await self._docs.insert_one(doc_record)
+        async with timed_db_op("medical_documents", "insert_one"):
+            await self._docs.insert_one(doc_record)
 
         # 4. Chunk, embed and insert into document_chunks
         chunks = chunk_text(text)
         chunk_count = await self._index_chunks(chunks, doc_id, source)
 
         # 5. Update chunk_count
-        await self._docs.update_one({"_id": doc_id}, {"$set": {"chunk_count": chunk_count}})
+        async with timed_db_op("medical_documents", "update_one"):
+            await self._docs.update_one({"_id": doc_id}, {"$set": {"chunk_count": chunk_count}})
 
         return MedicalDocument(
             id=str(doc_id),
@@ -223,7 +226,8 @@ class DocumentService:
             })
 
         if records:
-            await self._chunks.insert_many(records)
+            async with timed_db_op("document_chunks", "insert_one"):
+                await self._chunks.insert_many(records)
 
         return len(records)
 
@@ -233,8 +237,9 @@ class DocumentService:
 
     async def list_documents(self) -> list[MedicalDocument]:
         """Return all indexed medical documents."""
-        cursor = self._docs.find({}).sort("created_at", -1)
-        docs = await cursor.to_list(length=None)
+        async with timed_db_op("medical_documents", "find"):
+            cursor = self._docs.find({}).sort("created_at", -1)
+            docs = await cursor.to_list(length=None)
         return [
             MedicalDocument(
                 id=str(d["_id"]),
@@ -262,7 +267,8 @@ class DocumentService:
         except Exception:
             return False
 
-        doc = await self._docs.find_one({"_id": oid})
+        async with timed_db_op("medical_documents", "find_one"):
+            doc = await self._docs.find_one({"_id": oid})
         if doc is None:
             return False
 
@@ -272,10 +278,12 @@ class DocumentService:
             await self._delete_from_s3(s3_key)
 
         # Remove chunks
-        await self._chunks.delete_many({"document_id": oid})
+        async with timed_db_op("document_chunks", "delete_one"):
+            await self._chunks.delete_many({"document_id": oid})
 
         # Remove document record
-        await self._docs.delete_one({"_id": oid})
+        async with timed_db_op("medical_documents", "delete_one"):
+            await self._docs.delete_one({"_id": oid})
 
         return True
 

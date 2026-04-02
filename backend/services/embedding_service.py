@@ -3,11 +3,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 
 import httpx
 
-from backend.core.cache import cache_hits_total, cache_misses_total, cache_service
+from backend.core.cache import cache_service
 from backend.core.config import settings
+from backend.core.metrics import (
+    cache_hits_total,
+    cache_misses_total,
+    embedding_duration_seconds,
+    embedding_requests_total,
+)
 
 
 class EmbeddingModel:
@@ -75,7 +82,16 @@ class EmbeddingModel:
 
         cache_misses_total.labels(cache="embedding").inc()
 
-        vector = await self._call_api(text)
+        t0 = time.perf_counter()
+        try:
+            vector = await self._call_api(text)
+            embedding_duration_seconds.labels(status="success").observe(time.perf_counter() - t0)
+            embedding_requests_total.labels(status="success").inc()
+        except Exception:
+            embedding_duration_seconds.labels(status="error").observe(time.perf_counter() - t0)
+            embedding_requests_total.labels(status="error").inc()
+            raise
+
         await cache_service.set(cache_key, json.dumps(vector), ttl=settings.CACHE_TTL_EMBEDDINGS)
         return vector
 

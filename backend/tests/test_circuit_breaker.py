@@ -321,7 +321,7 @@ def test_llm_router_routes_to_fallback_when_circuit_open():
 
         result = await router.generate("test prompt", [])
         assert result.answer == "fallback response"
-        assert router.last_used == "gpt5"
+        assert router.last_used == "gpt-5"
 
         # Primary must NOT have been called
         router._primary.generate.assert_not_called()

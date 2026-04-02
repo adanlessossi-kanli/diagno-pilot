@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\files.py
+# hypothesis_version: 6.151.9
+
+['/files', '/upload', '/{file_id}', 'File not found', '_id', 'consultation_id', 'created_at', 'file_type', 'files', 'find_one', 'insert_one', 'original_name', 'patient_files', 'patient_id', 'pdf', 's3_key', 'size_bytes', 'unknown', 'uploaded_by']

@@ -199,7 +199,6 @@ describe('PrescriptionStep', () => {
             type: 'allergy',
             message: 'Allergy to penicillin',
             alternative: 'Consider Azithromycin 500mg',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } as any,
         ],
       }),
