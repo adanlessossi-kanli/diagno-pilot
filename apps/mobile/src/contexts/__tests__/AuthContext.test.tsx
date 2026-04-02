@@ -37,7 +37,7 @@ const mockLogout = jest.fn();
 let capturedTokenGetter: (() => string | null) | undefined;
 
 jest.mock('@diagno-pilot/api-client', () => ({
-  createApiClient: (_baseUrl: string, getToken?: () => string | null) => {
+  createApiClient: (_baseUrl: string, getToken?: () => string | null, _getLocale?: () => string) => {
     capturedTokenGetter = getToken;
     return {
       auth: {
@@ -47,6 +47,11 @@ jest.mock('@diagno-pilot/api-client', () => ({
       },
     };
   },
+}));
+
+// Mock I18nContext so AuthProvider can call useI18n()
+jest.mock('../I18nContext', () => ({
+  useI18n: () => ({ locale: 'fr-TG', setLocale: jest.fn(), cacheVersion: 0 }),
 }));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

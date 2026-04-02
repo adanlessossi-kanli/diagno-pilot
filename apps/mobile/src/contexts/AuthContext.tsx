@@ -1,8 +1,9 @@
-// REQ-01, REQ-7.4: Authentication context for mobile app with SecureStore persistence
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+// REQ-01, REQ-7.3, REQ-7.4: Authentication context for mobile app with SecureStore persistence
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { AuthUser } from '@diagno-pilot/api-client';
+import { useI18n } from './I18nContext';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -26,7 +27,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // isLoading stays true until SecureStore + /auth/me resolves
   const [isLoading, setIsLoading] = useState(true);
 
-  const apiClient = createApiClient(API_BASE, () => token);
+  const { locale } = useI18n();
+  const localeRef = useRef(locale);
+  useEffect(() => { localeRef.current = locale; }, [locale]);
+
+  // REQ-7.3: inject Accept-Language on every API call via getLocale getter
+  const apiClient = createApiClient(API_BASE, () => token, () => localeRef.current);
 
   // REQ 7.4: On startup, read token from SecureStore and restore session
   useEffect(() => {

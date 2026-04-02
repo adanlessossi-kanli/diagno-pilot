@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\content_localiser.py
+# hypothesis_version: 6.151.9
+
+[',', '-', ';', 'DEFAULT_LOCALE', 'en', 'fr', 'fr-BJ', 'fr-TG', 'translations']

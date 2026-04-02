@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\audit_service.py
+# hypothesis_version: 6.151.9
+
+['action', 'audit_logs', 'created_at', 'details', 'insert_one', 'ip_address', 'locale', 'region', 'resource', 'resource_id', 'user_id']

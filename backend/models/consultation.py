@@ -30,6 +30,16 @@ class Prescription(BaseModel):
     is_capped_to_adult_dose: bool = False
 
 
+class LocalisedPrescription(Prescription):
+    """Extends Prescription with i18n/region fields (Requirements 2.4, 2.5, 3.2, 3.3, 9.5)."""
+    display_name: str
+    trade_name: str | None = None
+    unavailable_in_region: bool = False
+    protocol_version: str = ""
+    locale: str = "fr-TG"
+    region: str = "ALL"
+
+
 class Consultation(BaseModel):
     id: str | None = None
     patient_id: str | None = None

@@ -23,6 +23,7 @@ from starlette.responses import Response  # noqa: E402
 from backend.core.cache import cache_service  # noqa: E402
 from backend.core.config import settings  # noqa: E402
 from backend.core.csrf import verify_csrf  # noqa: E402
+from backend.core.locale_middleware import LocaleMiddleware  # noqa: E402
 from backend.core.security_headers import SecurityHeadersMiddleware  # noqa: E402
 from backend.core.database import db  # noqa: E402
 from backend.core.logging_config import request_id_var, setup_logging  # noqa: E402
@@ -174,6 +175,10 @@ app.add_middleware(
 # Security headers — registered after CORS so it wraps CORS and runs on every response
 # (Starlette applies middleware in reverse registration order; this becomes the outermost layer)
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Locale middleware — resolves Accept-Language → (locale, region) before route handlers
+# Registered after SecurityHeadersMiddleware so it runs closer to the route handlers
+app.add_middleware(LocaleMiddleware)
 
 
 # Request logging middleware — injects request_id and logs structured HTTP fields (REQ 14.1, 14.2)

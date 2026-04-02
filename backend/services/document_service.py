@@ -134,8 +134,12 @@ class DocumentService:
         file: UploadFile,
         title: str,
         source: str,
+        region: str = "ALL",
     ) -> MedicalDocument:
         """Ingest a document: extract text → chunk → embed → store in MongoDB + S3.
+
+        The `region` parameter (TG, BJ, or ALL) is stored in metadata.region on
+        each document_chunk, enabling RAG pre-filtering by region (Requirement 8.4).
 
         Returns the persisted MedicalDocument.
         """
@@ -170,7 +174,7 @@ class DocumentService:
 
         # 4. Chunk, embed and insert into document_chunks
         chunks = chunk_text(text)
-        chunk_count = await self._index_chunks(chunks, doc_id, source)
+        chunk_count = await self._index_chunks(chunks, doc_id, source, region=region)
 
         # 5. Update chunk_count
         async with timed_db_op("medical_documents", "update_one"):
@@ -204,9 +208,12 @@ class DocumentService:
         return key
 
     async def _index_chunks(
-        self, chunks: list[str], doc_id: ObjectId, source: str
+        self, chunks: list[str], doc_id: ObjectId, source: str, region: str = "ALL"
     ) -> int:
-        """Embed each chunk and insert into document_chunks. Returns count inserted."""
+        """Embed each chunk and insert into document_chunks. Returns count inserted.
+
+        Stores metadata.region on each chunk for RAG pre-filtering (Requirement 8.4).
+        """
         if not chunks:
             return 0
 
@@ -222,6 +229,7 @@ class DocumentService:
                     "source": source,
                     "page": None,
                     "section": f"chunk_{i}",
+                    "region": region,
                 },
             })
 

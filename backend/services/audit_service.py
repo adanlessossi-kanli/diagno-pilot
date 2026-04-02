@@ -24,14 +24,21 @@ class AuditService:
         resource_id: str | None = None,
         details: dict[str, Any] | None = None,
         ip_address: str | None = None,
+        locale: str | None = None,
+        region: str | None = None,
     ) -> str:
         """Persiste un log d'audit et retourne l'id du document créé."""
+        merged_details: dict[str, Any] = dict(details) if details else {}
+        if locale is not None:
+            merged_details["locale"] = locale
+        if region is not None:
+            merged_details["region"] = region
         document = {
             "user_id": user_id,
             "action": action,
             "resource": resource,
             "resource_id": resource_id,
-            "details": details or {},
+            "details": merged_details,
             "ip_address": ip_address,
             "created_at": datetime.now(timezone.utc),
         }

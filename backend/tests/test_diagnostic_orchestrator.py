@@ -62,7 +62,7 @@ def test_delegation_calls_prompt_builder_with_correct_args():
 
     asyncio.run(orchestrator.get_differential_diagnosis(symptoms, profile))
 
-    mock_prompt_builder.build.assert_called_once_with(symptoms, profile)
+    mock_prompt_builder.build.assert_called_once_with(symptoms, profile, locale="fr-TG", region=None)
 
 
 def test_delegation_calls_rag_with_prompt_from_builder():
@@ -92,6 +92,7 @@ def test_delegation_calls_rag_with_prompt_from_builder():
         question="the built prompt",
         context=None,
         top_k=5,
+        region=None,
     )
 
 

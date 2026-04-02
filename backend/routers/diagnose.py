@@ -75,6 +75,8 @@ async def diagnose_symptoms(
     result = await diagnostic_service.get_differential_diagnosis(
         symptoms=body.symptoms,
         patient_profile=body.patient_profile,
+        locale=getattr(request.state, "locale", "fr-TG"),
+        region=getattr(request.state, "region", None),
     )
 
     session_id = body.session_id or str(uuid.uuid4())
@@ -173,8 +175,11 @@ class PrescriptionResponse(BaseModel):
 async def list_antibiotics(current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"]))):
     """GET /api/v1/diagnose/antibiotics — list available antibiotic protocol keys."""
     from backend.services.prescription_service import ANTIBIOTIC_PROTOCOLS
-    keys = list(prescription_service._protocols_cache.keys()) or list(ANTIBIOTIC_PROTOCOLS.keys())
-    return sorted(keys)
+    if prescription_service._protocols_cache:
+        keys = sorted({name for name, _region in prescription_service._protocols_cache.keys()})
+    else:
+        keys = sorted(ANTIBIOTIC_PROTOCOLS.keys())
+    return keys
 
 
 @router.post(

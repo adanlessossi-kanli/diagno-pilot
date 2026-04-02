@@ -27,7 +27,7 @@ export default function LanguageSwitcher() {
           key={loc}
           type="button"
           onClick={() => handleSwitch(loc)}
-          aria-label={`Switch to ${loc === 'fr' ? 'French' : 'English'}`}
+          aria-label={`Switch to ${loc === 'en' ? 'English' : 'French'}`}
           aria-current={locale === loc ? 'true' : undefined}
           className={`text-xs font-semibold px-2.5 py-1 rounded border transition-colors ${
             locale === loc
