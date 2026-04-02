@@ -41,7 +41,13 @@ describe('LoginPage — unit tests', () => {
   it('LoginPage renders IMAGES.loginSide', async () => {
     const { default: LoginPage } = await import('../page');
     render(<LoginPage />);
-    const img = screen.getByRole('img');
-    expect(img).toHaveAttribute('src', expect.stringContaining(IMAGES.loginSide.src));
+    // Use getAllByRole since the page now has both the side image and the SVG logo
+    const imgs = screen.getAllByRole('img');
+    const sideImg = imgs.find((el) =>
+      el.getAttribute('src')?.includes(IMAGES.loginSide.src) ||
+      el.getAttribute('alt') === IMAGES.loginSide.alt
+    );
+    expect(sideImg).toBeDefined();
+    expect(sideImg).toHaveAttribute('src', expect.stringContaining(IMAGES.loginSide.src));
   });
 });

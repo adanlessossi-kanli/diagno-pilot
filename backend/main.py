@@ -237,6 +237,7 @@ app.include_router(documents.router, prefix=API_PREFIX)
 app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(alerts.router, prefix=API_PREFIX)
 app.include_router(admin.router, prefix=API_PREFIX)
+app.include_router(admin.audit_router, prefix=API_PREFIX)
 app.include_router(qa.router, prefix=API_PREFIX)
 
 # Apply CSRF validation globally to all routes (Requirements 6.3, 6.4, 6.5)

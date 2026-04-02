@@ -171,12 +171,7 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
         throw new Error('Failed to retrieve user after login');
       }
 
-      // Role-based redirect
-      if (authUser.role === 'admin') {
-        router.push(`/${locale}/admin`);
-      } else {
-        router.push(`/${locale}`);
-      }
+      router.push(`/${locale}`);
     },
     [apiClient, fetchMe, locale, router],
   );

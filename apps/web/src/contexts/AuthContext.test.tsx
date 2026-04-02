@@ -132,7 +132,7 @@ describe('AuthContext', () => {
     expect((result.current as unknown as Record<string, unknown>)['getToken']).toBeUndefined();
   });
 
-  it('g. role-based redirect — admin goes to /fr/admin', async () => {
+  it('g. role-based redirect — admin goes to /fr', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
       .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
@@ -142,7 +142,7 @@ describe('AuthContext', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => { await result.current.login('admin@example.com', 'password'); });
-    expect(mockPush).toHaveBeenCalledWith('/fr/admin');
+    expect(mockPush).toHaveBeenCalledWith('/fr');
   });
 
   it('h. isLoading is true until auth/me resolves (REQ 7.2)', async () => {

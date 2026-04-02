@@ -31,7 +31,7 @@ _field_value_strategy = st.one_of(
 )
 
 # Generate a protocol document WITHOUT a region field
-_protocol_doc_strategy = st.fixed_dictionaries(
+_protocol_doc_strategy = st.fixed_dictionaries(  # type: ignore[misc]
     {
         "name": st.text(min_size=1, max_size=32),
         "paediatric_dose_per_kg": st.floats(min_value=0.1, max_value=200.0, allow_nan=False, allow_infinity=False),

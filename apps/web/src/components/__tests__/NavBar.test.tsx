@@ -121,7 +121,9 @@ describe('NavBar — unit tests', () => {
   it('admin link is shown for admin users', () => {
     mockAuthValue.user = { id: '2', email: 'admin@test.com', role: 'admin', fullName: 'Admin' };
     renderNavBar();
-    expect(screen.getAllByText('admin').length).toBeGreaterThan(0);
+    // The admin panel link uses i18n key 'adminPanel' (rendered as 'adminPanel' in tests)
+    const adminPanelLinks = screen.queryAllByText('adminPanel');
+    expect(adminPanelLinks.length).toBeGreaterThan(0);
   });
 
   it('admin link is not shown for non-admin users', () => {
