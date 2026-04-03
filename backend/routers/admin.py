@@ -18,6 +18,7 @@ Chaque modification est journalisée dans le journal d'audit avec :
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -1085,4 +1086,302 @@ async def get_audit_log(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Data Integrity & Migration endpoints (REQ 6.2, 6.3, 6.4, 6.5)
+# ---------------------------------------------------------------------------
+
+from fastapi import BackgroundTasks
+
+
+class MigrateChunksResponse(BaseModel):
+    status: str
+    message: str
+
+
+class ReindexDocumentResponse(BaseModel):
+    status: str
+    document_id: str
+    chunk_count: int
+
+
+async def _migrate_chunks_background(database) -> None:
+    """Background task: re-enrich all document_chunks lacking enriched metadata.
+
+    Processes in batches of 100. Uses infer_document_type and DISEASE_KEYWORDS
+    from DocumentService to compute the missing fields.
+
+    Requirements: 6.2
+    """
+    from backend.services.document_service import DISEASE_KEYWORDS, infer_document_type
+
+    unmigrated_query = {
+        "$or": [
+            {"metadata.disease_tags": {"$exists": False}},
+            {"metadata.disease_tags": None},
+            {"metadata.document_type": {"$exists": False}},
+            {"metadata.document_type": None},
+            {"metadata.evidence_level": {"$exists": False}},
+            {"metadata.evidence_level": None},
+        ]
+    }
+
+    batch_size = 100
+    total_migrated = 0
+
+    while True:
+        cursor = database["document_chunks"].find(unmigrated_query).limit(batch_size)
+        batch = await cursor.to_list(length=batch_size)
+        if not batch:
+            break
+
+        for chunk in batch:
+            source = chunk.get("metadata", {}).get("source", "")
+            content = chunk.get("content", "")
+            content_lower = content.lower()
+
+            document_type = infer_document_type(source)
+            evidence_level = document_type
+            disease_tags = [kw for kw in DISEASE_KEYWORDS if kw in content_lower]
+
+            await database["document_chunks"].update_one(
+                {"_id": chunk["_id"]},
+                {
+                    "$set": {
+                        "metadata.disease_tags": disease_tags,
+                        "metadata.document_type": document_type,
+                        "metadata.evidence_level": evidence_level,
+                    }
+                },
+            )
+
+        total_migrated += len(batch)
+        logger.info("[migrate-chunks] Migrated %d chunks so far", total_migrated)
+
+        # Yield control between batches
+        await asyncio.sleep(0)
+
+    logger.info("[migrate-chunks] Migration complete. Total migrated: %d", total_migrated)
+
+
+@router.post(
+    "/migrate-chunks",
+    response_model=MigrateChunksResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Ré-enrichir les chunks non migrés en arrière-plan (admin)",
+)
+async def migrate_chunks(
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(require_role(["admin"])),
+) -> MigrateChunksResponse:
+    """POST /api/v1/admin/migrate-chunks — triggers background re-enrichment of unmigrated chunks.
+
+    Processes all document_chunks lacking metadata.disease_tags, metadata.document_type,
+    or metadata.evidence_level in batches of 100.
+
+    Returns immediately with status 202.
+
+    Requirements: 6.2
+    """
+    database = db.get_db()
+    background_tasks.add_task(_migrate_chunks_background, database)
+    logger.info("[migrate-chunks] Background migration task enqueued by user %s", str(current_user["_id"]))
+    return MigrateChunksResponse(
+        status="migration_started",
+        message="Re-enrichment of unmigrated chunks started in background (batches of 100).",
+    )
+
+
+@router.post(
+    "/reindex-document/{document_id}",
+    response_model=ReindexDocumentResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Réindexer un document depuis S3 avec le nouveau Chunker (admin)",
+)
+async def reindex_document(
+    document_id: str,
+    current_user: dict = Depends(require_role(["admin"])),
+) -> ReindexDocumentResponse:
+    """POST /api/v1/admin/reindex-document/{id} — re-ingest a document from S3.
+
+    - Downloads the file from S3 using the stored s3_key
+    - Re-ingests using the new semantic Chunker and pypdf bbox extraction (PDF only)
+    - Deletes all existing document_chunks for that document
+    - Inserts the newly produced chunks
+    - Updates chunk_count on the medical_documents record
+
+    Returns HTTP 404 if the document does not exist.
+
+    Requirements: 6.3, 6.4, 6.5
+    """
+    from bson.errors import InvalidId
+
+    from backend.services.chunker import Chunker
+    from backend.services.document_service import (
+        PdfPageData,
+        _extract_pdf_pages_with_bbox,
+        extract_text,
+        infer_document_type,
+        DISEASE_KEYWORDS,
+        _compute_chunk_bbox,
+    )
+    from backend.services.embedding_service import EmbeddingModel
+    from backend.services.s3_service import s3_service
+
+    database = db.get_db()
+
+    # Resolve document_id → ObjectId
+    try:
+        oid = ObjectId(document_id)
+    except (InvalidId, Exception):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' not found",
+        )
+
+    doc = await database["medical_documents"].find_one({"_id": oid})
+    if doc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' not found",
+        )
+
+    s3_key: str | None = doc.get("s3_key")
+    if not s3_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' has no associated S3 file",
+        )
+
+    # Download file from S3
+    try:
+        content: bytes = await s3_service.download(s3_key)
+    except Exception as exc:
+        logger.error("[reindex-document] Failed to download s3_key=%r: %s", s3_key, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download document from S3: {exc}",
+        )
+
+    # Determine file extension from s3_key or filename
+    filename = s3_key.rsplit("/", 1)[-1] if "/" in s3_key else s3_key
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "txt"
+
+    # Extract text (with PDF page data for bbox extraction)
+    pdf_pages: list[PdfPageData] | None = None
+    if ext == "pdf":
+        pdf_pages = _extract_pdf_pages_with_bbox(content)
+        text = "\n".join(p.text for p in pdf_pages)
+    else:
+        text = extract_text(content, ext)
+
+    # Chunk with the new semantic Chunker
+    chunker = Chunker()
+    chunk_results = chunker.chunk(text)
+
+    source: str = doc.get("source", "")
+    region: str = doc.get("region", "ALL")
+    document_type = infer_document_type(source)
+    evidence_level = document_type
+
+    # Build page cumulative lengths for PDF bbox mapping
+    page_cumulative_lengths: list[int] | None = None
+    if pdf_pages is not None:
+        page_cumulative_lengths = []
+        cumulative = 0
+        for p in pdf_pages:
+            page_cumulative_lengths.append(cumulative)
+            cumulative += len(p.text) + 1  # +1 for "\n" separator
+
+    # Embed chunks and build records
+    embedder = EmbeddingModel()
+    records = []
+    global_char_offset = 0
+
+    for chunk in chunk_results:
+        embedding = await embedder.encode(chunk.content)
+        content_lower = chunk.content.lower()
+        disease_tags = [kw for kw in DISEASE_KEYWORDS if kw in content_lower]
+
+        metadata: dict = {
+            "source": source,
+            "page": None,
+            "section": chunk.section,
+            "region": region,
+            "disease_tags": disease_tags,
+            "document_type": document_type,
+            "evidence_level": evidence_level,
+            "bbox": None,
+            "page_char_start": None,
+            "page_char_end": None,
+        }
+
+        # PDF-specific: extract bbox and character offsets (REQ 6.4)
+        if pdf_pages is not None and page_cumulative_lengths is not None:
+            chunk_len = len(chunk.content)
+            chunk_global_start = global_char_offset
+            chunk_global_end = global_char_offset + chunk_len
+
+            page_idx = 0
+            for i, cum in enumerate(page_cumulative_lengths):
+                if cum <= chunk_global_start:
+                    page_idx = i
+                else:
+                    break
+
+            if page_idx < len(pdf_pages):
+                page = pdf_pages[page_idx]
+                page_start_global = page_cumulative_lengths[page_idx]
+                page_char_start = chunk_global_start - page_start_global
+                page_char_end = min(
+                    chunk_global_end - page_start_global,
+                    len(page.text),
+                )
+                bbox = _compute_chunk_bbox(page, page_char_start, page_char_end)
+
+                metadata["page"] = page_idx
+                metadata["page_char_start"] = page_char_start
+                metadata["page_char_end"] = page_char_end
+                metadata["bbox"] = bbox if bbox is not None else [0.0, 0.0, 0.0, 0.0]
+
+            global_char_offset += chunk_len + 1
+        else:
+            global_char_offset += len(chunk.content) + 1
+
+        records.append({
+            "_id": ObjectId(),
+            "document_id": oid,
+            "content": chunk.content,
+            "embedding": embedding,
+            "metadata": metadata,
+        })
+
+    # Delete existing chunks for this document
+    await database["document_chunks"].delete_many({"document_id": oid})
+
+    # Insert new chunks
+    chunk_count = 0
+    if records:
+        await database["document_chunks"].insert_many(records)
+        chunk_count = len(records)
+
+    # Update chunk_count on the document record
+    await database["medical_documents"].update_one(
+        {"_id": oid},
+        {"$set": {"chunk_count": chunk_count}},
+    )
+
+    logger.info(
+        "[reindex-document] Document '%s' reindexed: %d chunks by user %s",
+        document_id,
+        chunk_count,
+        str(current_user["_id"]),
+    )
+
+    return ReindexDocumentResponse(
+        status="reindexed",
+        document_id=document_id,
+        chunk_count=chunk_count,
     )

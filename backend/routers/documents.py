@@ -6,12 +6,14 @@ Endpoints:
   POST   /api/v1/documents/upload   — admin only
   GET    /api/v1/documents
   DELETE /api/v1/documents/{id}     — admin only
+  GET    /api/v1/documents/{id}/view — admin, medecin, infirmière (REQ 5.3, 5.4)
 """
 from __future__ import annotations
 
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import BaseModel
 
 from backend.core.auth import audit_dependency, get_current_user, require_role
 from backend.core.cache import cache_service
@@ -106,3 +108,61 @@ async def delete_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document '{document_id}' not found",
         )
+
+
+# ---------------------------------------------------------------------------
+# Response model for presigned URL
+# ---------------------------------------------------------------------------
+
+class DocumentViewResponse(BaseModel):
+    url: str
+    expires_in: int = 900  # seconds
+
+
+# ---------------------------------------------------------------------------
+# GET /documents/{id}/view — presigned S3 URL (REQ 5.3, 5.4)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/{document_id}/view",
+    response_model=DocumentViewResponse,
+    summary="Get a presigned S3 URL for viewing a document (admin, medecin, infirmière)",
+    dependencies=[Depends(require_role(["admin", "medecin", "infirmière"]))],
+)
+async def get_document_view_url(
+    document_id: str,
+    svc: DocumentService = Depends(_get_document_service),
+) -> DocumentViewResponse:
+    """Return a presigned S3 URL valid for 15 minutes for the document's stored S3 object.
+
+    Returns HTTP 404 if the document does not exist (REQ 5.4).
+    Accessible to roles: admin, medecin, infirmière (REQ 5.3).
+    """
+    from bson import ObjectId
+    from bson.errors import InvalidId
+
+    try:
+        oid = ObjectId(document_id)
+    except (InvalidId, Exception):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' not found",
+        )
+
+    doc = await svc._docs.find_one({"_id": oid})
+    if doc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' not found",
+        )
+
+    s3_key = doc.get("s3_key")
+    if not s3_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document '{document_id}' has no associated file",
+        )
+
+    # Generate presigned URL valid for 15 minutes (900 seconds)
+    url = await s3_service.get_presigned_url(s3_key, expires_in=900)
+    return DocumentViewResponse(url=url, expires_in=900)

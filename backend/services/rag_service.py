@@ -19,16 +19,77 @@ from backend.services.llm_router import LLMRouter
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Reciprocal Rank Fusion — REQ 3.5
+# ---------------------------------------------------------------------------
+
+def reciprocal_rank_fusion(ranked_lists: list[list[dict]], k: int = 60) -> list[dict]:
+    """Merge N ranked lists via RRF. score = sum(1 / (k + rank)) for each chunk across all lists."""
+    scores: dict[str, float] = {}
+    chunks_by_id: dict[str, dict] = {}
+    for ranked_list in ranked_lists:
+        for rank, chunk in enumerate(ranked_list, start=1):
+            chunk_id = str(chunk.get("_id", chunk.get("document_id", "") + str(rank)))
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rank)
+            chunks_by_id[chunk_id] = chunk
+    sorted_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
+    result = []
+    for cid in sorted_ids:
+        chunk = dict(chunks_by_id[cid])
+        chunk["rrf_score"] = scores[cid]
+        result.append(chunk)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# BM25 Retriever — REQ 3.4
+# ---------------------------------------------------------------------------
+
+class BM25_Retriever:
+    """Simple BM25 keyword retrieval over MongoDB document_chunks collection."""
+
+    def __init__(self, collection) -> None:
+        self._collection = collection
+
+    async def retrieve(self, query: str, top_k: int = 5, region: str | None = None) -> list[dict]:
+        """Retrieve chunks using $text search (BM25-like keyword matching)."""
+        match_filter: dict = {"$text": {"$search": query}}
+        if region and region != "ALL":
+            match_filter["metadata.region"] = {"$in": [region, "ALL"]}
+        try:
+            pipeline = [
+                {"$match": match_filter},
+                {"$addFields": {"score": {"$meta": "textScore"}}},
+                {"$sort": {"score": -1}},
+                {"$limit": top_k},
+            ]
+            async with timed_db_op("document_chunks", "aggregate"):
+                return await self._collection.aggregate(pipeline).to_list(top_k)
+        except Exception:
+            return []
+
+# ---------------------------------------------------------------------------
+# Grounding constants — REQ 1.1, 1.2, 1.3
+# ---------------------------------------------------------------------------
+SIMILARITY_THRESHOLD = 0.75
+NO_CONTEXT_MESSAGE = "Information non disponible dans la base de connaissances."
+
+GROUNDING_SYSTEM_PROMPT = (
+    "Tu es un assistant médical. Réponds UNIQUEMENT en te basant sur les passages "
+    "de documents fournis ci-dessous. Si aucun passage pertinent n'est disponible, "
+    'réponds exactement : "' + NO_CONTEXT_MESSAGE + '". '
+    "N'utilise jamais tes connaissances paramétriques."
+)
+
+
 class RAGService:
     """Retrieval-augmented generation service for medical knowledge queries.
 
     Implements the RAG pipeline in three stages:
     1. **Embedding** — the query string is encoded into a dense vector via
        :class:`EmbeddingModel`.
-    2. **Vector search** — the vector is used to retrieve the most relevant
-       document chunks from MongoDB Atlas using the ``$vectorSearch`` aggregation
-       stage against the ``embedding_index`` index on the ``document_chunks``
-       collection.
+    2. **Hybrid retrieval** — vector search + BM25 results are merged via
+       Reciprocal Rank Fusion, then re-ranked by CrossEncoder.
     3. **LLM generation** — the retrieved passages (and optional patient context)
        are forwarded to :class:`LLMRouter`, which produces a grounded natural-
        language answer.
@@ -57,11 +118,13 @@ class RAGService:
         llm_router: LLMRouter,
         embedder: EmbeddingModel,
         db_name: str = "diagno_pilot",
+        bm25_retriever: BM25_Retriever | None = None,
     ) -> None:
         self._db = mongo_client[db_name]
         self._chunks = self._db[self.COLLECTION]
         self._llm = llm_router
         self._embedder = embedder
+        self._bm25 = bm25_retriever or BM25_Retriever(self._chunks)
 
     async def query(
         self,
@@ -69,6 +132,7 @@ class RAGService:
         context: PatientProfile | None = None,
         top_k: int = 5,
         region: str | None = None,
+        session_history: list[dict] | None = None,
     ) -> RAGResponse:
         """Retrieve relevant document chunks and generate a grounded answer.
 
@@ -89,6 +153,10 @@ class RAGService:
                 restricts results to documents whose ``metadata.region`` is
                 either the requested region or ``"ALL"``.  When ``None`` or
                 ``"ALL"``, no filter is applied and all documents are eligible.
+            session_history: Optional list of the last 5 messages from the chat
+                session (user and assistant turns).  When provided, these are
+                included in the LLM context after the grounding prompt and
+                before the patient context.
 
         Returns:
             A :class:`~backend.models.document.RAGResponse` with three fields:
@@ -155,6 +223,27 @@ class RAGService:
         try:
             async with timed_db_op(self.COLLECTION, "aggregate"):
                 chunks = await self._chunks.aggregate(pipeline).to_list(top_k)
+
+            # --- Hybrid retrieval: BM25 + RRF — REQ 3.4, 3.5 ---
+            bm25_chunks = await self._bm25.retrieve(question, top_k=top_k, region=region)
+            if bm25_chunks:
+                chunks = reciprocal_rank_fusion([chunks, bm25_chunks], k=60)
+
+            # --- CrossEncoder re-ranking — REQ 3.6 (best-effort) ---
+            if chunks:
+                try:
+                    from backend.services.document_service import get_cross_encoder
+                    cross_encoder = get_cross_encoder()
+                    pairs = [(question, c.get("content", "")) for c in chunks]
+                    ce_scores = cross_encoder.predict(pairs)
+                    chunks = [
+                        c for _, c in sorted(
+                            zip(ce_scores, chunks), key=lambda x: x[0], reverse=True
+                        )
+                    ]
+                except Exception:
+                    pass  # CrossEncoder unavailable — skip re-ranking
+
         except Exception as exc:
             logger.warning(
                 "Vector Search failed — attempting keyword fallback. error=%s", exc
@@ -180,10 +269,28 @@ class RAGService:
                     " — response generated without document context"
                 )
 
+        # --- Similarity threshold filter — REQ 1.2, 1.3 ---
+        # Discard chunks whose cosine similarity score is below SIMILARITY_THRESHOLD.
+        # Chunks from keyword fallback have no score field; they are kept as-is.
+        # After RRF, filter on the original cosine 'score' field (not rrf_score).
+        if not degraded_warning:
+            chunks = [c for c in chunks if c.get("score", 0.0) >= SIMILARITY_THRESHOLD]
+
+        # If no chunks pass the filter, return a structured refusal without calling LLM.
+        if not chunks and not degraded_warning:
+            refusal = RAGResponse(
+                answer=NO_CONTEXT_MESSAGE,
+                sources=[],
+                llm_used="none",
+                confidence_score=0.0,
+            )
+            await cache_service.set(key, refusal.model_dump_json(), ttl=settings.CACHE_TTL_RAG)
+            return refusal
+
         sources = [
             DocumentSource(
                 document_id=str(c.get("document_id", "")),
-                title=c.get("metadata", {}).get("source", ""),
+                title=c.get("metadata", {}).get("title", c.get("metadata", {}).get("source", "")),
                 source=c.get("metadata", {}).get("source", ""),
                 section=c.get("metadata", {}).get("section"),
                 excerpt=c.get("content", "")[:200],
@@ -192,8 +299,17 @@ class RAGService:
             for c in chunks
         ]
 
-        # Build LLM context from retrieved passages
-        llm_context: list[dict] = []
+        # Build LLM context — grounding prompt is always first — REQ 1.1
+        llm_context: list[dict] = [
+            {"role": "system", "content": GROUNDING_SYSTEM_PROMPT},
+        ]
+        # Include session history after grounding prompt — REQ 3.7
+        if session_history:
+            for msg in session_history:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role in ("user", "assistant") and content:
+                    llm_context.append({"role": role, "content": content})
         if context:
             llm_context.append({"role": "system", "content": f"Patient context: {context.model_dump_json()}"})
         for c in chunks:
@@ -201,12 +317,26 @@ class RAGService:
 
         llm_result = await self._llm.generate(question, llm_context)
 
+        # Compute confidence_score — arithmetic mean of cosine similarity scores — REQ 4.1
+        cosine_scores = [c.get("score") for c in chunks if c.get("score") is not None]
+        confidence_score: float | None = (sum(cosine_scores) / len(cosine_scores)) if cosine_scores else None
+
+        # Populate grounding_warning when degraded_warning is active — REQ 1.5
+        grounding_warning: str | None = None
+        if degraded_warning:
+            grounding_warning = (
+                "Résultats basés sur la récupération par mots-clés uniquement "
+                "— peuvent ne pas être entièrement ancrés dans les protocoles validés."
+            )
+
         response = RAGResponse(
             answer=llm_result.answer,
             sources=sources,
             llm_used=self._llm.last_used or "unknown",
             fallback_used=llm_result.fallback_used,
             degraded_warning=degraded_warning,
+            grounding_warning=grounding_warning,
+            confidence_score=confidence_score,
         )
 
         await cache_service.set(key, response.model_dump_json(), ttl=settings.CACHE_TTL_RAG)

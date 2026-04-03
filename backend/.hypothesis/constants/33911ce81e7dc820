@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\s3_service.py
+# hypothesis_version: 6.151.9
+
+[3600, 'Body', 'Bucket', 'Key', 'aws_access_key_id', 'endpoint_url', 'get_object', 'region_name', 's3', 'unknown']

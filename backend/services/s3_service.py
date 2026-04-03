@@ -68,5 +68,15 @@ class S3Service:
         )
         return url
 
+    async def download(self, key: str) -> bytes:
+        """Download an object from S3 and return its raw bytes."""
+        loop = asyncio.get_event_loop()
+
+        def _get() -> bytes:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+            return response["Body"].read()
+
+        return await loop.run_in_executor(None, _get)
+
 
 s3_service = S3Service()

@@ -51,7 +51,10 @@ async def seed(users_col=None):
     """Run the seed. Accepts an optional collection for testing (dependency injection)."""
     own_client = None
     if users_col is None:
-        own_client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URI)
+        # serverSelectionTimeoutMS=60s lets the driver wait for RS primary election
+        own_client = motor.motor_asyncio.AsyncIOMotorClient(
+            MONGODB_URI, serverSelectionTimeoutMS=60000
+        )
         db = own_client[DB_NAME]
         users_col = db["users"]
 

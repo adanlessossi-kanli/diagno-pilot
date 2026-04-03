@@ -11,18 +11,8 @@ import { IMAGES } from '@/lib/images';
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'fr',
 }));
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-}));
-
-vi.mock('next/image', () => ({
-  default: ({ src, alt }: { src: string; alt: string }) =>
-    React.createElement('img', { src, alt }),
-}));
-
-vi.mock('../../../../contexts/AuthContext', () => ({
   useAuth: () => ({
     user: null,
     isLoading: false,

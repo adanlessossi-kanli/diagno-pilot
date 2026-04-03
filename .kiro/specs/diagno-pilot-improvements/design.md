@@ -2,11 +2,16 @@
 
 ## Overview
 
-Ce document décrit l'architecture technique et les décisions de conception pour les 18 améliorations de Diagno-Pilot. Les changements couvrent cinq axes : Sécurité (REQ 1–4), Robustesse backend (REQ 5–6), UX/Frontend (REQ 7–10), Données médicales (REQ 11–13), Logging/UI/Observabilité (REQ 14–18).
+Ce document décrit l'architecture technique pour les six axes d'amélioration de Diagno-Pilot :
+
+1. **Strict Document Grounding** — ancrage strict dans les documents ingérés, refus de répondre hors contexte
+2. **Multi-Agent Diagnostic via MCP** — orchestration de quatre agents spécialistes via Model Context Protocol
+3. **RAG Pipeline amélioré** — chunking sémantique, métadonnées enrichies, récupération hybride (vecteur + BM25)
+4. **Safety & Audit** — score de confiance, audit complet de chaque diagnostic, feedback de récupération
+5. **PDF Citation Popup** — affichage de la page PDF source avec surlignage du passage cité
+6. **Data Integrity & Migration** — gestion des chunks non migrés, réindexation à la demande, intégrité référentielle
 
 La stack reste inchangée : **FastAPI** (Python 3.12) + **MongoDB** (Motor async) + **Next.js 15 App Router** (TypeScript) + **React Native Expo** + **Tailwind CSS**.
-
-Chaque amélioration est conçue pour être rétrocompatible et déployable indépendamment.
 
 ---
 
@@ -20,365 +25,355 @@ graph TD
     end
 
     subgraph API["FastAPI /api/v1"]
-        MW_CORS[CORS Middleware]
-        MW_RATE[RateLimiter Middleware]
-        MW_LOG[StructuredLogger Middleware]
-        MW_METRICS[Prometheus Middleware]
-
-        R_AUTH[/auth]
-        R_DIAG[/diagnose]
+        MW_LOCALE[LocaleMiddleware]
         R_CHAT[/chat]
-        R_PAT[/patients]
-        R_ADMIN[/admin/protocols\n/admin/drug-interactions]
-        R_FILES[/files]
-        R_METRICS[/metrics]
+        R_DIAG[/diagnose]
+        R_DOCS[/documents]
+        R_FEED[/feedback/retrieval]
+        R_ADMIN[/admin/migrate-chunks\n/admin/reindex-document]
     end
 
-    subgraph Services
-        SVC_DIAG[DiagnosticService singleton]
-        SVC_PRESC[PrescriptionService]
-        SVC_ALERT[AlertService]
-        SVC_LLM[LLMRouter + CircuitBreaker]
-        SVC_RAG[RAGService]
+    subgraph Orchestration
+        ORCH[DiagnosticOrchestrator]
+        MCP[MCP_Host]
+        EPI[Epidemiology_Agent]
+        SYMP[Symptomatology_Agent]
+        LAB[Lab_Agent]
+        TREAT[Treatment_Agent]
+        SYNTH[Synthesis_Agent]
+    end
+
+    subgraph RAG
+        RAG_SVC[RAGService]
+        EMBED[EmbeddingService]
+        BM25[BM25_Retriever]
+        CE[CrossEncoder]
+        LLM[LLMRouter]
     end
 
     subgraph Storage
         MONGO[(MongoDB)]
-        COL_PROTO[antibiotic_protocols]
-        COL_INTER[drug_interactions]
-        COL_REFRESH[refresh_tokens]
-        COL_PAT[patients]
-        COL_CONS[consultations]
+        S3[(S3)]
+        COL_CHUNKS[document_chunks]
+        COL_DOCS[medical_documents]
+        COL_AUDIT[diagnostic_audit]
+        COL_FEED[retrieval_feedback]
+        COL_CHAT[chat_sessions]
     end
 
-    WEB --> MW_CORS --> MW_RATE --> MW_LOG --> MW_METRICS
-    MOB --> MW_CORS
+    WEB --> MW_LOCALE --> R_CHAT & R_DIAG & R_DOCS & R_FEED & R_ADMIN
+    MOB --> MW_LOCALE
 
-    MW_METRICS --> R_AUTH & R_DIAG & R_CHAT & R_PAT & R_ADMIN & R_FILES
-    R_DIAG --> SVC_DIAG --> SVC_LLM --> SVC_RAG
-    R_DIAG --> SVC_PRESC --> COL_PROTO
-    R_DIAG --> SVC_ALERT --> COL_INTER
-    R_AUTH --> COL_REFRESH
-    R_PAT --> COL_PAT & COL_CONS
-    R_ADMIN --> COL_PROTO & COL_INTER
-    R_METRICS --> MONGO
+    R_DIAG --> ORCH --> MCP
+    MCP --> EPI & SYMP & LAB & TREAT
+    EPI & SYMP & LAB & TREAT --> RAG_SVC
+    MCP --> SYNTH --> ORCH
+    ORCH --> COL_AUDIT
+
+    R_CHAT --> RAG_SVC
+    RAG_SVC --> EMBED --> COL_CHUNKS
+    RAG_SVC --> BM25 --> COL_CHUNKS
+    RAG_SVC --> CE
+    RAG_SVC --> LLM
+
+    R_DOCS --> COL_DOCS & COL_CHUNKS & S3
+    R_FEED --> COL_FEED
 ```
 
 ---
 
 ## Components and Interfaces
 
-### REQ 1 — Restriction CORS en production
+### REQ 1 — Strict Document Grounding
 
-**Décision** : Valider `ALLOWED_ORIGINS` au démarrage via un validateur Pydantic dans `Settings`. Si `ENV=production` et `ALLOWED_ORIGINS="*"`, lever une `ValueError` avant que l'app ne démarre.
-
-```python
-# backend/core/config.py (ajout)
-class Settings(BaseSettings):
-    ENV: str = "development"
-    ALLOWED_ORIGINS: str = "*"
-
-    @model_validator(mode="after")
-    def validate_cors_in_production(self) -> "Settings":
-        if self.ENV == "production" and self.ALLOWED_ORIGINS.strip() in ("*", ""):
-            raise ValueError(
-                "ALLOWED_ORIGINS must be an explicit list in production (ENV=production). "
-                "Set ALLOWED_ORIGINS=https://app.example.com,https://api.example.com"
-            )
-        return self
-```
-
-### REQ 2 — Rate Limiting
-
-**Décision** : Utiliser `slowapi` (wrapper `limits` pour FastAPI). Stockage en mémoire par défaut, Redis optionnel via `RATE_LIMIT_STORAGE_URI`. En cas d'indisponibilité du backend de stockage, le middleware laisse passer les requêtes (`swallow_errors=True`).
+**Décision** : Ajouter un `GROUNDING_SYSTEM_PROMPT` constant dans `RAGService`. Ce prompt est injecté comme premier message `system` dans chaque appel LLM. Quand le filtre `SIMILARITY_THRESHOLD` (0.75) élimine tous les chunks, `RAGService.query()` retourne immédiatement sans appeler le LLM.
 
 ```python
-# backend/core/rate_limit.py
-from slowapi import Limiter
-from slowapi.util import get_remote_address
+# backend/services/rag_service.py
+SIMILARITY_THRESHOLD = 0.75
+NO_CONTEXT_MESSAGE = "Information non disponible dans la base de connaissances."
 
-limiter = Limiter(
-    key_func=get_remote_address,
-    storage_uri=settings.RATE_LIMIT_STORAGE_URI,
-    swallow_errors=True,
+GROUNDING_SYSTEM_PROMPT = (
+    "Tu es un assistant médical. Réponds UNIQUEMENT en te basant sur les passages "
+    "de documents fournis ci-dessous. Si aucun passage pertinent n'est disponible, "
+    "réponds exactement : \"" + NO_CONTEXT_MESSAGE + "\". "
+    "N'utilise jamais tes connaissances paramétriques."
 )
 ```
 
-Limites appliquées via décorateurs sur les routes :
-- `POST /diagnose/symptoms` → `"30/minute"` (par user_id)
-- `POST /chat/message` → `"60/minute"` (par user_id)
-- Endpoints publics → `"10/minute"` (par IP)
+Le `DocumentSource` est modifié pour distinguer `title` (titre du document) et `source` (organisation source), peuplés depuis `metadata.title` et `metadata.source` respectivement.
 
-### REQ 3 — Validation des fichiers uploadés
+`RAGResponse` est étendu avec un champ `grounding_warning: str | None` — peuplé quand `degraded_warning` est actif.
 
-**Décision** : Nouveau composant `FileValidator` dans `backend/core/file_validator.py`. Utilise `python-magic` pour la détection MIME réelle.
+### REQ 2 — Multi-Agent Diagnostic via MCP
+
+**Décision** : Nouveau service `MCP_Host` dans `backend/services/mcp_host.py`. Chaque agent spécialiste est un processus Python séparé exposant des outils MCP via stdio. `MCP_Host` lance les quatre agents en parallèle via `asyncio.gather` avec un timeout de 30 secondes par agent.
 
 ```python
-ALLOWED_MIME_TYPES = {
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "text/csv",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+# backend/services/mcp_host.py
+AGENT_TIMEOUT = 30  # secondes
+
+SOURCE_FILTERS = {
+    "epidemiology": {"metadata.document_type": "epidemiology"},
+    "symptomatology": {"metadata.document_type": "guideline"},
+    "lab": {"metadata.document_type": "laboratory"},
+    "treatment": {"metadata.document_type": {"$in": ["protocol", "guideline"]}},
 }
-MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20 Mo
+
+class MCP_Host:
+    async def run_diagnostic(
+        self,
+        symptoms: list[Symptom],
+        patient_profile: PatientProfile | None,
+        locale: str,
+        region: str | None,
+    ) -> tuple[list[AgentResult], DiagnosticAuditData]: ...
 ```
 
-Validation en 3 étapes : taille → magic bytes MIME → nom de fichier (regex `\.\.[/\\]`).
+`DiagnosticOrchestrator` délègue à `MCP_Host` et écrit le `DiagnosticAudit` après chaque appel. L'interface publique `get_differential_diagnosis` est préservée.
 
-### REQ 4 — Refresh Token JWT
+Chaque agent spécialiste est un script Python autonome (`backend/agents/{name}_agent.py`) qui :
+1. Lit une requête MCP depuis stdin
+2. Appelle `RAGService.query()` avec la sous-question et le `source_filter` approprié
+3. Retourne le résultat sur stdout
 
-**Décision** : Nouveau endpoint `POST /api/v1/auth/refresh`. Les refresh tokens sont des UUID opaques stockés dans la collection MongoDB `refresh_tokens` avec TTL index (7 jours). Rotation systématique à chaque usage.
+`Synthesis_Agent` fusionne les résultats des quatre agents et garantit un minimum de 3 diagnostics différentiels (en ajoutant des entrées `confidence: low` si nécessaire).
+
+### REQ 3 — RAG Pipeline amélioré
+
+**Chunker sémantique** : Nouveau module `backend/services/chunker.py` remplaçant la fonction `chunk_text` actuelle.
 
 ```python
-# Collection refresh_tokens
-{
-  "_id": ObjectId,
-  "token": str,          # UUID opaque, indexé unique
-  "user_id": ObjectId,
-  "expires_at": datetime, # TTL index MongoDB
-  "revoked": bool
+# backend/services/chunker.py
+SECTION_HEADER_RE = re.compile(r'^(\d+\.|\#{1,3}|\*{1,2})[^\n]+', re.MULTILINE)
+NUMBERED_STEP_RE = re.compile(r'^(\d+[\.\)])\s', re.MULTILINE)
+MAX_CHUNK_CHARS = 800
+
+class Chunker:
+    def chunk(self, text: str) -> list[ChunkResult]:
+        """Retourne une liste de ChunkResult avec content et section."""
+        ...
+
+@dataclass
+class ChunkResult:
+    content: str
+    section: str | None  # en-tête de section ou légende de tableau
+```
+
+**Métadonnées enrichies** : `DocumentService._index_chunks()` est étendu pour calculer `disease_tags`, `document_type`, et `evidence_level` à partir du champ `source` du document.
+
+```python
+DISEASE_KEYWORDS = {
+    "malaria", "paludisme", "typhoid", "typhoïde", "dengue",
+    "cholera", "choléra", "tuberculosis", "tuberculose", "hiv", "vih",
+    "schistosomiasis", "bilharziose", "trypanosomiasis", "trypanosomiase",
+    "yellow fever", "fièvre jaune", "meningitis", "méningite",
 }
+
+def infer_document_type(source: str) -> str:
+    s = source.upper()
+    if "PNLP" in s or "MSF" in s: return "protocol"
+    if "CHU" in s or "OMS" in s or "WHO" in s: return "guideline"
+    return "other"
 ```
 
-L'`AuthContext` web intercepte les 401 via un wrapper `fetchWithRefresh` qui tente le refresh silencieux avant de rediriger vers `/login`.
-
-### REQ 5 — Circuit Breaker LLMRouter
-
-**Décision** : Implémenter un `CircuitBreaker` simple dans `backend/core/circuit_breaker.py` sans dépendance externe. États : `CLOSED` → `OPEN` → `HALF_OPEN`.
+**Récupération hybride** : `RAGService.query()` est étendu pour combiner les résultats du vector search et du `BM25_Retriever` via Reciprocal Rank Fusion (RRF) avant de passer au `CrossEncoder`.
 
 ```python
-class CircuitBreaker:
-    def __init__(self, failure_threshold=5, recovery_timeout=120): ...
-    async def call(self, coro): ...  # lève CircuitOpenError si ouvert
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[dict]], k: int = 60
+) -> list[dict]:
+    """Fusionne N listes classées via RRF. score = sum(1 / (k + rank))."""
+    ...
 ```
 
-`LLMRouter` enveloppe l'appel primaire dans le circuit breaker. Si `CircuitOpenError`, route directement vers le fallback.
+`CrossEncoder` utilise le modèle `cross-encoder/ms-marco-MiniLM-L-6-v2` chargé au démarrage comme singleton dans `DocumentService`.
 
-### REQ 6 — Validation des réponses LLM + Singleton DiagnosticService
+`ChatService.send_message()` est modifié pour inclure les 5 derniers messages de la session comme contexte additionnel dans `RAGService.query()`.
 
-**Décision** : Ajouter une méthode `_validate_diagnoses()` dans `DiagnosticService` qui vérifie :
-- 1 ≤ len(diagnoses) ≤ 10
-- Chaque item a `condition` non vide et `probability` ∈ [0, 1]
-- `icd_code` si présent correspond à `^[A-Z][0-9]{2}(\.[0-9]{1,4})?$`
+### REQ 4 — Safety & Audit
 
-En cas d'échec de validation → log de la réponse brute + `HTTPException(502, "llm_response_invalid")`.
+**ConfidenceScore** : `RAGService.query()` calcule la moyenne arithmétique des scores de similarité des chunks retenus et l'inclut dans `RAGResponse.confidence_score`.
 
-**Singleton** : `DiagnosticService` instancié une fois dans `lifespan()` de `main.py` et injecté via `app.state.diagnostic_service`. La dépendance FastAPI lit depuis `request.app.state`.
-
-### REQ 7 — Persistance session JWT (web + mobile)
-
-**Web** : L'`AuthContext` appelle déjà `GET /api/v1/auth/me` au montage. Amélioration : maintenir `isLoading=true` jusqu'à résolution, et intercepter les 401 sur tous les appels API pour déclencher le refresh (REQ 4).
-
-**Mobile** : `AuthContext` Expo utilise `expo-secure-store` pour persister le token. Au démarrage, lit le token depuis `SecureStore`, appelle `/auth/me`, restaure l'état.
-
-```typescript
-// apps/mobile/src/contexts/AuthContext.tsx
-import * as SecureStore from 'expo-secure-store';
-const TOKEN_KEY = 'diagno_access_token';
-```
-
-### REQ 8 — Pagination patients
-
-**Backend** : Modifier `GET /api/v1/patients` pour accepter `page` et `page_size`. Retourner `PaginatedResponse[PatientProfile]`.
+**DiagnosticAudit** : Nouveau modèle `DiagnosticAudit` dans `backend/models/diagnostic_audit.py`. `DiagnosticOrchestrator` écrit un document dans la collection `diagnostic_audit` après chaque appel.
 
 ```python
-class PaginatedResponse(BaseModel, Generic[T]):
-    items: list[T]
-    total: int
+class AgentAuditResult(BaseModel):
+    agent_name: str
+    sub_question: str
+    chunk_ids: list[str]
+    confidence_score: float
+    partial_differential: list[dict]
+
+class DiagnosticAudit(BaseModel):
+    timestamp: datetime
+    symptoms: list[dict]
+    patient_profile_hash: str  # SHA-256 sur age, weight, sex, comorbidities
+    locale: str
+    region: str | None
+    confidence_score: float
+    diagnoses: list[dict]
+    fallback_used: bool
+    degraded_warning: str | None
+    agent_results: list[AgentAuditResult]
+```
+
+Le hash du profil patient est calculé sur les champs `age`, `weight`, `sex`, `comorbidities` uniquement (pas de PII).
+
+**Feedback de récupération** : Nouveau endpoint `POST /api/v1/feedback/retrieval` dans `backend/routers/feedback.py`, accessible aux rôles `admin`, `medecin`, `infirmière`.
+
+### REQ 5 — PDF Citation Popup
+
+**Backend** : `DocumentService._extract_text_pdf()` est étendu pour extraire les BBox et offsets de caractères via `pypdf`. Ces données sont stockées dans `metadata.bbox`, `metadata.page_char_start`, `metadata.page_char_end` sur chaque `DocumentChunk`.
+
+`DocumentSource` est étendu avec un champ optionnel `highlight: HighlightInfo | None`.
+
+```python
+class HighlightInfo(BaseModel):
+    bbox: list[float]  # [x0, y0, x1, y1]
     page: int
-    page_size: int
+
+class DocumentSource(BaseModel):
+    document_id: str
+    title: str
+    source: str
+    section: str | None = None
+    excerpt: str | None = None
+    page: int | None = None
+    highlight: HighlightInfo | None = None  # nouveau
+    confidence_score: float | None = None   # nouveau
 ```
 
-**Frontend** : Composant `Pagination` réutilisable dans `apps/web/src/components/Pagination.tsx`. La `PatientsPage` gère l'état `page` en query param URL (`?page=2`) pour la navigation browser.
+Nouveau endpoint `GET /api/v1/documents/{id}/view` retournant une URL S3 présignée valide 15 minutes, accessible aux rôles `admin`, `medecin`, `infirmière`.
 
-### REQ 9 — Feedback formulaires temps réel
+**Frontend** : Composant `CitationChip` inline (`[N]`) dans le texte de réponse. Composant `CitationPopup` (drawer/modal) qui :
+- Récupère l'URL présignée
+- Rend la page PDF via `react-pdf`
+- Superpose un rectangle jaune aux coordonnées `highlight.bbox`
+- Affiche uniquement l'`excerpt` si `highlight` est absent
+- Se ferme via Escape ou clic extérieur
 
-**Décision** : Validation inline via `react-hook-form` + `zod` sur les formulaires web. Schémas de validation :
-- `DiagnosePage` : symptôme texte libre ≥ 3 caractères
-- `CreatePatientModal` : `full_name` non vide, `weight_kg` > 0 si renseigné
+### REQ 6 — Data Integrity & Migration
 
-Toast de confirmation via un composant `Toast` positionné en haut à droite (REQ 17).
+**Détection au démarrage** : `DocumentService` vérifie au démarrage les chunks sans `metadata.disease_tags`, `metadata.document_type`, ou `metadata.evidence_level` et log un warning avec le compte.
 
-### REQ 10 — Tests composants mobiles
+**Endpoints admin** :
+- `POST /api/v1/admin/migrate-chunks` — ré-enrichit les chunks non migrés par lots de 100
+- `POST /api/v1/admin/reindex-document/{id}` — réingère un document depuis S3 avec le nouveau Chunker et l'extraction BBox
 
-**Décision** : Utiliser `@testing-library/react-native` + `jest` (déjà configuré via Expo). Tests à créer dans `apps/mobile/src/components/__tests__/` et `apps/mobile/src/contexts/__tests__/`.
-
-### REQ 11 — Protocoles antibiotiques configurables
-
-**Décision** : Nouvelle collection MongoDB `antibiotic_protocols`. `PrescriptionService` charge les protocoles depuis MongoDB au démarrage (cache en mémoire) et recharge à chaque PUT/POST admin. Fallback sur `ANTIBIOTIC_PROTOCOLS` dict si collection vide.
-
-Nouveaux endpoints dans `backend/routers/admin.py` :
-- `GET /api/v1/admin/protocols`
-- `POST /api/v1/admin/protocols`
-- `PUT /api/v1/admin/protocols/{name}`
-
-### REQ 12 — Interactions médicamenteuses en DB
-
-**Décision** : Nouvelle collection MongoDB `drug_interactions`. `AlertService` charge les interactions au démarrage. Nouveau endpoint `POST /api/v1/admin/drug-interactions`. Rechargement à chaud via méthode `reload_interactions()`.
-
-### REQ 13 — Calcul automatique age_group
-
-**Décision** : Ajouter un `@model_validator(mode="after")` dans `PatientProfile` et `PatientCreate`. Si `date_of_birth` est présent, calculer `age_group` et ignorer la valeur fournie explicitement.
-
-```python
-@model_validator(mode="after")
-def compute_age_group(self) -> "PatientProfile":
-    if self.date_of_birth:
-        self.age_group = _compute_age_group(self.date_of_birth)
-    return self
-```
-
-### REQ 14 — Logging structuré JSON
-
-**Décision** : Remplacer `logging.basicConfig` par un handler `python-json-logger` (`pythonjsonlogger`). Configurable via `LOG_LEVEL` et `LOG_FORMAT`. Le middleware HTTP existant est enrichi avec `request_id` (UUID par requête), `method`, `path`, `status_code`, `duration_ms`.
-
-### REQ 15 — Navigation persistante
-
-**Web** : `NavBar` déjà existant. Améliorations :
-- Indicateur de page active via `usePathname()` de Next.js
-- Menu hamburger responsive (drawer latéral sur mobile web) via état `isOpen`
-- Affichage nom + rôle utilisateur
-
-**Mobile** : Ajouter l'onglet `Profil` dans `apps/mobile/app/(tabs)/_layout.tsx`.
-
-### REQ 16 — Images libres de droits
-
-**Décision** : URLs Unsplash statiques avec `next/image` (optimisation automatique). Toutes les URLs documentées dans un fichier `apps/web/src/lib/images.ts`.
-
-```typescript
-// apps/web/src/lib/images.ts
-export const IMAGES = {
-  heroHome: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=1200&q=80",
-  // Médecin africain en consultation — Unsplash (licence libre)
-  loginSide: "https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=800&q=80",
-  // Stéthoscope sur bureau médical — Unsplash (licence libre)
-  diagnoseHeader: "https://images.unsplash.com/photo-1584820927498-cfe5211fd8bf?w=600&q=80",
-  // Consultation médicale — Unsplash (licence libre)
-  patientsEmpty: "https://images.unsplash.com/photo-1631217868264-e5b90bb7e133?w=400&q=80",
-  // Dossier médical vide — Unsplash (licence libre)
-} as const;
-```
-
-### REQ 17 — Design system
-
-**Décision** : Étendre `tailwind.config.ts` avec la palette médicale. Composants partagés à créer :
-- `SkeletonLoader` — skeleton screens pour listes async
-- `EmptyState` — état vide illustré avec CTA
-- `Toast` — notifications non-bloquantes (haut droite)
-
-### REQ 18 — Métriques Prometheus
-
-**Décision** : Utiliser `prometheus-fastapi-instrumentator` pour les métriques HTTP. Métriques LLM custom via `prometheus_client` (Counter + Histogram). Endpoint `/metrics` protégé par HTTP Basic Auth via variable `METRICS_AUTH` (`user:password`).
+**Intégrité référentielle** : La suppression d'un document (`DELETE /api/v1/documents/{id}`) ne supprime pas les enregistrements `diagnostic_audit` référençant ses chunks. Les `chunk_id` dans ces enregistrements deviennent des références tombstone.
 
 ---
 
 ## Data Models
 
-### MongoDB — Nouvelles collections
+### MongoDB — Collections modifiées/nouvelles
 
-#### `refresh_tokens`
+#### `document_chunks` (modifiée)
 ```json
 {
   "_id": "ObjectId",
-  "token": "string (UUID, unique index)",
-  "user_id": "ObjectId (ref: users)",
-  "expires_at": "ISODate (TTL index: 7 jours)",
-  "revoked": "boolean"
+  "document_id": "ObjectId (ref: medical_documents)",
+  "content": "string",
+  "embedding": "[float]",
+  "metadata": {
+    "source": "string",
+    "title": "string",
+    "page": "int | null",
+    "section": "string | null",
+    "region": "string (TG | BJ | ALL)",
+    "disease_tags": ["string"],
+    "document_type": "string (protocol | guideline | laboratory | epidemiology | other)",
+    "evidence_level": "string",
+    "bbox": "[[float]] | null",
+    "page_char_start": "int | null",
+    "page_char_end": "int | null"
+  }
 }
 ```
 
-#### `antibiotic_protocols`
+#### `diagnostic_audit` (nouvelle)
 ```json
 {
   "_id": "ObjectId",
-  "name": "string (unique index, lowercase)",
-  "paediatric_dose_per_kg": "float",
-  "adult_max_dose_mg": "float",
-  "frequency": "string",
-  "duration_days": "int",
-  "route": "string",
-  "renal_adjustment_factor": "float (0-1)",
-  "hepatic_adjustment_factor": "float (0-1)",
-  "contraindicated_age_groups": ["string"],
-  "alternative": "string | null",
-  "updated_by": "string",
-  "updated_at": "ISODate"
+  "timestamp": "ISODate (TTL index: 2555 jours)",
+  "symptoms": "[object]",
+  "patient_profile_hash": "string (SHA-256)",
+  "locale": "string",
+  "region": "string | null",
+  "confidence_score": "float",
+  "diagnoses": "[object]",
+  "fallback_used": "boolean",
+  "degraded_warning": "string | null",
+  "agent_results": "[AgentAuditResult]"
 }
 ```
 
-#### `drug_interactions`
+#### `retrieval_feedback` (nouvelle)
 ```json
 {
   "_id": "ObjectId",
-  "drug_a": "string (lowercase)",
-  "drug_b": "string (lowercase)",
-  "level": "critical | warning",
-  "message": "string",
-  "created_by": "string",
-  "created_at": "ISODate"
+  "session_id": "string",
+  "user_id": "ObjectId",
+  "document_id": "string",
+  "chunk_id": "string",
+  "rating": "int (1 | -1)",
+  "timestamp": "ISODate"
 }
 ```
 
 ### Pydantic — Modèles modifiés
 
-#### `PatientProfile` (ajout du validateur age_group)
+#### `RAGResponse` (étendu)
 ```python
-class PatientProfile(BaseModel):
-    # ... champs existants ...
-    age_group: AgeGroup | None = None  # calculé automatiquement si date_of_birth présent
-
-    @model_validator(mode="after")
-    def compute_age_group(self) -> "PatientProfile":
-        if self.date_of_birth is not None:
-            self.age_group = _compute_age_group(self.date_of_birth)
-        return self
+class RAGResponse(BaseModel):
+    answer: str
+    sources: list[DocumentSource]
+    llm_used: str
+    confidence_score: float | None = None  # nouveau
+    fallback_used: bool = False
+    degraded_warning: str | None = None
+    grounding_warning: str | None = None   # nouveau
 ```
 
-#### `PaginatedResponse[T]` (nouveau)
+#### `DocumentSource` (étendu)
 ```python
-from typing import Generic, TypeVar
-T = TypeVar("T")
-
-class PaginatedResponse(BaseModel, Generic[T]):
-    items: list[T]
-    total: int
-    page: int
-    page_size: int
+class DocumentSource(BaseModel):
+    document_id: str
+    title: str        # depuis metadata.title (indépendant de source)
+    source: str       # depuis metadata.source (organisation)
+    section: str | None = None
+    excerpt: str | None = None
+    page: int | None = None
+    highlight: HighlightInfo | None = None  # nouveau
+    confidence_score: float | None = None   # nouveau
 ```
 
-#### `Settings` (ajouts)
-```python
-class Settings(BaseSettings):
-    ENV: str = "development"
-    RATE_LIMIT_STORAGE_URI: str = "memory://"
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "json"  # "json" | "text"
-    METRICS_AUTH: str = ""    # "user:password" pour /metrics
-    JWT_REFRESH_EXPIRE_DAYS: int = 7
-    JWT_EXPIRE_MINUTES: int = 15  # réduit de 60 à 15
-```
+### TypeScript — Interfaces
 
-### TypeScript — Interfaces modifiées
-
-#### `PaginatedResponse<T>`
 ```typescript
-interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
+interface HighlightInfo {
+  bbox: [number, number, number, number];
   page: number;
-  page_size: number;
 }
-```
 
-#### `AuthContextValue` (ajout refresh)
-```typescript
-interface AuthContextValue {
-  user: AuthUser | null;
-  isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  // refresh géré en interne, pas exposé
+interface DocumentSource {
+  document_id: string;
+  title: string;
+  source: string;
+  section?: string;
+  excerpt?: string;
+  page?: number;
+  highlight?: HighlightInfo;
+  confidence_score?: number;
+}
+
+interface DiagnosticResult {
+  diagnoses: DifferentialDiagnosis[];
+  fallback_used: boolean;
+  degraded_warning?: string;
+  confidence_score?: number;
+  locale: string;
 }
 ```
 
@@ -388,192 +383,164 @@ interface AuthContextValue {
 
 *A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-### Property 1 : Configuration CORS invalide en production lève une erreur
+### Property 1 : Grounding prompt présent dans tout contexte LLM
 
-*Pour toute* combinaison de variables d'environnement où `ENV=production` et `ALLOWED_ORIGINS` est vide, absent, ou égal à `"*"`, l'instanciation de `Settings` doit lever une `ValueError` avec un message explicite.
+*Pour toute* requête soumise à `RAGService.query()`, le premier message `system` passé à `LLMRouter.generate()` doit contenir le `GROUNDING_SYSTEM_PROMPT` constant.
 
-**Validates: Requirements 1.1, 1.4**
-
----
-
-### Property 2 : Round-trip parsing des origines CORS
-
-*Pour toute* liste non vide d'URLs d'origines valides, joindre la liste par virgule puis la passer à `Settings.ALLOWED_ORIGINS` doit produire exactement la même liste après parsing (ordre préservé, espaces ignorés).
-
-**Validates: Requirements 1.2**
+**Validates: Requirements 1.1**
 
 ---
 
-### Property 3 : Rate limiter retourne 429 avec Retry-After au dépassement
+### Property 2 : Refus sans appel LLM quand aucun chunk ne passe le seuil
 
-*Pour tout* utilisateur authentifié qui émet plus de N requêtes par minute sur un endpoint limité (N = 30 pour `/diagnose/symptoms`, N = 60 pour `/chat/message`), la réponse à la (N+1)ème requête doit avoir le statut HTTP 429 et contenir l'en-tête `Retry-After`.
+*Pour tout* ensemble de chunks récupérés avec des scores variés, `RAGService` ne doit passer au LLM que les chunks dont le score de similarité cosinus est ≥ 0.75 ; si aucun chunk ne passe ce filtre, `RAGService.query()` doit retourner `answer == NO_CONTEXT_MESSAGE`, `sources == []`, et ne doit pas appeler `LLMRouter.generate()`.
 
-**Validates: Requirements 2.1, 2.2, 2.3**
+**Validates: Requirements 1.2, 1.3**
 
 ---
 
-### Property 4 : FileValidator rejette tout fichier dépassant 20 Mo
+### Property 3 : Indépendance des champs title et source dans DocumentSource
 
-*Pour tout* fichier dont la taille en octets est strictement supérieure à 20 971 520 (20 × 1024²), `FileValidator.validate()` doit lever une exception correspondant à HTTP 413, quelle que soit la nature du contenu.
+*Pour tout* chunk dont `metadata.title` et `metadata.source` sont des valeurs distinctes, le `DocumentSource` produit doit avoir `title` peuplé depuis `metadata.title` et `source` peuplé depuis `metadata.source` indépendamment.
+
+**Validates: Requirements 1.4**
+
+---
+
+### Property 4 : grounding_warning présent quand degraded_warning est actif
+
+*Pour toute* `RAGResponse` où `degraded_warning` est non-null, le champ `grounding_warning` doit également être non-null et contenir le message fixe indiquant que les résultats sont basés sur la récupération par mots-clés uniquement.
+
+**Validates: Requirements 1.5**
+
+---
+
+### Property 5 : source_filter correct pour chaque agent spécialiste
+
+*Pour toute* requête diagnostique, chaque agent spécialiste dispatché par `MCP_Host` doit recevoir un `source_filter` correspondant à son type de document : `epidemiology` pour `Epidemiology_Agent`, `guideline` pour `Symptomatology_Agent`, `laboratory` pour `Lab_Agent`, `protocol` ou `guideline` pour `Treatment_Agent`.
+
+**Validates: Requirements 2.2, 2.3, 2.4, 2.5, 2.6**
+
+---
+
+### Property 6 : Synthesis_Agent garantit au moins 3 diagnostics différentiels
+
+*Pour tout* ensemble de résultats d'agents (y compris le cas où tous les agents retournent zéro chunk), `Synthesis_Agent` doit produire une liste de diagnostics de longueur ≥ 3, en ajoutant des entrées `confidence: low` si nécessaire.
+
+**Validates: Requirements 2.7**
+
+---
+
+### Property 7 : Agents sans chunks exclus de la synthèse
+
+*Pour tout* ensemble de résultats d'agents où certains agents retournent zéro chunk grounded, `Synthesis_Agent` doit exclure ces agents de la fusion et enregistrer leur omission dans le `DiagnosticAudit`.
+
+**Validates: Requirements 2.9**
+
+---
+
+### Property 8 : Chunker respecte la taille maximale et les frontières sémantiques
+
+*Pour tout* texte d'entrée, chaque chunk produit par `Chunker.chunk()` doit avoir une longueur ≤ 800 caractères, et les frontières de chunk doivent coïncider avec les en-têtes de section, les étapes numérotées, ou les limites de phrases.
 
 **Validates: Requirements 3.1**
 
 ---
 
-### Property 5 : FileValidator rejette les MIME types non autorisés
+### Property 9 : Préservation de l'en-tête de section dans metadata.section
 
-*Pour tout* fichier dont le MIME type réel (détecté par magic bytes) n'appartient pas à l'ensemble `{application/pdf, image/jpeg, image/png, text/csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}`, `FileValidator.validate()` doit rejeter le fichier.
+*Pour tout* texte contenant un en-tête de section détectable, le chunk produit à partir de ce texte doit avoir `metadata.section` égal à l'en-tête de section correspondant.
 
-**Validates: Requirements 3.2, 3.3**
+**Validates: Requirements 3.2**
 
 ---
 
-### Property 6 : FileValidator rejette les noms de fichier avec traversée de répertoire
+### Property 10 : Enrichissement correct des métadonnées selon la source
 
-*Pour tout* nom de fichier contenant la sous-chaîne `../` ou `..\`, `FileValidator.validate_filename()` doit retourner `False` (rejet), quelle que soit la position de la séquence dans le nom.
+*Pour tout* document ingéré depuis une source connue (PNLP, CHU, MSF, OMS/WHO), tous les chunks produits doivent avoir `metadata.document_type` et `metadata.evidence_level` correspondant aux règles de mapping définies dans les requirements.
+
+**Validates: Requirements 3.3**
+
+---
+
+### Property 11 : Reciprocal Rank Fusion produit un classement cohérent
+
+*Pour toutes* deux listes classées de chunks (vecteur et BM25), la fusion RRF doit produire un classement où le score de chaque chunk est la somme de `1 / (k + rank)` sur toutes les listes où il apparaît, avec k = 60.
 
 **Validates: Requirements 3.5**
 
 ---
 
-### Property 7 : Rotation des refresh tokens — l'ancien token est invalidé après usage
+### Property 12 : ConfidenceScore est la moyenne arithmétique des scores retenus
 
-*Pour tout* refresh token valide `T`, après un appel réussi à `POST /auth/refresh` avec `T`, une seconde utilisation de `T` doit retourner HTTP 401 avec le message `"refresh_token_invalid"`.
+*Pour tout* ensemble de chunks retenus après filtrage par `SIMILARITY_THRESHOLD`, `RAGResponse.confidence_score` doit être égal à la moyenne arithmétique de leurs scores de similarité cosinus.
+
+**Validates: Requirements 4.1**
+
+---
+
+### Property 13 : DiagnosticAudit écrit pour chaque appel diagnostique
+
+*Pour tout* appel à `DiagnosticOrchestrator.get_differential_diagnosis()`, exactement un document `DiagnosticAudit` doit être inséré dans la collection `diagnostic_audit`, contenant tous les champs requis (timestamp, symptoms, patient_profile_hash, locale, region, confidence_score, diagnoses, fallback_used, agent_results).
 
 **Validates: Requirements 4.3, 4.4**
 
 ---
 
-### Property 8 : Circuit breaker s'ouvre après N échecs consécutifs
+### Property 14 : Hash du profil patient exclut les champs PII
 
-*Pour tout* nombre d'échecs consécutifs ≥ 5 sur le LLM primaire dans une fenêtre de 60 secondes, le `CircuitBreaker` doit passer à l'état `OPEN` et toute requête suivante doit être routée vers le LLM fallback sans tenter le primaire.
+*Pour tout* `PatientProfile`, modifier les champs `name` ou les identifiants ne doit pas changer le `patient_profile_hash`, mais modifier `age`, `weight`, `sex`, ou `comorbidities` doit produire un hash différent.
 
-**Validates: Requirements 5.1, 5.2**
-
----
-
-### Property 9 : Circuit breaker passe en half-open après la période de récupération
-
-*Pour tout* circuit en état `OPEN`, après un délai simulé de 120 secondes, le circuit doit passer à l'état `HALF_OPEN` et laisser passer exactement une requête de test vers le LLM primaire.
-
-**Validates: Requirements 5.3**
+**Validates: Requirements 4.3**
 
 ---
 
-### Property 10 : Invariants structurels des diagnostics LLM
+### Property 15 : Feedback de récupération stocké avec tous les champs requis
 
-*Pour toute* réponse LLM parsée avec succès par `DiagnosticService._validate_diagnoses()`, la liste résultante doit satisfaire simultanément : (a) 1 ≤ len(diagnoses) ≤ 10, (b) chaque `condition` est une chaîne non vide, (c) chaque `probability` ∈ [0.0, 1.0], (d) chaque `icd_code` présent correspond au regex `^[A-Z][0-9]{2}(\.[0-9]{1,4})?$`.
+*Pour toute* soumission valide à `POST /api/v1/feedback/retrieval`, le document inséré dans `retrieval_feedback` doit contenir `session_id`, `user_id`, `document_id`, `chunk_id`, `rating` (1 ou -1), et `timestamp`.
 
-**Validates: Requirements 6.1, 6.3, 6.4**
-
----
-
-### Property 11 : Pagination — cohérence des métadonnées de réponse
-
-*Pour tout* appel à `GET /api/v1/patients?page=P&page_size=S` avec P ≥ 1 et 1 ≤ S ≤ 100, la réponse doit satisfaire : `len(items) ≤ S`, `page == P`, `page_size == S`, et si `P * S > total` alors `len(items) == 0`.
-
-**Validates: Requirements 8.1, 8.2, 8.3**
+**Validates: Requirements 4.7**
 
 ---
 
-### Property 12 : Validation formulaire — texte libre de symptômes
+### Property 16 : Extraction BBox et offsets pour tous les chunks PDF
 
-*Pour toute* chaîne de caractères de longueur strictement inférieure à 3 (après trim), le bouton de soumission de `DiagnosePage` doit être désactivé (`disabled=true`).
+*Pour tout* document PDF contenant du texte extractible, chaque chunk produit par `DocumentService` doit avoir `metadata.bbox` non-null, `metadata.page_char_start` non-null, et `metadata.page_char_end` non-null.
 
-**Validates: Requirements 9.1**
-
----
-
-### Property 13 : Validation formulaire — weight_kg doit être positif
-
-*Pour toute* valeur `weight_kg` ≤ 0 soumise dans `CreatePatientModal`, la validation doit échouer et afficher un message d'erreur inline, sans effacer les autres champs du formulaire.
-
-**Validates: Requirements 9.2**
+**Validates: Requirements 5.1**
 
 ---
 
-### Property 14 : PrescriptionService utilise la version DB en priorité sur le dict codé en dur
+### Property 17 : Migration par lots de 100 chunks maximum
 
-*Pour tout* protocole antibiotique présent dans la collection MongoDB `antibiotic_protocols`, `PrescriptionService.calculate_prescription()` doit utiliser les valeurs de la DB plutôt que celles du dict `ANTIBIOTIC_PROTOCOLS`, même si les deux existent.
+*Pour tout* nombre N de chunks non migrés, l'endpoint `POST /api/v1/admin/migrate-chunks` doit les traiter en ⌈N/100⌉ lots de 100 chunks au maximum chacun.
 
-**Validates: Requirements 11.4**
-
----
-
-### Property 15 : Symétrie des interactions médicamenteuses
-
-*Pour toute* paire de médicaments (A, B) présente dans la collection `drug_interactions`, `AlertService._check_interactions()` doit générer la même alerte que la paire soit présentée dans l'ordre (A prescrit, B en médication courante) ou (B prescrit, A en médication courante).
-
-**Validates: Requirements 12.4**
-
----
-
-### Property 16 : Calcul automatique de age_group depuis date_of_birth
-
-*Pour toute* date de naissance valide `dob`, la création d'un `PatientProfile` avec `date_of_birth=dob` doit produire un `age_group` correspondant exactement aux règles : 0–28 jours → `neonatal`, 29 jours–23 mois → `infant`, 2–17 ans → `child`, 18 ans et plus → `adult`.
-
-**Validates: Requirements 13.1**
-
----
-
-### Property 17 : Idempotence du calcul de age_group
-
-*Pour toute* date de naissance valide `dob`, calculer `age_group` depuis `dob` puis recalculer depuis la même `dob` doit produire le même résultat (f(dob) == f(f_inverse(f(dob)))).
-
-**Validates: Requirements 13.5**
-
----
-
-### Property 18 : Structure JSON des entrées de log
-
-*Pour tout* événement de log émis par `StructuredLogger`, la sortie doit être un objet JSON valide sur une seule ligne contenant au minimum les champs `timestamp` (ISO 8601), `level`, `message`, `service`, et `request_id`.
-
-**Validates: Requirements 14.1, 14.2**
-
----
-
-### Property 19 : Compteur de métriques LLM s'incrémente à chaque échec
-
-*Pour tout* appel au LLM primaire qui lève une `LLMUnavailableError`, le compteur Prometheus `diagno_pilot_llm_requests_total{model="qwen3", status="error"}` doit s'incrémenter exactement de 1.
-
-**Validates: Requirements 18.2**
-
----
-
-### Property 20 : Attribut alt présent sur toutes les images
-
-*Pour tout* composant React qui rend un élément `<Image>` ou `<img>`, l'attribut `alt` doit être une chaîne non vide.
-
-**Validates: Requirements 16.6**
+**Validates: Requirements 6.2**
 
 ---
 
 ## Error Handling
 
-### Erreurs de configuration au démarrage
-- `Settings` lève `ValueError` si la configuration est invalide en production → l'app ne démarre pas, le message est loggé en CRITICAL.
+### Grounding — aucun chunk disponible
+- Zéro chunks après filtrage → retourner `RAGResponse` avec `answer = NO_CONTEXT_MESSAGE`, `sources = []`, `confidence_score = 0.0`, sans appeler le LLM.
 
-### Erreurs LLM
-- `LLMUnavailableError` sur le primaire → circuit breaker incrémente le compteur d'échecs, route vers fallback.
+### MCP — timeout ou échec d'agent
+- Agent timeout (> 30s) → traité comme zéro chunks grounded, omission enregistrée dans `DiagnosticAudit`.
+- Tous les agents échouent → `Synthesis_Agent` produit 3 diagnostics `confidence: low`.
+
+### LLM — indisponibilité
+- LLM primaire indisponible → circuit breaker route vers GPT-5 fallback.
 - Les deux LLM indisponibles → HTTP 503 `"llm_unavailable"`.
-- Réponse LLM non parseable → HTTP 502 `"llm_response_invalid"` + log de la réponse brute.
+- `fallback_used=True` → disclaimer ajouté dans la réponse (REQ 4.2).
 
-### Erreurs d'authentification
-- JWT expiré → HTTP 401 ; l'`AuthContext` tente le refresh silencieux.
-- Refresh token révoqué/expiré → HTTP 401 `"refresh_token_invalid"` → redirect login.
+### Documents — accès et validation
+- `GET /api/v1/documents/{id}/view` pour un document inexistant → HTTP 404.
+- Chunk non-PDF → `highlight = None`, `CitationPopup` affiche uniquement l'excerpt.
 
-### Erreurs de validation fichier
-- Taille > 20 Mo → HTTP 413.
-- MIME type non autorisé ou discordant → HTTP 415.
-- Nom de fichier avec traversée → HTTP 400.
-- Tous les rejets sont loggés avec IP, nom de fichier, raison.
-
-### Erreurs de rate limiting
-- Dépassement de limite → HTTP 429 + `Retry-After`.
-- Backend de stockage indisponible → log WARNING + laisser passer (fail-open).
-
-### Erreurs de pagination
-- `page` < 1 ou `page_size` hors [1, 100] → HTTP 422 avec détail de validation Pydantic.
+### Migration — données mixtes
+- Chunks sans nouveaux champs de métadonnées → log WARNING au démarrage avec le compte.
+- `POST /api/v1/admin/reindex-document/{id}` pour un document inexistant → HTTP 404.
+- Suppression d'un document → les enregistrements `diagnostic_audit` sont préservés avec des références tombstone.
 
 ---
 
@@ -581,51 +548,39 @@ interface AuthContextValue {
 
 ### Approche duale
 
-Les tests sont organisés en deux couches complémentaires :
+**Tests unitaires** — exemples spécifiques et cas limites :
+- Refus sans contexte : `RAGService` retourne `NO_CONTEXT_MESSAGE` quand zéro chunks passent le seuil
+- Dispatch parallèle : `MCP_Host` appelle les quatre agents pour chaque requête
+- Timeout agent : un agent lent est traité comme zéro chunks après 30s
+- Accès `GET /documents/{id}/view` : 404 pour document inexistant, URL présignée pour document existant
+- Intégrité référentielle : suppression de document préserve les enregistrements `diagnostic_audit`
+- Détection au démarrage : warning loggé avec le compte de chunks non migrés
 
-**Tests unitaires** — exemples spécifiques, cas limites, intégrations :
-- Comportement au démarrage (REQ 1 : configuration CORS invalide)
-- Login retourne access + refresh token (REQ 4)
-- Singleton `DiagnosticService` (REQ 6.5)
-- Restauration de session au montage de `AuthContext` (REQ 7)
-- Fallback interactions codées en dur si collection vide (REQ 12.5)
-- Endpoint `/metrics` retourne les compteurs attendus (REQ 18)
-
-**Tests property-based** — propriétés universelles sur des entrées générées :
-- Bibliothèque Python : **Hypothesis** (déjà utilisé dans le projet, voir `.hypothesis/`)
-- Bibliothèque TypeScript/React : **fast-check**
-- Minimum **100 itérations** par propriété (paramètre `max_examples=100` pour Hypothesis, `numRuns: 100` pour fast-check)
+**Tests property-based** — propriétés universelles sur entrées générées :
+- Bibliothèque Python : **Hypothesis** (déjà utilisé dans le projet)
+- Minimum **100 itérations** par propriété (`max_examples=100`)
 
 ### Mapping propriétés → tests
 
-Chaque propriété du design doit être implémentée par **un seul test property-based** annoté avec :
-
-```
-# Feature: diagno-pilot-improvements, Property N: <texte de la propriété>
-```
-
 | Propriété | Fichier de test | Bibliothèque |
 |-----------|----------------|--------------|
-| P1 — CORS config invalide | `backend/tests/test_config.py` | Hypothesis |
-| P2 — Round-trip CORS parsing | `backend/tests/test_config.py` | Hypothesis |
-| P3 — Rate limiter 429 + Retry-After | `backend/tests/test_rate_limit.py` | Hypothesis |
-| P4 — FileValidator taille > 20 Mo | `backend/tests/test_file_validator.py` | Hypothesis |
-| P5 — FileValidator MIME non autorisé | `backend/tests/test_file_validator.py` | Hypothesis |
-| P6 — FileValidator traversée répertoire | `backend/tests/test_file_validator.py` | Hypothesis |
-| P7 — Rotation refresh token | `backend/tests/test_auth.py` | Hypothesis |
-| P8 — Circuit breaker ouverture | `backend/tests/test_circuit_breaker.py` | Hypothesis |
-| P9 — Circuit breaker half-open | `backend/tests/test_circuit_breaker.py` | Hypothesis |
-| P10 — Invariants diagnostics LLM | `backend/tests/test_diagnostic_service.py` | Hypothesis |
-| P11 — Pagination cohérence | `backend/tests/test_patients_router.py` | Hypothesis |
-| P12 — Validation texte symptômes | `apps/web/src/app/[locale]/diagnose/__tests__/DiagnosePage.test.tsx` | fast-check |
-| P13 — Validation weight_kg | `apps/web/src/components/__tests__/CreatePatientModal.test.tsx` | fast-check |
-| P14 — PrescriptionService priorité DB | `backend/tests/test_prescription_service.py` | Hypothesis |
-| P15 — Symétrie interactions | `backend/tests/test_alert_service.py` | Hypothesis |
-| P16 — Calcul age_group | `backend/tests/test_patient_model.py` | Hypothesis |
-| P17 — Idempotence age_group | `backend/tests/test_patient_model.py` | Hypothesis |
-| P18 — Structure JSON logs | `backend/tests/test_structured_logger.py` | Hypothesis |
-| P19 — Compteur métriques LLM | `backend/tests/test_metrics.py` | Hypothesis |
-| P20 — Attribut alt images | `apps/web/src/lib/__tests__/images.test.ts` | fast-check |
+| P1 — Grounding prompt présent | `backend/tests/test_rag_service.py` | Hypothesis |
+| P2 — Refus/filtrage chunks sous seuil | `backend/tests/test_rag_service.py` | Hypothesis |
+| P3 — Indépendance title/source | `backend/tests/test_document_service.py` | Hypothesis |
+| P4 — grounding_warning avec degraded_warning | `backend/tests/test_rag_service.py` | Hypothesis |
+| P5 — source_filter correct par agent | `backend/tests/test_mcp_host.py` | Hypothesis |
+| P6 — Minimum 3 diagnostics | `backend/tests/test_synthesis_agent.py` | Hypothesis |
+| P7 — Agents sans chunks exclus | `backend/tests/test_synthesis_agent.py` | Hypothesis |
+| P8 — Chunker taille et frontières | `backend/tests/test_chunker.py` | Hypothesis |
+| P9 — Préservation section dans metadata | `backend/tests/test_chunker.py` | Hypothesis |
+| P10 — Enrichissement métadonnées | `backend/tests/test_document_service.py` | Hypothesis |
+| P11 — RRF classement cohérent | `backend/tests/test_rag_service.py` | Hypothesis |
+| P12 — ConfidenceScore moyenne arithmétique | `backend/tests/test_rag_service.py` | Hypothesis |
+| P13 — DiagnosticAudit écrit à chaque appel | `backend/tests/test_diagnostic_orchestrator.py` | Hypothesis |
+| P14 — Hash profil patient exclut PII | `backend/tests/test_diagnostic_orchestrator.py` | Hypothesis |
+| P15 — Feedback stocké avec champs requis | `backend/tests/test_feedback_router.py` | Hypothesis |
+| P16 — BBox et offsets pour chunks PDF | `backend/tests/test_document_service.py` | Hypothesis |
+| P17 — Migration par lots de 100 | `backend/tests/test_admin_router.py` | Hypothesis |
 
 ### Configuration Hypothesis
 
@@ -636,9 +591,10 @@ settings.register_profile("ci", max_examples=100, suppress_health_check=[HealthC
 settings.load_profile("ci")
 ```
 
-### Configuration fast-check
-
-```typescript
-import fc from 'fast-check';
-fc.configureGlobal({ numRuns: 100 });
+Chaque test property-based est annoté :
+```python
+# Feature: diagno-pilot-improvements, Property N: <texte de la propriété>
+@given(...)
+@settings(max_examples=100)
+def test_property_N_...(...)
 ```

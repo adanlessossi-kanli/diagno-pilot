@@ -14,10 +14,7 @@ const mockLogin = vi.fn();
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
-}));
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+  useLocale: () => 'fr',
 }));
 
 vi.mock('next/image', () => ({

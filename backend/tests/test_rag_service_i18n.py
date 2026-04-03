@@ -57,6 +57,14 @@ def _captured_pipeline(mock_collection: MagicMock) -> list[dict[str, Any]]:
     return mock_collection.aggregate.call_args.args[0]
 
 
+def _find_vector_search_stage(pipeline: list[dict[str, Any]]) -> dict[str, Any]:
+    """Scan the pipeline to find the $vectorSearch stage (index may vary with hybrid retrieval)."""
+    for stage in pipeline:
+        if "$vectorSearch" in stage:
+            return stage["$vectorSearch"]
+    raise AssertionError(f"No $vectorSearch stage found in pipeline: {pipeline}")
+
+
 # ---------------------------------------------------------------------------
 # Property 11: RAG query includes region filter for non-ALL regions
 # ---------------------------------------------------------------------------
@@ -75,12 +83,7 @@ async def test_property_11_region_filter_present_for_non_all_regions(region: str
     await service.query("fever treatment", region=region)
 
     pipeline = _captured_pipeline(mock_collection)
-    vs_stage = pipeline[0]["$vectorSearch"]
-
-    assert "filter" in vs_stage, (
-        f"Expected 'filter' key in $vectorSearch stage for region={region!r}, "
-        f"but got: {vs_stage}"
-    )
+    vs_stage = _find_vector_search_stage(pipeline)
     region_filter = vs_stage["filter"]["metadata.region"]
     assert "$in" in region_filter, (
         f"Expected '$in' operator in metadata.region filter, got: {region_filter}"
@@ -107,7 +110,7 @@ async def test_property_11_no_filter_when_region_is_none() -> None:
     await service.query("fever treatment", region=None)
 
     pipeline = _captured_pipeline(mock_collection)
-    vs_stage = pipeline[0]["$vectorSearch"]
+    vs_stage = _find_vector_search_stage(pipeline)
 
     assert "filter" not in vs_stage, (
         f"Expected no 'filter' key in $vectorSearch stage for region=None, "
@@ -126,7 +129,7 @@ async def test_property_11_no_filter_when_region_is_all() -> None:
     await service.query("fever treatment", region="ALL")
 
     pipeline = _captured_pipeline(mock_collection)
-    vs_stage = pipeline[0]["$vectorSearch"]
+    vs_stage = _find_vector_search_stage(pipeline)
 
     assert "filter" not in vs_stage, (
         f"Expected no 'filter' key in $vectorSearch stage for region='ALL', "
