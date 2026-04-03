@@ -19,26 +19,47 @@ interface NavLink {
   path: string;
 }
 
+const ROLE_NAV_LINKS: Record<string, Array<{ path: string; labelKey: string }>> = {
+  guest: [
+    { path: '/login', labelKey: 'signin' },
+  ],
+  infirmière: [
+    { path: '/chat', labelKey: 'chat' },
+    { path: '/diagnose', labelKey: 'diagnose' },
+    { path: '/patients', labelKey: 'patients' },
+  ],
+  medecin: [
+    { path: '/chat', labelKey: 'chat' },
+    { path: '/diagnose', labelKey: 'diagnose' },
+    { path: '/patients', labelKey: 'patients' },
+    { path: '/documents', labelKey: 'documents' },
+  ],
+  admin: [
+    { path: '/chat', labelKey: 'chat' },
+    { path: '/diagnose', labelKey: 'diagnose' },
+    { path: '/patients', labelKey: 'patients' },
+    { path: '/documents', labelKey: 'documents' },
+    { path: '/admin', labelKey: 'adminPanel' },
+  ],
+};
+
 export default function NavBar({ locale }: NavBarProps) {
   const t = useTranslations('nav');
   const { user, isLoading, logout } = useAuth();
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
 
-  // Hide NavBar for unauthenticated users (Req 3.6)
-  if (!user && !isLoading) return null;
+  if (isLoading) return null;
 
   const base = `/${locale}`;
+  const role = user?.role ?? 'guest';
+  const roleLinks = ROLE_NAV_LINKS[role] ?? ROLE_NAV_LINKS['guest'];
 
-  const links: NavLink[] = [
-    { href: `${base}/chat`, label: t('chat'), path: '/chat' },
-    { href: `${base}/diagnose`, label: t('diagnose'), path: '/diagnose' },
-    { href: `${base}/patients`, label: t('patients'), path: '/patients' },
-    { href: `${base}/documents`, label: t('documents'), path: '/documents' },
-    ...(user?.role === 'admin'
-      ? [{ href: `${base}/admin`, label: t('adminPanel'), path: '/admin' }]
-      : []),
-  ];
+  const links: NavLink[] = roleLinks.map(({ path, labelKey }) => ({
+    href: `${base}${path}`,
+    label: t(labelKey as Parameters<typeof t>[0]),
+    path,
+  }));
 
   function linkClass(path: string) {
     const isActive = path === '/' ? pathname === '/' : pathname.startsWith(path);
@@ -83,16 +104,19 @@ export default function NavBar({ locale }: NavBarProps) {
       {/* Right side */}
       <div className="flex items-center gap-4">
         {user && (
-          <span className="text-sm text-gray-500">{user.fullName} · {user.role}</span>
+          <>
+            <span className="text-sm text-gray-500">{user.fullName} · {user.role}</span>
+            <LanguageSwitcher />
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors duration-150"
+            >
+              {t('logout')}
+            </button>
+          </>
         )}
-        <LanguageSwitcher />
-        <button
-          type="button"
-          onClick={() => void logout()}
-          className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors duration-150"
-        >
-          {t('logout')}
-        </button>
+        {!user && <LanguageSwitcher />}
       </div>
 
       {/* Mobile drawer overlay */}
@@ -134,13 +158,15 @@ export default function NavBar({ locale }: NavBarProps) {
             ))}
             <div className="mt-4 pt-4 border-t flex items-center justify-between">
               <LanguageSwitcher />
-              <button
-                type="button"
-                onClick={() => void logout()}
-                className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors duration-150"
-              >
-                {t('logout')}
-              </button>
+              {user && (
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors duration-150"
+                >
+                  {t('logout')}
+                </button>
+              )}
             </div>
           </div>
         </div>

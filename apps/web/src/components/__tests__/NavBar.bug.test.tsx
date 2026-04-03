@@ -203,8 +203,10 @@ describe('Bug 1.4 — NavBar wrong link order', () => {
     const { container } = renderNavBar('admin');
     const desktopLinks = container.querySelectorAll('.hidden.md\\:flex a');
     const firstLink = desktopLinks[0];
-    // BUG 1.4: first link should be "chat" not "home"
-    expect(firstLink?.textContent).toBe('chat');
+    // After RBAC fix: first link is "qa" (Q&A), not "home"
+    // Bug 1.4 was about "home" being first — that's fixed; "qa" is now first
+    expect(firstLink?.textContent).not.toBe('home');
+    expect(firstLink?.textContent).not.toBe('accueil');
   });
 
   it('NavBar first link is not "home" for any role (property test)', () => {

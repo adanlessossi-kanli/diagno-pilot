@@ -114,7 +114,47 @@ class UserResponse(BaseModel):
     last_login: datetime | None = None
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: str
+
+
 # --- Endpoints ---
+
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+async def register(request: Request, data: RegisterRequest):
+    """Register a new user account with role='guest'. Email must be unique."""
+    database = db.get_db()
+    async with timed_db_op("users", "find_one"):
+        existing = await database["users"].find_one({"email": data.email})
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists",
+        )
+    password_hash = hash_password(data.password)
+    now = datetime.now(timezone.utc)
+    doc = {
+        "email": data.email,
+        "password_hash": password_hash,
+        "full_name": data.full_name,
+        "role": UserRole.GUEST.value,
+        "locale": Locale.FR.value,
+        "is_active": True,
+        "created_at": now,
+    }
+    async with timed_db_op("users", "insert_one"):
+        result = await database["users"].insert_one(doc)
+    return UserResponse(
+        id=str(result.inserted_id),
+        email=doc["email"],
+        role=UserRole.GUEST,
+        full_name=doc["full_name"],
+        locale=Locale.FR,
+    )
+
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")

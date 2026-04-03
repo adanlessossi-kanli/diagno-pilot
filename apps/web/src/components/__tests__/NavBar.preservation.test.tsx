@@ -127,16 +127,15 @@ describe('Preservation 3.2 — Non-admin roles never include admin-only links', 
   });
 });
 
-// ─── Preservation 3.3: NavBar returns null for unauthenticated users ──────────
+// ─── Preservation 3.3: NavBar shows signin link for unauthenticated users ──────
 
 describe('Preservation 3.3 — NavBar returns null for unauthenticated users', () => {
   /**
-   * **Validates: Requirements 3.3**
-   * Property: For any unauthenticated state (user=null, isLoading=false),
-   * NavBar must return null (no nav element rendered).
-   * MUST PASS on unfixed code.
+   * **Validates: Requirements 2.8, 3.3**
+   * After RBAC fix: NavBar renders for guests with a signin link.
+   * The old behavior (return null) is replaced by the guest mode with signin link.
    */
-  it('NavBar returns null when user is null (property test)', () => {
+  it('NavBar renders signin link when user is null (property test)', () => {
     fc.assert(
       fc.property(
         fc.constantFrom('fr', 'en'),
@@ -146,19 +145,24 @@ describe('Preservation 3.3 — NavBar returns null for unauthenticated users', (
           mockAuthValue.isLoading = false;
           const { container } = render(<NavBar locale={locale} />);
           const nav = container.querySelector('nav');
+          const links = Array.from(container.querySelectorAll('a'));
+          const hasSignin = links.some((a) => a.getAttribute('href')?.includes('/login'));
           cleanup();
-          return nav === null;
+          return nav !== null && hasSignin;
         },
       ),
       { numRuns: 20 },
     );
   });
 
-  it('NavBar returns null when user is null and not loading', () => {
+  it('NavBar renders signin link when user is null and not loading', () => {
     mockAuthValue.user = null;
     mockAuthValue.isLoading = false;
     const { container } = render(<NavBar locale="fr" />);
-    expect(container.querySelector('nav')).toBeNull();
+    expect(container.querySelector('nav')).not.toBeNull();
+    const links = Array.from(container.querySelectorAll('a'));
+    const hasSignin = links.some((a) => a.getAttribute('href')?.includes('/login'));
+    expect(hasSignin).toBe(true);
   });
 });
 
@@ -189,7 +193,7 @@ describe('Preservation 3.4 — LanguageSwitcher and logout button present in Nav
   it('LanguageSwitcher and logout button present for any authenticated role (property test)', () => {
     fc.assert(
       fc.property(
-        fc.constantFrom('admin', 'medecin', 'guest', 'infirmière'),
+        fc.constantFrom('admin', 'medecin', 'infirmière'),
         (role) => {
           cleanup();
           const { container } = renderNavBar(role);
@@ -396,7 +400,7 @@ describe('Preservation 3.8 — Mobile drawer renders nav links correctly', () =>
   it('mobile drawer renders nav links for any authenticated role (property test)', () => {
     fc.assert(
       fc.property(
-        fc.constantFrom('admin', 'medecin', 'guest', 'infirmière'),
+        fc.constantFrom('admin', 'medecin', 'infirmière'),
         (role) => {
           cleanup();
           const { container } = renderNavBar(role);

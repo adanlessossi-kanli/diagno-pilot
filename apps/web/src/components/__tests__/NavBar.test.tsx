@@ -70,19 +70,23 @@ describe('NavBar — unit tests', () => {
     expect(container.querySelector('nav[aria-label="Main navigation"]')).not.toBeNull();
   });
 
-  it('returns null when user is not authenticated and not loading', () => {
+  it('renders with signin link when user is not authenticated and not loading', () => {
     mockAuthValue.user = null;
     mockAuthValue.isLoading = false;
     const { container } = renderNavBar();
-    expect(container.querySelector('nav')).toBeNull();
+    // After RBAC fix: NavBar renders for guests with a signin link
+    expect(container.querySelector('nav')).not.toBeNull();
+    const links = Array.from(container.querySelectorAll('a'));
+    const hasSignin = links.some((a) => a.getAttribute('href')?.includes('/login'));
+    expect(hasSignin).toBe(true);
   });
 
-  it('renders while loading (isLoading=true, user=null)', () => {
+  it('returns null while loading (isLoading=true, user=null)', () => {
     mockAuthValue.user = null;
     mockAuthValue.isLoading = true;
     const { container } = renderNavBar();
-    // Should render (not return null) while loading
-    expect(container.querySelector('nav')).not.toBeNull();
+    // Should return null while loading
+    expect(container.querySelector('nav')).toBeNull();
   });
 
   it('hamburger menu button is present in the DOM', () => {
@@ -292,16 +296,14 @@ describe('NavBar — Property 8: Élément actif mis en évidence', () => {
 
 // ─── Property 9 ───────────────────────────────────────────────────────────────
 
-// Feature: app-consistency, Property 9: Pour tout utilisateur non-auth, NavBar masquée et redirection /login
-describe('NavBar — Property 9: NavBar masquée pour les utilisateurs non authentifiés', () => {
+// Feature: app-consistency, Property 9: Pour tout utilisateur non-auth, NavBar affiche lien signin
+describe('NavBar — Property 9: NavBar affiche lien signin pour les utilisateurs non authentifiés', () => {
   /**
-   * **Validates: Requirements 3.6, 3.7**
+   * **Validates: Requirements 2.8, 3.6, 3.7**
    * Property 9: For any unauthenticated user (user=null, isLoading=false),
-   * NavBar should not render navigation links (hidden state).
-   * The redirect to /login is handled by the layout/middleware, not NavBar itself.
-   * NavBar hides its content when !user && !isLoading.
+   * NavBar renders with a signin link (guest mode).
    */
-  it('does not render navigation links when user is null and not loading', () => {
+  it('renders signin link when user is null and not loading', () => {
     fc.assert(
       fc.property(fc.constantFrom('fr', 'en'), (locale) => {
         cleanup();
@@ -309,10 +311,12 @@ describe('NavBar — Property 9: NavBar masquée pour les utilisateurs non authe
         mockAuthValue.isLoading = false;
 
         const { container } = renderNavBar(locale);
-        // When unauthenticated, NavBar returns null — no nav element rendered
+        // After RBAC fix: NavBar renders for guests with signin link
         const nav = container.querySelector('nav');
+        const links = Array.from(container.querySelectorAll('a'));
+        const hasSignin = links.some((a) => a.getAttribute('href')?.includes('/login'));
         cleanup();
-        return nav === null;
+        return nav !== null && hasSignin;
       }),
       { numRuns: 100 },
     );

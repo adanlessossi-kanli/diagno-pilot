@@ -11,6 +11,7 @@ import { IMAGES } from '@/lib/images';
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'fr-TG',
 }));
 
 vi.mock('next/navigation', () => ({
