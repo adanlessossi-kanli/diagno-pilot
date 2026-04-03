@@ -1,13 +1,15 @@
 {
   "nav": {
     "home": "Accueil",
+    "qa": "Q&A",
     "chat": "Assistant Q&A",
     "diagnose": "Diagnostic guidé",
     "patients": "Patients",
     "admin": "Administration",
     "documents": "Documents",
     "adminPanel": "Admin",
-    "logout": "Déconnexion"
+    "logout": "Déconnexion",
+    "signin": "Se connecter"
   },
   "home": {
     "tagline": "L'assistant médical intelligent pour l'Afrique",
@@ -19,7 +21,16 @@
     "password": "Mot de passe",
     "submit": "Se connecter",
     "logout": "Se déconnecter",
-    "sessionExpired": "Votre session a expiré. Veuillez vous reconnecter."
+    "sessionExpired": "Votre session a expiré. Veuillez vous reconnecter.",
+    "noAccount": "Pas encore de compte ?",
+    "signupLink": "Créer un compte",
+    "signup": "Créer un compte",
+    "fullName": "Nom complet",
+    "signupSubmit": "S'inscrire",
+    "signupError": "Erreur lors de la création du compte. Veuillez réessayer.",
+    "hasAccount": "Déjà un compte ?",
+    "loginLink": "Se connecter",
+    "signupSuccess": "Compte créé. Vous pouvez maintenant vous connecter."
   },
   "common": {
     "loading": "Chargement...",
@@ -227,6 +238,16 @@
       "child": "Enfant (2–17 ans)",
       "adult": "Adulte (18+)"
     }
+  },
+  "createNurse": {
+    "pageTitle": "Créer un compte infirmière",
+    "formTitle": "Nouveau compte infirmière",
+    "fullName": "Nom complet",
+    "email": "Adresse e-mail",
+    "password": "Mot de passe",
+    "submit": "Créer le compte",
+    "successCreate": "Compte infirmière créé avec succès.",
+    "errorCreate": "Erreur lors de la création du compte. Veuillez réessayer."
   },
   "admin": {
     "title": "Administration",

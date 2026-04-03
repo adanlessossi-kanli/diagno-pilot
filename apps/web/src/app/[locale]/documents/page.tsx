@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { PatientDocument } from '@diagno-pilot/api-client';
@@ -229,6 +229,7 @@ export default function DocumentsPage() {
   const tCommon = useTranslations('common');
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const locale = useLocale();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -240,12 +241,12 @@ export default function DocumentsPage() {
   const [fetchError, setFetchError] = useState('');
   const [deleteError, setDeleteError] = useState('');
 
-  // Auth guard — redirect unauthenticated users only
+  // Auth guard — redirect unauthenticated or unauthorized users
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push('/login');
+    if (!authLoading && (!user || (user.role !== 'admin' && user.role !== 'medecin'))) {
+      router.push(`/${locale}`);
     }
-  }, [authLoading, user, router]);
+  }, [authLoading, user, router, locale]);
 
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
@@ -289,8 +290,8 @@ export default function DocumentsPage() {
     );
   }
 
-  // Not authenticated — render nothing while redirect fires
-  if (!user) {
+  // Not authenticated or unauthorized — render nothing while redirect fires
+  if (!user || (user.role !== 'admin' && user.role !== 'medecin')) {
     return null;
   }
 

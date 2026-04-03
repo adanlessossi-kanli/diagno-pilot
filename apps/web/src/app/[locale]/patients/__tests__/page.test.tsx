@@ -12,6 +12,7 @@ const mockListPatients = vi.fn();
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'fr-TG',
 }));
 
 vi.mock('next/navigation', () => ({

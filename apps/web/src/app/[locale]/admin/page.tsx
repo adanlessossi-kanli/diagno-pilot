@@ -307,6 +307,122 @@ function AuditLogSection({ apiBase }: { apiBase: string }) {
   );
 }
 
+// ─── Section 4: Create Doctor ─────────────────────────────────────────────────
+
+function CreateDoctorSection({ apiBase }: { apiBase: string }) {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setSuccess('');
+    setError('');
+    try {
+      const res = await fetch(`${apiBase}/api/v1/admin/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password, full_name: fullName, role: 'medecin' }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { detail?: string };
+        throw new Error(body.detail ?? `HTTP ${res.status}`);
+      }
+      setSuccess('Compte médecin créé avec succès.');
+      setFullName('');
+      setEmail('');
+      setPassword('');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="border rounded-lg bg-white overflow-hidden">
+      <div className="px-6 py-4 border-b">
+        <h2 className="text-lg font-semibold">Créer un médecin</h2>
+      </div>
+      <form onSubmit={(e) => void handleSubmit(e)} className="px-6 py-4 space-y-4 max-w-md">
+        <div>
+          <label htmlFor="doctor-fullname" className="block text-sm font-medium text-gray-700 mb-1">
+            Nom complet
+          </label>
+          <input
+            id="doctor-fullname"
+            type="text"
+            required
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Dr. Jean Dupont"
+          />
+        </div>
+        <div>
+          <label htmlFor="doctor-email" className="block text-sm font-medium text-gray-700 mb-1">
+            Email
+          </label>
+          <input
+            id="doctor-email"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="medecin@exemple.com"
+          />
+        </div>
+        <div>
+          <label htmlFor="doctor-password" className="block text-sm font-medium text-gray-700 mb-1">
+            Mot de passe
+          </label>
+          <input
+            id="doctor-password"
+            type="password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="••••••••"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Rôle</label>
+          <input
+            type="text"
+            value="medecin"
+            readOnly
+            className="w-full border rounded px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+          />
+        </div>
+        {success && (
+          <p role="status" className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+            {success}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {submitting ? 'Création…' : 'Créer le compte médecin'}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AdminPanelPage() {
@@ -364,6 +480,9 @@ export default function AdminPanelPage() {
 
       {/* Section 3 — Audit Log */}
       <AuditLogSection apiBase={apiBase} />
+
+      {/* Section 4 — Create Doctor */}
+      <CreateDoctorSection apiBase={apiBase} />
     </main>
   );
 }

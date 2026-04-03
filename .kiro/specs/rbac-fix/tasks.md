@@ -1,0 +1,147 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration tests (BEFORE implementing any fix)
+  - **Property 1: Bug Condition** - RBAC Multi-Bug Exploration
+  - **CRITICAL**: These tests MUST FAIL on unfixed code — failure confirms the bugs exist
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: These tests encode the expected behavior — they will validate the fix when they pass after implementation
+  - **GOAL**: Surface counterexamples that demonstrate each bug exists
+  - **Scoped PBT Approach**: Scope each property to the concrete failing case(s) for reproducibility
+  - Create `apps/web/src/components/__tests__/NavBar.rbac-fix.bug.test.tsx`:
+    - Bug 1: Render NavBar with `role='infirmière'` → assert Documents link is ABSENT and Chat link is PRESENT (from Bug Condition: `action=RENDER_NAVBAR AND role='infirmière' AND DOCUMENTS_LINK in rendered_links`)
+    - Bug 2: Render NavBar with `user=null` → assert "Se connecter" / signin link IS PRESENT (from Bug Condition: `action=RENDER_NAVBAR AND role='guest' AND SIGNIN_LINK not in rendered_links`)
+    - Bug 7 (NavBar medecin): Render NavBar with `role='medecin'` → assert Documents link IS PRESENT (expected behavior from ROLE_NAV_LINKS)
+    - Property-based: for all roles in `['infirmière', 'guest', 'medecin', 'admin']`, NavBar shows exactly the links defined in ROLE_NAV_LINKS map
+  - Create `apps/web/src/app/[locale]/documents/__tests__/documents.rbac-fix.bug.test.tsx`:
+    - Bug 3: Simulate navigation to `/documents` with `role='infirmière'` → assert `router.push` is called (redirect) (from Bug Condition: `action=NAVIGATE_TO_DOCUMENTS AND role='infirmière' AND page_renders_without_redirect`)
+    - Property-based: for all unauthorized roles `['infirmière', 'guest']`, documents page redirects
+  - Create `backend/tests/test_rbac_fix_bug.py`:
+    - Bug 4: Call `POST /api/v1/documents/upload` with `role='medecin'` token → assert HTTP 201 (from Bug Condition: `action=POST_DOCUMENTS_UPLOAD AND role='medecin' AND http_response_status=403`)
+    - Bug 5 (chat): Call `POST /api/v1/chat/message` with `role='infirmière'` token → assert response is NOT 403 (from Bug Condition: `action=POST_CHAT AND role='infirmière' AND http_response_status=403`)
+    - Note: Bug 5 may already pass (chat.py already has infirmière) — document the finding
+    - Property-based: for all roles in `['admin', 'medecin']`, upload returns 201; for `['infirmière', 'guest']`, upload returns 403
+  - Create `apps/web/src/app/[locale]/medecin/__tests__/create-nurse.rbac-fix.bug.test.tsx`:
+    - Bug 6: Render medecin interface → assert create-nurse form IS PRESENT (from Bug Condition: `action=RENDER_MEDECIN_INTERFACE AND role='medecin' AND create_nurse_form_absent`)
+  - Create `apps/web/src/app/[locale]/admin/__tests__/admin.rbac-fix.bug.test.tsx`:
+    - Bug 7: Render admin panel → assert dedicated create-doctor form IS PRESENT (from Bug Condition: `action=RENDER_ADMIN_PANEL AND role='admin' AND create_doctor_dedicated_form_absent`)
+  - Run all tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests FAIL (this is correct — it proves the bugs exist)
+  - Document counterexamples found to understand root cause
+  - Mark task complete when tests are written, run, and failures are documented
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8_
+
+- [x] 2. Write preservation property tests (BEFORE implementing any fix)
+  - **Property 2: Preservation** - RBAC Non-Buggy Behavior Baseline
+  - **IMPORTANT**: Follow observation-first methodology — run unfixed code first, observe outputs, then write tests
+  - Create `apps/web/src/components/__tests__/NavBar.rbac-fix.preservation.test.tsx`:
+    - Observe: NavBar with `role='admin'` shows Q&A, Chat, Diagnostic, Patients, Documents, Admin links
+    - Observe: NavBar with `role='medecin'` shows Q&A, Chat, Diagnostic, Patients (no Admin)
+    - Observe: NavBar with any authenticated role does NOT show Admin link for non-admin
+    - Write property-based test: for all roles NOT in bug condition (i.e., `admin`), NavBar renders correctly
+    - Write property-based test: for all non-admin roles, admin link is never shown (from Preservation Requirements)
+    - Verify tests PASS on UNFIXED code
+  - Create `backend/tests/test_rbac_fix_preservation.py`:
+    - Observe: `POST /api/v1/documents/upload` with `role='admin'` returns 201
+    - Observe: `DELETE /api/v1/documents/{id}` with `role='admin'` returns 204
+    - Observe: `POST /api/v1/chat/message` with `role='medecin'` returns 200
+    - Observe: `GET /api/v1/patients` with `role='infirmière'` returns 200
+    - Observe: `GET /api/v1/admin/users` with `role='admin'` returns 200
+    - Observe: `GET /api/v1/admin/users` with `role='medecin'` returns 403
+    - Write property-based tests capturing all observed behaviors (from Preservation Requirements in design)
+    - Property: for all roles NOT in bug condition, behavior is identical before/after fix
+    - Verify tests PASS on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9_
+
+- [x] 3. Fix all RBAC bugs
+
+  - [x] 3.1 Fix NavBar role-based link filtering (`apps/web/src/components/NavBar.tsx`)
+    - Define `ROLE_NAV_LINKS` map:
+      - `guest` → `[qa, signin]`
+      - `infirmière` → `[qa, chat, diagnose, patients]`
+      - `medecin` → `[qa, chat, diagnose, patients, documents]`
+      - `admin` → `[qa, chat, diagnose, patients, documents, admin]`
+    - Replace static `links[]` array with `ROLE_NAV_LINKS[user?.role ?? 'guest']`
+    - Add "Se connecter" link for guest/unauthenticated users pointing to `/[locale]/login`
+    - _Bug_Condition: `isBugCondition(input)` where `role='infirmière' AND DOCUMENTS_LINK in rendered_links` OR `role='guest' AND SIGNIN_LINK not in rendered_links`_
+    - _Expected_Behavior: NavBar shows exactly the links defined in ROLE_NAV_LINKS for the user's role_
+    - _Preservation: admin still sees all links; medecin still sees Q&A+Chat+Diagnostic+Patients+Documents; non-admin never sees admin link_
+    - _Requirements: 2.1, 2.6, 2.7, 2.8_
+
+  - [x] 3.2 Add role guard to documents page (`apps/web/src/app/[locale]/documents/page.tsx`)
+    - Extend the `useEffect` guard condition: `!user || (user.role !== 'admin' && user.role !== 'medecin')`
+    - Redirect unauthorized users to `/${locale}` (home page)
+    - _Bug_Condition: `isBugCondition(input)` where `action=NAVIGATE_TO_DOCUMENTS AND role IN ['infirmière', 'guest'] AND page_renders_without_redirect`_
+    - _Expected_Behavior: infirmière and guest are redirected to home; admin and medecin can access_
+    - _Preservation: admin still accesses documents page; medecin still accesses documents page_
+    - _Requirements: 2.2_
+
+  - [x] 3.3 Add medecin to upload allowed roles (`backend/routers/documents.py`)
+    - Change `require_role(["admin"])` to `require_role(["admin", "medecin"])` on the `POST /upload` endpoint only
+    - Keep `require_role(["admin"])` unchanged on `DELETE /{document_id}`
+    - _Bug_Condition: `isBugCondition(input)` where `action=POST_DOCUMENTS_UPLOAD AND role='medecin' AND http_response_status=403`_
+    - _Expected_Behavior: medecin receives HTTP 201 on valid upload_
+    - _Preservation: admin still gets 201; infirmière and guest still get 403; DELETE still admin-only_
+    - _Requirements: 2.3_
+
+  - [x] 3.4 Verify chat endpoint already allows infirmière (`backend/routers/chat.py`)
+    - Confirm `require_role(["admin", "medecin", "infirmière"])` is already present on `POST /message`
+    - If not present, add `infirmière` to the allowed roles list
+    - _Bug_Condition: `isBugCondition(input)` where `action=POST_CHAT AND role='infirmière' AND http_response_status=403`_
+    - _Expected_Behavior: infirmière receives valid response (non-403) from chat endpoint_
+    - _Preservation: admin and medecin still get 200; guest still gets 401/403_
+    - _Requirements: 2.10_
+
+  - [x] 3.5 Create nurse creation page for medecin (`apps/web/src/app/[locale]/create-nurse/page.tsx`)
+    - Create new page with role guard: only `medecin` can access (redirect others to home)
+    - Implement `CreateNurseForm` component with fields: email, password, full name
+    - Call `POST /api/v1/medecin/users` on form submit
+    - Add link/button to this page from medecin's interface (e.g., from patients page or home)
+    - _Bug_Condition: `isBugCondition(input)` where `action=RENDER_MEDECIN_INTERFACE AND role='medecin' AND create_nurse_form_absent`_
+    - _Expected_Behavior: medecin sees a form to create infirmière accounts_
+    - _Preservation: admin and infirmière cannot access this page (redirected)_
+    - _Requirements: 2.4, 2.9_
+
+  - [x] 3.6 Create medecin users backend endpoint (`backend/routers/medecin.py`)
+    - Create new router file `backend/routers/medecin.py`
+    - Implement `POST /api/v1/medecin/users` with `require_role(["medecin"])`
+    - Validate that requested role is strictly `infirmière` — return HTTP 403 otherwise
+    - Hash password and insert user into database
+    - Register router in `backend/main.py`
+    - _Bug_Condition: `isBugCondition(input)` where `action=RENDER_MEDECIN_INTERFACE AND role='medecin' AND create_nurse_form_absent`_
+    - _Expected_Behavior: medecin can create infirmière accounts via `POST /api/v1/medecin/users`; attempting to create other roles returns 403_
+    - _Preservation: admin endpoint `POST /api/v1/admin/users` remains unchanged_
+    - _Requirements: 2.4, 2.9_
+
+  - [x] 3.7 Add dedicated create-doctor form to admin panel (`apps/web/src/app/[locale]/admin/page.tsx`)
+    - Add a dedicated "Créer un médecin" section/form with fields: email, password, full name, role pre-selected as `medecin`
+    - Call `POST /api/v1/admin/users` with `role: 'medecin'`
+    - Keep all existing admin panel sections unchanged (user management, stats, audit, protocols)
+    - _Bug_Condition: `isBugCondition(input)` where `action=RENDER_ADMIN_PANEL AND role='admin' AND create_doctor_dedicated_form_absent`_
+    - _Expected_Behavior: admin sees a dedicated form to create medecin accounts_
+    - _Preservation: all existing admin panel functionality remains intact_
+    - _Requirements: 2.5_
+
+  - [x] 3.8 Verify bug condition exploration tests now pass
+    - **Property 1: Expected Behavior** - RBAC Multi-Bug Fix Validation
+    - **IMPORTANT**: Re-run the SAME tests from task 1 — do NOT write new tests
+    - The tests from task 1 encode the expected behavior
+    - When these tests pass, it confirms the expected behavior is satisfied
+    - Run all bug condition exploration tests from step 1
+    - **EXPECTED OUTCOME**: All tests PASS (confirms all bugs are fixed)
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10_
+
+  - [x] 3.9 Verify preservation tests still pass
+    - **Property 2: Preservation** - RBAC Non-Regression Validation
+    - **IMPORTANT**: Re-run the SAME tests from task 2 — do NOT write new tests
+    - Run all preservation property tests from step 2
+    - **EXPECTED OUTCOME**: All tests PASS (confirms no regressions)
+    - Confirm all tests still pass after fix (no regressions)
+
+- [x] 4. Checkpoint — Ensure all tests pass
+  - Run full test suite: `cd apps/web && npx vitest --run` and `cd backend && python -m pytest`
+  - Ensure all bug condition tests pass (bugs fixed)
+  - Ensure all preservation tests pass (no regressions)
+  - Ensure all pre-existing tests still pass
+  - Ask the user if questions arise

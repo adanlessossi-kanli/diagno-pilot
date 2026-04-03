@@ -14,6 +14,7 @@ import PatientsPage from '../../app/[locale]/patients/page';
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'fr-TG',
 }));
 
 vi.mock('next/navigation', () => ({

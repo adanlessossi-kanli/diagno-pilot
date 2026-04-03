@@ -28,7 +28,7 @@ from backend.core.security_headers import SecurityHeadersMiddleware  # noqa: E40
 from backend.core.database import db  # noqa: E402
 from backend.core.logging_config import request_id_var, setup_logging  # noqa: E402
 from backend.core.rate_limit import limiter  # noqa: E402
-from backend.routers import admin, alerts, auth, chat, diagnose, documents, files, patients, qa  # noqa: E402
+from backend.routers import admin, alerts, auth, chat, diagnose, documents, files, medecin, patients, qa  # noqa: E402
 from backend.services.diagnostic_service import DiagnosticService  # noqa: E402
 from backend.services.embedding_service import EmbeddingModel  # noqa: E402
 from backend.services.llm_router import LLMRouter  # noqa: E402
@@ -83,6 +83,10 @@ async def lifespan(app: FastAPI):
         [("created_by", 1), ("created_at", -1)], background=True
     )
     logger.info("patients indexes ensured")
+
+    # Ensure unique index on users.email
+    await _db["users"].create_index("email", unique=True, background=True)
+    logger.info("users.email unique index ensured")
 
     # Ensure vector search index on document_chunks for RAG
     try:
@@ -238,6 +242,7 @@ app.include_router(files.router, prefix=API_PREFIX)
 app.include_router(alerts.router, prefix=API_PREFIX)
 app.include_router(admin.router, prefix=API_PREFIX)
 app.include_router(admin.audit_router, prefix=API_PREFIX)
+app.include_router(medecin.router, prefix=API_PREFIX)
 app.include_router(qa.router, prefix=API_PREFIX)
 
 # Apply CSRF validation globally to all routes (Requirements 6.3, 6.4, 6.5)

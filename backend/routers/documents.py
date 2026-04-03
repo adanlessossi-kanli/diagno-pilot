@@ -44,8 +44,8 @@ def _get_document_service() -> DocumentService:
     "/upload",
     response_model=MedicalDocument,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload and index a medical document (admin only)",
-    dependencies=[Depends(require_role(["admin"])), Depends(audit_dependency("upload_document", "documents"))],
+    summary="Upload and index a medical document (admin and medecin)",
+    dependencies=[Depends(require_role(["admin", "medecin"])), Depends(audit_dependency("upload_document", "documents"))],
 )
 async def upload_document(
     file: UploadFile = File(...),

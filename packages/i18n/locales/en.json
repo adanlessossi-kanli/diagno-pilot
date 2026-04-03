@@ -1,13 +1,15 @@
 {
   "nav": {
     "home": "Home",
+    "qa": "Q&A",
     "chat": "Q&A Assistant",
     "diagnose": "Guided Diagnosis",
     "patients": "Patients",
     "admin": "Administration",
     "documents": "Documents",
     "adminPanel": "Admin",
-    "logout": "Logout"
+    "logout": "Logout",
+    "signin": "Sign in"
   },
   "home": {
     "tagline": "The intelligent medical assistant for Africa",
@@ -19,7 +21,16 @@
     "password": "Password",
     "submit": "Sign in",
     "logout": "Sign out",
-    "sessionExpired": "Your session has expired. Please log in again."
+    "sessionExpired": "Your session has expired. Please log in again.",
+    "noAccount": "Don't have an account?",
+    "signupLink": "Create an account",
+    "signup": "Create an account",
+    "fullName": "Full name",
+    "signupSubmit": "Sign up",
+    "signupError": "Error creating account. Please try again.",
+    "hasAccount": "Already have an account?",
+    "loginLink": "Sign in",
+    "signupSuccess": "Account created. You can now sign in."
   },
   "common": {
     "loading": "Loading...",
@@ -227,6 +238,16 @@
       "child": "Child (2–17 years)",
       "adult": "Adult (18+)"
     }
+  },
+  "createNurse": {
+    "pageTitle": "Create nurse account",
+    "formTitle": "New nurse account",
+    "fullName": "Full name",
+    "email": "Email address",
+    "password": "Password",
+    "submit": "Create account",
+    "successCreate": "Nurse account created successfully.",
+    "errorCreate": "Error creating account. Please try again."
   },
   "admin": {
     "title": "Administration",

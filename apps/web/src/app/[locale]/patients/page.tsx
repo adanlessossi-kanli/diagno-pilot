@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { PatientProfile } from '@diagno-pilot/types';
@@ -328,6 +328,7 @@ export default function PatientsPage() {
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const locale = useLocale();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -396,13 +397,23 @@ export default function PatientsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">{t('title')}</h1>
-        <button
-          type="button"
-          onClick={() => setShowModal(true)}
-          className={buttonVariants.primary}
-        >
-          + {t('new')}
-        </button>
+        <div className="flex items-center gap-3">
+          {user.role === 'medecin' && (
+            <a
+              href={`/${locale}/create-nurse`}
+              className={buttonVariants.secondary}
+            >
+              + Créer une infirmière
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className={buttonVariants.primary}
+          >
+            + {t('new')}
+          </button>
+        </div>
       </div>
 
       {/* Loading */}
