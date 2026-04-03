@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { ChatMessage, PatientProfile, DocumentSource } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
+import { CitationChip } from '../../../components/CitationChip';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,21 +37,15 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
         <span aria-hidden="true">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
-        <ul className="mt-1.5 space-y-1.5">
+        <div className="mt-1.5 flex flex-wrap gap-1">
           {sources.map((src, i) => (
-            <li key={`${src.title}-${i}`} className="text-xs bg-blue-50 border border-blue-100 rounded px-3 py-2 space-y-0.5">
-              <p className="font-semibold text-blue-800">{src.title}</p>
-              {src.section && (
-                <p className="text-blue-600">
-                  <span className="font-medium">{t('section')}:</span> {src.section}
-                </p>
-              )}
-              {src.excerpt && (
-                <p className="text-gray-600 italic">&ldquo;{src.excerpt}&rdquo;</p>
-              )}
-            </li>
+            <CitationChip
+              key={`${src.document_id}-${i}`}
+              index={i + 1}
+              source={src}
+            />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
@@ -382,19 +377,21 @@ export default function ChatPage() {
         </button>
       </header>
 
-      {/* Patient context panel */}
-      <PatientContextPanel
-        patientMode={patientMode}
-        setPatientMode={setPatientMode}
-        patients={patients}
-        loadingPatients={loadingPatients}
-        patientsError={patientsError}
-        selectedPatientId={selectedPatientId}
-        setSelectedPatientId={setSelectedPatientId}
-        oneShotPatient={oneShotPatient}
-        setOneShotPatient={setOneShotPatient}
-        attachedPatientLabel={attachedPatientLabel}
-      />
+      {/* Patient context panel — hidden for guests */}
+      {user?.role !== 'guest' && (
+        <PatientContextPanel
+          patientMode={patientMode}
+          setPatientMode={setPatientMode}
+          patients={patients}
+          loadingPatients={loadingPatients}
+          patientsError={patientsError}
+          selectedPatientId={selectedPatientId}
+          setSelectedPatientId={setSelectedPatientId}
+          oneShotPatient={oneShotPatient}
+          setOneShotPatient={setOneShotPatient}
+          attachedPatientLabel={attachedPatientLabel}
+        />
+      )}
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">

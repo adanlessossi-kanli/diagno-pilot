@@ -95,6 +95,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(`/${locale}/login`, request.url));
   }
 
+  // Guests can only access /chat — redirect everything else to /chat
+  if (role === 'guest') {
+    const segments = pathname.split('/').filter(Boolean);
+    const afterLocale = segments.length >= 2 ? '/' + segments.slice(1).join('/') : '/';
+    if (!afterLocale.startsWith('/chat')) {
+      return NextResponse.redirect(new URL(`/${locale}/chat`, request.url));
+    }
+  }
+
   return intlMiddleware(request);
 }
 

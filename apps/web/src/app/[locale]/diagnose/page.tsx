@@ -513,11 +513,11 @@ export default function DiagnosePage() {
                   </div>
 
                   {/* Matching symptoms */}
-                  {diag.concordantSymptoms && diag.concordantSymptoms.length > 0 && (
+                  {(diag.matchingSymptoms ?? diag.concordantSymptoms)?.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-gray-500 mb-1">{t('matchingSymptoms')}</p>
                       <div className="flex flex-wrap gap-1">
-                        {diag.concordantSymptoms.map((s, j) => (
+                        {(diag.matchingSymptoms ?? diag.concordantSymptoms).map((s, j) => (
                           <span key={`${s}-${j}`} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
                             {s}
                           </span>

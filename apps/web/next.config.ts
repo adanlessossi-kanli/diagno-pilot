@@ -23,6 +23,10 @@ const backendInternalUrl = process.env.BACKEND_INTERNAL_URL ?? 'http://localhost
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Increase proxy timeout for long-running requests (document upload + embedding)
+  experimental: {
+    proxyTimeout: 300_000, // 5 minutes
+  },
   async headers() {
     return [
       {

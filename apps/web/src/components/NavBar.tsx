@@ -21,7 +21,7 @@ interface NavLink {
 
 const ROLE_NAV_LINKS: Record<string, Array<{ path: string; labelKey: string }>> = {
   guest: [
-    { path: '/login', labelKey: 'signin' },
+    { path: '/chat', labelKey: 'chat' },
   ],
   infirmière: [
     { path: '/chat', labelKey: 'chat' },
