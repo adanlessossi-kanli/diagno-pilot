@@ -38,6 +38,16 @@ FALLBACK_DISCLAIMER = (
     "⚠️ Cette réponse a été générée par le modèle de secours et nécessite une vérification clinique."
 )
 
+DIAGNOSIS_SYSTEM_PROMPT = (
+    "Tu es un assistant médical expert en maladies tropicales. "
+    "En te basant UNIQUEMENT sur les passages de documents fournis, "
+    "génère un diagnostic différentiel au format JSON strict. "
+    "Réponds UNIQUEMENT avec un tableau JSON valide, sans texte avant ou après. "
+    "Format requis : "
+    '[{"condition": "<nom>", "probability": <0.0-1.0>, "icd_code": "<CIM-10>", "matching_symptoms": ["<symptôme>"]}, ...]. '
+    "Inclure au moins 3 diagnostics ordonnés par probabilité décroissante."
+)
+
 
 @dataclass
 class DiagnosticResult:
@@ -237,6 +247,7 @@ class DiagnosticOrchestrator:
             context=patient_profile,
             top_k=5,
             region=region,
+            system_prompt=DIAGNOSIS_SYSTEM_PROMPT,
         )
         diagnoses = self._diagnostic_parser.parse(rag_response.answer)
 

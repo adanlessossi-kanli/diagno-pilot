@@ -77,7 +77,7 @@ def get_chat_service() -> ChatService:
 async def send_message(
     request: Request,
     body: ChatMessageRequest,
-    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"])),
+    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière", "guest"])),
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """POST /api/v1/chat/message
@@ -113,7 +113,7 @@ async def send_message(
 )
 async def get_chat_history(
     session_id: str,
-    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière"])),
+    current_user: dict = Depends(require_role(["admin", "medecin", "infirmière", "guest"])),
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """GET /api/v1/chat/history/{session_id}

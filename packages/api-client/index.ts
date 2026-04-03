@@ -46,7 +46,8 @@ export interface DiagnosisResponse {
     condition: string;
     probability: number;
     icdCode?: string;
-    concordantSymptoms: string[];
+    matchingSymptoms: string[];
+    concordantSymptoms: string[]; // alias kept for UI compatibility
   }[];
   // llmUsed and sources are not returned by /diagnose/symptoms — they come
   // from the RAG chat endpoint. Kept optional so UI code can guard safely.
@@ -132,8 +133,9 @@ const DiagnosisResponseSchema = z.object({
   diagnoses: z.array(z.object({
     condition: z.string(),
     probability: z.number().min(0).max(1),
-    icdCode: z.string().optional(),
-    concordantSymptoms: z.array(z.string()),
+    icdCode: z.string().optional().nullable(),
+    matchingSymptoms: z.array(z.string()).optional().default([]),
+    concordantSymptoms: z.array(z.string()).optional().default([]),
   })),
   llmUsed: z.string().optional(),
   sources: z.array(DocumentSourceSchema).optional(),

@@ -95,6 +95,7 @@ class DiagnosticParser:
                             condition=condition,
                             probability=raw_prob,
                             icd_code=icd_code,
+                            matching_symptoms=item.get("matching_symptoms") or item.get("concordant_symptoms") or [],
                         )
                     )
 

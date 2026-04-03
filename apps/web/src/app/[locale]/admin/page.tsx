@@ -385,6 +385,7 @@ function CreateDoctorSection({ apiBase }: { apiBase: string }) {
           <input
             id="doctor-password"
             type="password"
+            autoComplete="new-password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}

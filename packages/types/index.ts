@@ -53,11 +53,22 @@ export const DifferentialDiagnosisSchema = z.object({
 export type DifferentialDiagnosis = z.infer<typeof DifferentialDiagnosisSchema>;
 
 /** Reference to a source document used in a RAG response (REQ-04) */
+export const HighlightInfoSchema = z.object({
+  bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  page: z.number(),
+});
+export type HighlightInfo = z.infer<typeof HighlightInfoSchema>;
+
 export const DocumentSourceSchema = z.object({
+  document_id: z.string().optional().default(''),
   /** Document title or identifier */
   title: z.string(),
-  section: z.string(),
-  excerpt: z.string(),
+  source: z.string().optional().default(''),
+  section: z.string().optional(),
+  excerpt: z.string().optional(),
+  page: z.number().optional(),
+  highlight: HighlightInfoSchema.optional(),
+  confidence_score: z.number().optional(),
 });
 export type DocumentSource = z.infer<typeof DocumentSourceSchema>;
 

@@ -133,6 +133,7 @@ class RAGService:
         top_k: int = 5,
         region: str | None = None,
         session_history: list[dict] | None = None,
+        system_prompt: str | None = None,
     ) -> RAGResponse:
         """Retrieve relevant document chunks and generate a grounded answer.
 
@@ -301,7 +302,7 @@ class RAGService:
 
         # Build LLM context — grounding prompt is always first — REQ 1.1
         llm_context: list[dict] = [
-            {"role": "system", "content": GROUNDING_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt if system_prompt is not None else GROUNDING_SYSTEM_PROMPT},
         ]
         # Include session history after grounding prompt — REQ 3.7
         if session_history:
