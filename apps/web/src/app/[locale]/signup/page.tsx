@@ -2,17 +2,17 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useLocale } from 'next-intl';
+import Link from 'next/link';
 import Image from 'next/image';
 import { IMAGES } from '@/lib/images';
 import DiagnoPilotLogo from '../../../components/DiagnoPilotLogo';
+import { useAuth } from '../../../contexts/AuthContext';
 
 export default function SignupPage() {
   const t = useTranslations('auth');
   const locale = useLocale();
-  const router = useRouter();
+  const { login } = useAuth();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -36,7 +36,9 @@ export default function SignupPage() {
         const data = (await res.json()) as { detail?: string };
         throw new Error(data.detail ?? t('signupError'));
       }
-      router.push(`/${locale}/login`);
+      // Auto-login after successful registration so the user lands as guest
+      await login(email, password);
+      // login() in AuthContext already redirects to /${locale} on success
     } catch (err) {
       setError((err as { message?: string })?.message ?? t('signupError'));
     } finally {

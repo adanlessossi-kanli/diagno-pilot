@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\document_service.py
+# hypothesis_version: 6.151.9
+
+[500, '$set', ', ', '.', 'ALL', 'CHU', 'MSF', 'OMS', 'PNLP', 'WHO', '_id', 'bilharziose', 'cholera', 'choléra', 'chunk_count', 'content', 'created_at', 'csv', 'delete_one', 'dengue', 'disease_tags', 'document_chunks', 'document_id', 'document_type', 'docx', 'embedding', 'evidence_level', 'find', 'find_one', 'fièvre jaune', 'guideline', 'hiv', 'indexed_at', 'insert_one', 'malaria', 'medical_documents', 'meningitis', 'metadata', 'méningite', 'other', 'page', 'paludisme', 'pdf', 'protocol', 'region', 'replace', 's3_key', 'schistosomiasis', 'section', 'source', 'text', 'title', 'trypanosomiase', 'trypanosomiasis', 'tuberculose', 'tuberculosis', 'txt', 'typhoid', 'typhoïde', 'unknown', 'update_one', 'utf-8', 'vih', 'yellow fever']

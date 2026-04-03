@@ -22,7 +22,7 @@ function decodeRoleFromJwt(token: string): string | null {
 }
 
 /** Public paths that never require authentication */
-const PUBLIC_PATHS = ['/login', '/qa'];
+const PUBLIC_PATHS = ['/login', '/signup', '/qa'];
 
 function isPublicPath(pathname: string): boolean {
   // Allow /qa and /[locale]/qa

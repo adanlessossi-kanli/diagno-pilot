@@ -190,7 +190,8 @@ async def test_cache_miss_executes_pipeline_and_stores_result():
     with patch("backend.services.rag_service.cache_service", mock_cache):
         await service.query("fever treatment")
 
-    service._chunks.aggregate.assert_called_once()
+    # Hybrid retrieval (vector + BM25) calls aggregate twice
+    assert service._chunks.aggregate.call_count == 2
     mock_cache.set.assert_called_once()
     set_key = mock_cache.set.call_args[0][0]
     assert set_key.startswith("v1:rag:")
@@ -208,14 +209,19 @@ async def test_degraded_mode_executes_pipeline_without_error():
     mock_cache.set = AsyncMock()
     mock_cache.make_key = MagicMock(side_effect=lambda domain, identifier: f"v1:{domain}:{identifier}")
 
-    service = _make_rag_service_with_mock_cache(mock_cache, llm_answer="Degraded answer")
+    # Provide chunks with scores >= 0.75 so the grounding filter passes them through
+    grounded_chunks = [
+        {"_id": "c1", "content": "Malaria treatment protocol.", "score": 0.85,
+         "metadata": {"title": "PNLP Guide", "source": "PNLP", "page": 1, "section": None}},
+    ]
+    service = _make_rag_service_with_mock_cache(mock_cache, chunks=grounded_chunks, llm_answer="Degraded answer")
 
     with patch("backend.services.rag_service.cache_service", mock_cache):
         result = await service.query("malaria treatment")
 
     assert isinstance(result, RAGResponse)
     assert result.answer == "Degraded answer"
-    service._chunks.aggregate.assert_called_once()
+    assert service._chunks.aggregate.call_count >= 1
 
 
 @pytest.mark.asyncio

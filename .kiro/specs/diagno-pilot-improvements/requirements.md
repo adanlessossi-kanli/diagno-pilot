@@ -2,283 +2,161 @@
 
 ## Introduction
 
-Ce document couvre les améliorations à apporter à **Diagno-Pilot**, application médicale d'aide au diagnostic des maladies infectieuses et à la prescription antibiotique, destinée aux professionnels de santé en Afrique de l'Ouest (Togo, Bénin). La stack est FastAPI + MongoDB + Next.js + React Native (Expo).
-
-Les améliorations sont regroupées en cinq axes : Sécurité, Robustesse backend, UX/Frontend, Données médicales, et Observabilité.
+This document specifies a comprehensive set of improvements to Diagno-Pilot, a tropical disease medical diagnosis tool. The improvements span five areas: strict document grounding to prevent hallucination, a multi-agent diagnostic system via MCP, tropical disease-specific RAG pipeline enhancements, safety and audit infrastructure, and a PDF citation popup with inline highlight. The system serves clinicians in West Africa (Togo, Benin) and must remain grounded in ingested medical protocols from sources such as PNLP, CHU Lomé, CHU Abomey-Calavi, MSF, and WHO AFRO.
 
 ---
 
-## Glossaire
+## Glossary
 
-- **API** : Le backend FastAPI exposé sur `/api/v1`.
-- **RateLimiter** : Composant middleware chargé de limiter le nombre de requêtes par IP et par utilisateur sur les endpoints sensibles.
-- **CircuitBreaker** : Composant qui surveille les appels vers un service externe (LLM) et ouvre le circuit après un seuil d'échecs consécutifs pour éviter les cascades de pannes.
-- **LLMRouter** : Service Python qui route les requêtes de génération vers MedicalQwen3 (primaire) puis GPT-5 (fallback).
-- **DiagnosticService** : Service Python qui orchestre le diagnostic différentiel via RAGService.
-- **PrescriptionService** : Service Python qui calcule les prescriptions antibiotiques adaptées au profil patient.
-- **AlertService** : Service Python qui vérifie les alertes de sécurité (allergies, interactions, contre-indications).
-- **AuthContext** : Contexte React (web et mobile) qui gère l'état d'authentification et le token JWT.
-- **PatientProfile** : Modèle Pydantic représentant le profil complet d'un patient.
-- **AgeGroup** : Énumération (`neonatal`, `infant`, `child`, `adult`) dérivée de la date de naissance.
-- **StructuredLogger** : Composant de logging qui émet des entrées JSON structurées.
-- **MetricsCollector** : Composant qui collecte et expose des métriques d'observabilité (latences, taux d'erreur, usage LLM).
-- **FileValidator** : Composant qui valide les fichiers uploadés (taille, MIME type).
-- **RefreshToken** : Token opaque à longue durée de vie permettant de renouveler un JWT expiré sans re-authentification.
+- **RAGService**: The retrieval-augmented generation service that embeds queries, performs hybrid retrieval over document chunks, re-ranks results with a CrossEncoder, applies a similarity threshold guard, and calls the LLMRouter to produce grounded answers.
+- **DocumentChunk**: A single indexed passage stored in the `document_chunks` MongoDB collection, including its embedding vector and enriched metadata (disease_tags, document_type, evidence_level, bbox, page_char_start, page_char_end, region).
+- **DocumentSource**: The Pydantic model returned to callers identifying the source of a retrieved chunk (document_id, title, source organisation, section, page, excerpt, highlight, confidence_score).
+- **LLMRouter**: The service that routes generation requests to MedicalQwen3-Reasoning-14B (primary) with GPT-5 as fallback.
+- **DiagnosticOrchestrator**: The orchestrator service (aliased as `DiagnosticService`) that delegates to MCP_Host for multi-agent differential diagnosis and writes a DiagnosticAudit record for every request.
+- **MCP_Host**: The Model Context Protocol host process that acts as the multi-agent orchestrator, coordinating four specialist sub-agents in parallel and passing their results to the Synthesis_Agent.
+- **Epidemiology_Agent**: A specialist sub-agent responsible for endemic zones, outbreak data, and seasonal patterns.
+- **Symptomatology_Agent**: A specialist sub-agent responsible for symptom clusters and pathognomonic signs.
+- **Lab_Agent**: A specialist sub-agent responsible for interpreting RDT, microscopy, and PCR results.
+- **Treatment_Agent**: A specialist sub-agent responsible for WHO/MSF/PNLP protocols and drug interactions.
+- **Synthesis_Agent**: A specialist sub-agent that merges ranked differentials with evidence citations from all other agents into a single DiagnosticResult.
+- **BM25_Retriever**: A sparse keyword retrieval component implementing the BM25 ranking function over the `document_chunks` collection.
+- **CrossEncoder**: A re-ranking model that scores (query, chunk) pairs to reorder the merged candidate set after initial hybrid retrieval.
+- **Chunker**: The component responsible for splitting extracted document text into semantically coherent passages aligned to section headers, numbered steps, and table boundaries.
+- **DiagnosticAudit**: A MongoDB document in the `diagnostic_audit` collection recording a single diagnostic request with its inputs, outputs, confidence score, and agent traces.
+- **RetrievalFeedback**: A MongoDB document in the `retrieval_feedback` collection recording a clinician's rating of a retrieved source.
+- **ConfidenceScore**: The arithmetic mean of the cosine similarity scores of the retained chunks for a given RAG query, expressed as a float in [0.0, 1.0].
+- **CitationChip**: An inline UI element (e.g. `[1]`, `[2]`) rendered in the answer text that, when clicked, opens the CitationPopup.
+- **CitationPopup**: A frontend drawer or modal that renders the source PDF page with a yellow highlight overlay over the cited passage.
+- **BBox**: A bounding box `[x0, y0, x1, y1]` in PDF user-space coordinates identifying the position of a text span on a page.
+- **LocaleMiddleware**: The Starlette middleware that resolves `Accept-Language` to `(locale, region)` and stores the result in `request.state`.
+- **PNLP**: Programme National de Lutte contre le Paludisme — the national malaria-control programme.
+- **CHU**: Centre Hospitalier Universitaire — teaching hospital (Lomé for Togo, Abomey-Calavi for Benin).
+- **SIMILARITY_THRESHOLD**: The minimum cosine similarity score (0.75) below which a retrieved chunk is discarded before being passed to the LLM.
+- **NO_CONTEXT_MESSAGE**: The fixed French refusal string `"Information non disponible dans la base de connaissances."` returned as the `answer` field when RAGService has no grounded chunks to pass to the LLM.
+- **grounding_warning**: A fixed message included in the RAGResponse when keyword fallback is active, indicating that results are based on keyword retrieval only and may not be fully grounded in validated protocols.
 
 ---
 
 ## Requirements
 
-### Requirement 1 : Restriction des origines CORS en production
+### Requirement 1: Strict Document Grounding
 
-**User Story :** En tant qu'administrateur système, je veux que les origines CORS autorisées soient explicitement configurées en production, afin d'empêcher des requêtes cross-origin non autorisées vers l'API.
+**User Story:** As a clinician, I want the assistant to answer only from ingested medical documents, so that I can trust that every response is grounded in validated protocols and not in the LLM's parametric knowledge.
 
 #### Acceptance Criteria
 
-1. WHEN l'API démarre avec `ALLOWED_ORIGINS="*"` et que la variable d'environnement `ENV` vaut `production`, THEN THE API SHALL rejeter le démarrage avec une erreur de configuration explicite.
-2. THE API SHALL lire la liste des origines autorisées depuis la variable d'environnement `ALLOWED_ORIGINS` sous forme de chaîne séparée par des virgules.
-3. WHEN `ALLOWED_ORIGINS` contient une liste d'origines explicites, THE API SHALL configurer le middleware CORS pour n'autoriser que ces origines.
-4. IF `ALLOWED_ORIGINS` est absent ou vide en production, THEN THE API SHALL refuser de démarrer et journaliser un message d'erreur indiquant la variable manquante.
+1. THE RAGService SHALL include a grounding system prompt in every LLM context that instructs the LLM to answer exclusively from the provided document passages and to refuse to answer if no relevant passage is available.
+2. WHEN RAGService retrieves zero chunks after applying the SIMILARITY_THRESHOLD filter, THE RAGService SHALL return a structured refusal response without calling the LLMRouter, with `answer` set to the NO_CONTEXT_MESSAGE constant (`"Information non disponible dans la base de connaissances."`) and `sources` set to an empty list.
+3. WHEN RAGService retrieves chunks from the vector index, THE RAGService SHALL discard any chunk whose cosine similarity score is below SIMILARITY_THRESHOLD (0.75); IF no chunks remain after filtering, THE RAGService SHALL return the structured refusal response defined in criterion 2.
+4. THE DocumentSource model SHALL expose a `title` field populated from the document's stored title and a `source` field populated from the document's stored source organisation, and THE RAGService SHALL populate these two fields independently from their respective metadata values.
+5. WHEN RAGService returns a response with `degraded_warning` set (keyword fallback active), THE RAGResponse SHALL include a `grounding_warning` field set to a fixed message indicating that results are based on keyword retrieval only and may not be fully grounded in validated protocols.
 
 ---
 
-### Requirement 2 : Rate limiting sur les endpoints sensibles
+### Requirement 2: Multi-Agent Diagnostic System via MCP
 
-**User Story :** En tant qu'administrateur système, je veux limiter le nombre de requêtes par IP et par utilisateur sur les endpoints `/diagnose` et `/chat`, afin de prévenir les abus et de protéger les ressources LLM coûteuses.
+**User Story:** As a clinician, I want the diagnostic pipeline to use specialist agents for epidemiology, symptomatology, lab interpretation, and treatment, so that each dimension of the differential diagnosis is grounded in the most relevant document subset.
 
 #### Acceptance Criteria
 
-1. THE RateLimiter SHALL appliquer une limite de 30 requêtes par minute par utilisateur authentifié sur `POST /api/v1/diagnose/symptoms`.
-2. THE RateLimiter SHALL appliquer une limite de 60 requêtes par minute par utilisateur authentifié sur `POST /api/v1/chat/message`.
-3. WHEN un utilisateur dépasse la limite, THE API SHALL retourner une réponse HTTP 429 avec un en-tête `Retry-After` indiquant le nombre de secondes avant réinitialisation.
-4. THE RateLimiter SHALL appliquer une limite de 10 requêtes par minute par adresse IP non authentifiée sur tous les endpoints publics.
-5. IF le backend de stockage du RateLimiter est indisponible, THEN THE API SHALL laisser passer les requêtes et journaliser un avertissement, sans bloquer le service.
+1. THE MCP_Host SHALL coordinate four specialist sub-agents — Epidemiology_Agent, Symptomatology_Agent, Lab_Agent, and Treatment_Agent — in parallel for each diagnostic request.
+2. WHEN the MCP_Host dispatches a sub-agent, THE MCP_Host SHALL pass a focused sub-question and a `source_filter` scoped to the relevant document types for that agent.
+3. THE Epidemiology_Agent SHALL call RAGService.query() with a sub-question focused on endemic zones, outbreak data, and seasonal patterns, and with `source_filter` set to epidemiology documents.
+4. THE Symptomatology_Agent SHALL call RAGService.query() with a sub-question focused on symptom clusters and pathognomonic signs, and with `source_filter` set to clinical guidelines.
+5. THE Lab_Agent SHALL call RAGService.query() with a sub-question focused on RDT, microscopy, and PCR interpretation, and with `source_filter` set to laboratory protocol documents.
+6. THE Treatment_Agent SHALL call RAGService.query() with a sub-question focused on WHO/MSF/PNLP treatment protocols and drug interactions, and with `source_filter` set to treatment protocol documents.
+7. THE Synthesis_Agent SHALL merge the ranked differentials and evidence citations returned by all four specialist agents into a single DiagnosticResult containing a minimum of 3 differential diagnoses; WHEN fewer than 3 diagnoses are produced by the agents, THE Synthesis_Agent SHALL add placeholder entries marked with `confidence: low` to reach the minimum.
+8. THE DiagnosticOrchestrator SHALL delegate to the MCP_Host for every call to `get_differential_diagnosis`, preserving the existing `get_differential_diagnosis` interface for callers.
+9. WHEN a specialist sub-agent returns zero grounded chunks, THE Synthesis_Agent SHALL exclude that agent's contribution from the merged result and record the omission in the DiagnosticAudit.
+10. THE MCP_Host SHALL communicate with sub-agents using the MCP stdio transport protocol; each sub-agent SHALL be a separate process exposing MCP tools over stdin/stdout.
+11. THE `source_filter` passed by MCP_Host to each sub-agent SHALL be implemented as a `metadata.document_type` filter applied as a MongoDB pre-filter on the `document_chunks` collection before vector search.
+12. THE MCP_Host SHALL enforce a per-agent timeout of 30 seconds; WHEN a sub-agent exceeds this timeout, THE MCP_Host SHALL treat it as returning zero grounded chunks and record the timeout in the DiagnosticAudit.
+13. THE MCP_Host SHALL not require authentication between host and sub-agents when all processes run within the same trusted deployment boundary (localhost/container network); inter-agent communication SHALL be isolated from external network access.
 
 ---
 
-### Requirement 3 : Validation des fichiers uploadés
+### Requirement 3: Tropical Disease-Specific RAG Improvements
 
-**User Story :** En tant qu'administrateur système, je veux que les fichiers uploadés soient validés avant traitement, afin d'éviter l'injection de fichiers malveillants ou surdimensionnés dans le système.
+**User Story:** As a clinician, I want the RAG pipeline to use semantically coherent chunks, enriched metadata, and hybrid retrieval, so that retrieved passages are more relevant to tropical disease queries.
 
 #### Acceptance Criteria
 
-1. THE FileValidator SHALL rejeter tout fichier dont la taille dépasse 20 Mo avec une réponse HTTP 413.
-2. THE FileValidator SHALL vérifier le MIME type réel du fichier (via inspection des magic bytes) et n'accepter que les types `application/pdf`, `image/jpeg`, `image/png`, `text/csv`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
-3. WHEN le MIME type déclaré par le client diffère du MIME type détecté, THEN THE FileValidator SHALL rejeter le fichier avec une réponse HTTP 415 et un message d'erreur descriptif.
-4. IF un fichier est rejeté, THEN THE API SHALL journaliser l'événement avec l'adresse IP de l'appelant, le nom du fichier, et la raison du rejet.
-5. THE FileValidator SHALL valider le nom de fichier pour rejeter tout chemin contenant des séquences de traversée de répertoire (`../`, `..\\`).
+1. THE Chunker SHALL detect section boundaries using the following rules in order: (1) lines matching the regex `^(\d+\.|\#{1,3}|\*{1,2})[^\n]+` as section headers; (2) lines matching `^(\d+[\.\)])\s` as numbered steps; (3) lines containing pipe characters (`|`) as table rows, grouping consecutive table rows into a single chunk. Chunks SHALL have a maximum of 800 characters; text not matching any boundary rule SHALL be split at sentence boundaries up to the 800-character limit.
+2. WHEN the Chunker produces a chunk, THE Chunker SHALL preserve the section header or table caption as the chunk's `metadata.section` field.
+3. THE DocumentService SHALL enrich each DocumentChunk at ingestion time with `metadata.disease_tags` detected using a curated keyword list of tropical disease names (malaria/paludisme, typhoid/typhoïde, dengue, cholera/choléra, tuberculosis/tuberculose, HIV/VIH, schistosomiasis/bilharziose, trypanosomiasis/trypanosomiase, yellow fever/fièvre jaune, meningitis/méningite); `metadata.document_type` inferred from the document `source` field (sources containing "PNLP" → `protocol`; "CHU" → `guideline`; "MSF" → `protocol`; "OMS" or "WHO" → `guideline`; otherwise → `other`); and `metadata.evidence_level` mirroring the `document_type` source mapping.
+4. THE RAGService SHALL perform hybrid retrieval by combining vector search results with BM25_Retriever results before re-ranking.
+5. WHEN RAGService performs hybrid retrieval, THE RAGService SHALL merge vector search and BM25 result sets using Reciprocal Rank Fusion before passing them to the CrossEncoder.
+6. THE CrossEncoder SHALL use the `cross-encoder/ms-marco-MiniLM-L-6-v2` model running locally; THE DocumentService SHALL load this model at application startup and expose it as a singleton.
+7. WHEN ChatService calls RAGService.query(), THE ChatService SHALL include the last 5 messages (user and assistant turns combined, i.e. up to 2.5 exchanges) from the session history as additional context.
+8. WHEN the chat router receives a request, THE chat router SHALL read `request.state.region` set by LocaleMiddleware and pass it to RAGService.query() as the `region` parameter.
+9. WHEN `region` is `None`, empty, or an unrecognised value, THE RAGService SHALL apply no region pre-filter and return results from all documents.
 
 ---
 
-### Requirement 4 : Refresh token JWT
+### Requirement 4: Safety and Audit
 
-**User Story :** En tant que professionnel de santé, je veux que ma session reste active sans avoir à me reconnecter toutes les 60 minutes, afin de ne pas interrompre mon flux de travail clinique.
+**User Story:** As a medical administrator, I want every diagnostic request to be logged with its confidence score, retrieved chunks, and agent traces, so that I can audit the system's reasoning and identify low-confidence responses for clinical review.
 
 #### Acceptance Criteria
 
-1. WHEN un utilisateur s'authentifie avec succès, THE API SHALL retourner un access token JWT (durée de vie : 15 minutes) et un refresh token opaque (durée de vie : 7 jours).
-2. THE API SHALL exposer un endpoint `POST /api/v1/auth/refresh` qui accepte un refresh token valide et retourne un nouveau access token JWT.
-3. WHEN un refresh token est utilisé, THE API SHALL invalider l'ancien refresh token et en émettre un nouveau (rotation).
-4. IF un refresh token expiré ou révoqué est présenté, THEN THE API SHALL retourner HTTP 401 avec le message `"refresh_token_invalid"`.
-5. THE AuthContext SHALL détecter automatiquement une réponse HTTP 401 sur n'importe quel appel API et tenter un refresh silencieux avant de rediriger vers la page de login.
-6. WHEN la page est rechargée, THE AuthContext SHALL restaurer la session en appelant `GET /api/v1/auth/me` avec le cookie httpOnly existant, sans nécessiter de re-saisie des identifiants.
+1. THE RAGService SHALL compute a ConfidenceScore for every query as the arithmetic mean of the cosine similarity scores of the retained chunks, and SHALL include it in the RAGResponse as `confidence_score`.
+2. WHEN RAGService returns a response with `fallback_used=True`, THE ChatService and DiagnosticOrchestrator SHALL include a disclaimer in the response indicating that the answer was generated by the fallback model and requires clinical verification.
+3. THE DiagnosticOrchestrator SHALL write a DiagnosticAudit document to the `diagnostic_audit` MongoDB collection for every call to `get_differential_diagnosis`, containing: request timestamp, symptoms, patient profile hash, locale, region, ConfidenceScore, diagnoses, fallback_used, degraded_warning, and agent_results from each sub-agent. The patient profile hash SHALL be computed as SHA-256 over the JSON serialisation of the PatientProfile fields `age`, `weight`, `sex`, and `comorbidities` only; PII fields (name, identifiers) SHALL NOT be included in the hash input.
+4. THE DiagnosticAudit document SHALL store `agent_results` as a list of objects, each containing: agent name, sub-question, retrieved chunk IDs, ConfidenceScore, and the agent's partial differential.
+5. THE DocumentChunk stored in MongoDB SHALL include `metadata.disease_tags`, `metadata.document_type`, and `metadata.evidence_level` fields as defined in Requirement 3, criterion 3.
+6. THE system SHALL expose a `POST /api/v1/feedback/retrieval` endpoint accessible to users with roles `admin`, `medecin`, and `infirmière` for submitting retrieval feedback; the request body SHALL contain: `session_id`, `document_id`, `chunk_id`, and `rating` (value: `1` or `-1`).
+7. WHEN a clinician submits retrieval feedback, THE system SHALL store: session_id, user_id, document_id, chunk_id, rating (1 or -1), and timestamp in the `retrieval_feedback` collection.
+8. THE `diagnostic_audit` collection SHALL have a TTL index of 2555 days (7 years) on the `timestamp` field, in compliance with clinical record retention requirements.
+9. THE `diagnostic_audit` collection SHALL be readable only by users with the `admin` role; medecin and infirmière roles SHALL NOT have read access to audit records.
 
 ---
 
-### Requirement 5 : Circuit breaker sur le LLMRouter
+### Requirement 5: PDF Citation Popup with Highlight
 
-**User Story :** En tant qu'administrateur système, je veux qu'un circuit breaker protège les appels vers les LLM, afin d'éviter les cascades de pannes et de réduire les temps d'attente lors d'une indisponibilité du modèle primaire.
+**User Story:** As a clinician, I want to click on a citation chip in the answer text and see the exact passage highlighted in the source PDF, so that I can verify the evidence directly without leaving the application.
 
 #### Acceptance Criteria
 
-1. THE CircuitBreaker SHALL surveiller les appels vers le LLM primaire (MedicalQwen3) et ouvrir le circuit après 5 échecs consécutifs dans une fenêtre de 60 secondes.
-2. WHILE le circuit est ouvert, THE LLMRouter SHALL router directement vers le LLM fallback (GPT-5) sans tenter le LLM primaire.
-3. THE CircuitBreaker SHALL tenter de refermer le circuit après une période de récupération de 120 secondes en laissant passer une requête de test.
-4. WHEN le circuit passe à l'état ouvert, THE API SHALL journaliser un événement de niveau WARNING avec le nombre d'échecs et l'heure d'ouverture.
-5. IF le LLM fallback est également indisponible alors que le circuit est ouvert, THEN THE API SHALL retourner HTTP 503 avec le message `"llm_unavailable"` et journaliser un événement de niveau CRITICAL.
+1. WHEN DocumentService ingests a PDF file, THE DocumentService SHALL extract the BBox and character offsets for each chunk using pypdf and store `metadata.bbox` (list of `[x0, y0, x1, y1]` floats), `metadata.page_char_start` (int), and `metadata.page_char_end` (int) on the DocumentChunk.
+2. THE DocumentSource model SHALL include an optional `highlight` field of type `{bbox: list[float], page: int}` populated from the chunk's stored `metadata.bbox` and `metadata.page` when available.
+3. THE `GET /api/v1/documents/{id}/view` endpoint SHALL be accessible to users with roles `admin`, `medecin`, and `infirmière`, and SHALL return a presigned S3 URL valid for 15 minutes for the document's stored S3 object.
+4. WHEN a user requests `GET /api/v1/documents/{id}/view` for a document that does not exist, THE documents router SHALL return HTTP 404.
+5. THE frontend SHALL render CitationChips inline in the answer text using the pattern `[N]` where N is the 1-based index of the source in the `sources` list.
+6. WHEN a user clicks a CitationChip, THE frontend SHALL open a CitationPopup that fetches the presigned S3 URL, renders the source PDF page, and overlays a yellow highlight rectangle at the position specified by the `highlight.bbox` field of the corresponding DocumentSource.
+7. WHEN a DocumentSource has no `highlight` field, THE CitationPopup SHALL display the `excerpt` text only without attempting to render a PDF page.
+8. WHEN DocumentService ingests a non-PDF file (DOCX, TXT, CSV), THE DocumentSource for chunks from that document SHALL have no `highlight` field, and THE CitationPopup SHALL display the `excerpt` text only without attempting to render a PDF page.
+9. THE CitationPopup SHALL be accessible as a drawer or modal and SHALL be closable by pressing Escape or clicking outside the popup area.
 
 ---
 
-### Requirement 6 : Validation des réponses LLM
+### Requirement 6: Data Integrity and Migration
 
-**User Story :** En tant que professionnel de santé, je veux que les réponses du LLM soient validées avant d'être affichées, afin de garantir que les diagnostics retournés sont structurellement cohérents et exploitables.
+**User Story:** As a system administrator, I want the system to handle mixed-state document chunks and maintain referential integrity across collections, so that the deployment of new features does not break existing data or audit trails.
 
 #### Acceptance Criteria
 
-1. WHEN le LLMRouter retourne une réponse, THE DiagnosticService SHALL valider que la réponse contient au moins 1 et au plus 10 diagnostics différentiels.
-2. WHEN la réponse LLM ne peut pas être parsée en liste de `DifferentialDiagnosis`, THEN THE DiagnosticService SHALL journaliser la réponse brute et retourner HTTP 502 avec le message `"llm_response_invalid"`.
-3. THE DiagnosticService SHALL valider que chaque `DifferentialDiagnosis` contient un champ `condition` non vide et un champ `probability` compris entre 0 et 1.
-4. IF un champ `icd_code` est présent dans la réponse LLM, THEN THE DiagnosticService SHALL valider que sa valeur correspond au format ICD-10 (`[A-Z][0-9]{2}(\.[0-9]{1,4})?`).
-5. THE DiagnosticService SHALL être instancié une seule fois au démarrage de l'application et partagé via l'injection de dépendances FastAPI, sans reconstruction à chaque requête.
+1. WHEN the system starts up, THE DocumentService SHALL detect `document_chunks` records that lack `metadata.disease_tags`, `metadata.document_type`, or `metadata.evidence_level` fields and SHALL log a warning with the count of unmigrated chunks; a background migration task SHALL NOT be run automatically at startup.
+2. THE system SHALL expose an admin-only `POST /api/v1/admin/migrate-chunks` endpoint that triggers a background re-enrichment of all `document_chunks` lacking the new metadata fields, processing chunks in batches of 100.
+3. THE system SHALL expose an admin-only `POST /api/v1/admin/reindex-document/{id}` endpoint that re-ingests a document from its stored S3 key using the new semantic Chunker and pypdf bbox extraction, deletes all existing `document_chunks` for that document, inserts the newly produced chunks, and updates the `chunk_count` on the `medical_documents` record.
+4. WHEN `POST /api/v1/admin/reindex-document/{id}` is called for a PDF document, THE DocumentService SHALL extract BBox and character offsets for each new chunk as defined in Requirement 5, criterion 1.
+5. WHEN `POST /api/v1/admin/reindex-document/{id}` is called for a non-PDF document (DOCX, TXT, CSV), THE DocumentService SHALL apply the new semantic Chunker and metadata enrichment only; no bbox extraction SHALL be attempted.
+6. WHEN a document is deleted via `DELETE /api/v1/documents/{id}`, THE system SHALL retain any `diagnostic_audit` records that reference chunks from that document; the `chunk_id` references in those audit records SHALL remain as tombstone references and SHALL NOT be deleted.
+7. THE end-to-end latency from user query submission to first response token SHALL not exceed 15 seconds at the 95th percentile under normal operating conditions (both LLMs available, Redis available, MongoDB available).
+8. THE multi-agent diagnostic pipeline SHALL complete within 45 seconds at the 95th percentile; this budget includes all four specialist agent calls (each capped at 30s) plus Synthesis_Agent processing.
 
 ---
 
-### Requirement 7 : Persistance du token JWT après rechargement de page
+### Requirement 7: Implementation Documentation
 
-**User Story :** En tant que professionnel de santé, je veux que ma session soit restaurée automatiquement après un rechargement de page, afin de ne pas perdre mon contexte de travail.
-
-#### Acceptance Criteria
-
-1. WHEN la page est rechargée, THE AuthContext SHALL appeler `GET /api/v1/auth/me` en utilisant le cookie httpOnly pour restaurer l'état utilisateur.
-2. WHILE la vérification de session est en cours, THE AuthContext SHALL maintenir `isLoading` à `true` pour empêcher les redirections prématurées.
-3. IF `GET /api/v1/auth/me` retourne HTTP 401, THEN THE AuthContext SHALL effacer le token en mémoire et rediriger vers la page de login.
-4. THE AuthContext mobile (React Native / Expo) SHALL stocker le token dans `SecureStore` d'Expo et le restaurer au démarrage de l'application.
-
----
-
-### Requirement 8 : Pagination de la liste des patients
-
-**User Story :** En tant que professionnel de santé, je veux que la liste des patients soit paginée, afin de naviguer efficacement dans un grand nombre de dossiers sans dégradation des performances.
+**User Story:** As a developer or clinical engineer onboarding to the project, I want up-to-date documentation of the new implementation including architecture diagrams, so that I can understand the system's data flows and component interactions without reading the source code.
 
 #### Acceptance Criteria
 
-1. THE API SHALL accepter les paramètres de requête `page` (entier ≥ 1, défaut : 1) et `page_size` (entier entre 1 et 100, défaut : 20) sur `GET /api/v1/patients`.
-2. THE API SHALL retourner un objet de réponse contenant `items` (liste de patients), `total` (nombre total de patients), `page` et `page_size`.
-3. WHEN `page * page_size` dépasse `total`, THE API SHALL retourner une liste `items` vide sans erreur.
-4. THE PatientsPage (web) SHALL afficher des contrôles de navigation (page précédente / suivante / numéros de page) et mettre à jour la liste sans rechargement complet de la page.
-5. THE PatientsPage (web) SHALL afficher le nombre total de patients et la plage courante (ex. : « 21–40 sur 150 »).
-
----
-
-### Requirement 9 : Feedback en temps réel sur les formulaires
-
-**User Story :** En tant que professionnel de santé, je veux recevoir un retour visuel immédiat lors de la saisie dans les formulaires, afin de corriger les erreurs avant soumission et de réduire les allers-retours avec le serveur.
-
-#### Acceptance Criteria
-
-1. THE DiagnosePage SHALL valider en temps réel que le champ texte libre de symptômes contient au moins 3 caractères avant d'activer le bouton de soumission.
-2. THE CreatePatientModal SHALL valider en temps réel que le champ `full_name` n'est pas vide et que `weight_kg`, si renseigné, est un nombre positif.
-3. WHEN un champ obligatoire est vide au moment de la soumission, THE Form SHALL afficher un message d'erreur inline sous le champ concerné, sans effacer les autres champs.
-4. WHEN une requête API est en cours, THE Form SHALL désactiver le bouton de soumission et afficher un indicateur de chargement.
-5. WHEN une requête API réussit, THE Form SHALL afficher un message de confirmation visible pendant au moins 2 secondes avant de fermer ou réinitialiser le formulaire.
-
----
-
-### Requirement 10 : Tests du mode mobile
-
-**User Story :** En tant que développeur, je veux que les composants React Native critiques soient couverts par des tests automatisés, afin de détecter les régressions sur le mode mobile.
-
-#### Acceptance Criteria
-
-1. THE MobileSymptomInput SHALL être couvert par des tests unitaires vérifiant le rendu, la saisie de texte, et l'ajout de symptômes structurés.
-2. THE MobilePatientCard SHALL être couvert par des tests unitaires vérifiant l'affichage du nom, de la date de naissance, et du groupe d'âge.
-3. THE AuthContext mobile SHALL être couvert par des tests vérifiant la restauration de session depuis `SecureStore` au démarrage.
-4. WHEN les tests mobiles sont exécutés, THE Test_Suite SHALL produire un rapport de couverture indiquant au moins 70% de couverture de branches sur les composants testés.
-
----
-
-### Requirement 11 : Protocoles antibiotiques configurables
-
-**User Story :** En tant qu'administrateur médical, je veux que les protocoles antibiotiques soient stockés en base de données et modifiables sans redéploiement, afin de mettre à jour les recommandations thérapeutiques selon les directives locales (PNLP Togo/Bénin).
-
-#### Acceptance Criteria
-
-1. THE API SHALL exposer un endpoint `GET /api/v1/admin/protocols` retournant la liste complète des protocoles antibiotiques stockés en MongoDB.
-2. THE API SHALL exposer un endpoint `PUT /api/v1/admin/protocols/{name}` permettant à un utilisateur avec le rôle `admin` de mettre à jour un protocole existant.
-3. THE API SHALL exposer un endpoint `POST /api/v1/admin/protocols` permettant à un utilisateur avec le rôle `admin` de créer un nouveau protocole.
-4. WHEN un protocole est mis à jour ou créé, THE PrescriptionService SHALL utiliser la version en base de données en priorité sur les protocoles codés en dur.
-5. IF un protocole demandé n'existe ni en base de données ni dans les protocoles codés en dur, THEN THE PrescriptionService SHALL retourner HTTP 422 avec le message `"unknown_antibiotic"`.
-6. THE API SHALL journaliser toute modification de protocole dans le journal d'audit avec l'identifiant de l'utilisateur, l'action, et les valeurs avant/après.
-
----
-
-### Requirement 12 : Base de données des interactions médicamenteuses
-
-**User Story :** En tant que professionnel de santé, je veux que les interactions médicamenteuses soient vérifiées contre une base de données complète et maintenue, afin de détecter les risques non couverts par la liste statique actuelle.
-
-#### Acceptance Criteria
-
-1. THE AlertService SHALL charger les interactions médicamenteuses depuis une collection MongoDB `drug_interactions` au démarrage.
-2. THE API SHALL exposer un endpoint `POST /api/v1/admin/drug-interactions` permettant à un utilisateur `admin` d'ajouter une nouvelle interaction.
-3. WHEN une interaction est ajoutée, THE AlertService SHALL recharger sa liste d'interactions sans redémarrage du service.
-4. THE AlertService SHALL vérifier les interactions de manière symétrique (A→B équivaut à B→A).
-5. IF la collection `drug_interactions` est vide au démarrage, THEN THE AlertService SHALL charger les interactions codées en dur comme données de secours et journaliser un avertissement.
-
----
-
-### Requirement 13 : Calcul automatique du groupe d'âge
-
-**User Story :** En tant que professionnel de santé, je veux que le groupe d'âge du patient soit calculé automatiquement depuis sa date de naissance, afin d'éviter les erreurs de saisie manuelle qui pourraient conduire à des prescriptions inadaptées.
-
-#### Acceptance Criteria
-
-1. WHEN un `PatientProfile` est créé ou mis à jour avec une `date_of_birth`, THE PatientProfile SHALL calculer et stocker automatiquement le champ `age_group` selon les règles : 0–28 jours → `neonatal`, 29 jours–23 mois → `infant`, 2–17 ans → `child`, 18 ans et plus → `adult`.
-2. IF `date_of_birth` est absent, THEN THE PatientProfile SHALL conserver la valeur `age_group` fournie explicitement, ou `null` si aucune n'est fournie.
-3. WHEN `age_group` est calculé depuis `date_of_birth`, THE PatientProfile SHALL ignorer toute valeur `age_group` fournie explicitement dans la requête.
-4. THE API SHALL recalculer `age_group` à chaque mise à jour du `PatientProfile` si `date_of_birth` est présent.
-5. FOR ALL `PatientProfile` avec une `date_of_birth` valide, le calcul de `age_group` puis le recalcul depuis la même `date_of_birth` SHALL produire le même résultat (propriété d'idempotence).
-
----
-
-### Requirement 14 : Logging structuré JSON
-
-**User Story :** En tant qu'administrateur système, je veux que tous les logs de l'application soient émis au format JSON structuré, afin de faciliter leur ingestion par des outils d'agrégation (ex. : Loki, CloudWatch Logs).
-
-#### Acceptance Criteria
-
-1. THE StructuredLogger SHALL émettre chaque entrée de log sous forme d'un objet JSON sur une seule ligne, contenant au minimum les champs : `timestamp` (ISO 8601), `level`, `message`, `service`, `request_id`.
-2. WHEN une requête HTTP est traitée, THE StructuredLogger SHALL inclure dans l'entrée de log les champs `method`, `path`, `status_code`, et `duration_ms`.
-3. WHEN une exception non gérée est capturée, THE StructuredLogger SHALL inclure le champ `error` avec le type d'exception et le message, et le champ `stack_trace`.
-4. THE StructuredLogger SHALL être configurable via la variable d'environnement `LOG_LEVEL` (valeurs acceptées : `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`).
-5. IF `LOG_FORMAT` est défini à `text`, THEN THE StructuredLogger SHALL émettre des logs en texte brut pour faciliter le développement local.
-
----
-
-### Requirement 15 : Navigation principale et menu persistant
-
-**User Story :** En tant que professionnel de santé, je veux disposer d'un menu de navigation toujours visible sur toutes les pages, afin de passer rapidement d'une section à l'autre sans me perdre dans l'application.
-
-#### Acceptance Criteria
-
-1. THE NavBar SHALL être visible sur toutes les pages authentifiées (Diagnostic, Chat, Patients, Admin) en web et en mobile.
-2. THE NavBar web SHALL afficher les liens : Accueil, Diagnostic, Chat, Patients, et Admin (uniquement pour le rôle `admin`), avec mise en évidence visuelle de la page active.
-3. THE NavBar mobile SHALL utiliser une barre de navigation inférieure (bottom tab bar) avec icônes et libellés pour : Diagnostic, Chat, Patients, et Profil.
-4. WHEN l'utilisateur navigue vers une page, THE NavBar SHALL mettre à jour l'indicateur de page active sans rechargement complet.
-5. THE NavBar SHALL afficher le nom et le rôle de l'utilisateur connecté, ainsi qu'un bouton de déconnexion accessible en un clic.
-6. THE NavBar web SHALL être responsive : sur mobile web, elle se transforme en menu hamburger avec drawer latéral.
-
----
-
-### Requirement 16 : Images illustratives sur les pages principales
-
-**User Story :** En tant que professionnel de santé, je veux que les pages principales de l'application soient illustrées avec des images médicales pertinentes et libres de droits, afin de rendre l'interface plus accueillante et professionnelle.
-
-#### Acceptance Criteria
-
-1. THE HomePage SHALL afficher une image hero illustrant un contexte médical africain (professionnel de santé, consultation), issue d'une source libre de droits (Unsplash, Pexels, ou similaire).
-2. THE LoginPage SHALL afficher une image de fond ou latérale illustrant un contexte médical, avec un ratio d'aspect adapté aux écrans desktop et mobile.
-3. THE DiagnosePage SHALL afficher une illustration contextuelle (ex. : stéthoscope, consultation) dans l'en-tête de section, de taille réduite pour ne pas gêner le flux de travail.
-4. THE PatientsPage SHALL afficher une illustration dans l'état vide (aucun patient) guidant l'utilisateur vers la création du premier dossier.
-5. WHEN une image ne peut pas être chargée, THE Page SHALL afficher un placeholder avec la même dimension pour éviter les sauts de mise en page (layout shift).
-6. ALL images SHALL avoir un attribut `alt` descriptif pour l'accessibilité.
-7. ALL images utilisées SHALL provenir de sources libres de droits (licence CC0, Unsplash, Pexels) et leurs URLs SHALL être documentées dans le code source.
-
----
-
-### Requirement 17 : Design system et bonnes pratiques UI
-
-**User Story :** En tant que professionnel de santé, je veux une interface cohérente, lisible et professionnelle sur toutes les pages, afin de réduire la charge cognitive lors de consultations médicales.
-
-#### Acceptance Criteria
-
-1. THE Application SHALL utiliser une palette de couleurs cohérente : bleu médical primaire (`#1D4ED8`), blanc fond, gris neutres, rouge pour les alertes critiques, orange pour les avertissements, vert pour les confirmations.
-2. THE Application SHALL utiliser une typographie lisible : police sans-serif (Inter ou système), taille minimale 14px pour le corps de texte, 16px pour les labels de formulaire.
-3. THE Application SHALL afficher des états de chargement (skeleton screens) sur toutes les listes et sections de données asynchrones, plutôt que des spinners bloquants.
-4. THE Application SHALL afficher des états vides illustrés (empty states) avec un message d'action clair sur toutes les listes pouvant être vides (patients, consultations, résultats de diagnostic).
-5. THE Application SHALL utiliser des composants de feedback toast/notification pour les actions réussies et les erreurs non bloquantes, positionnés en haut à droite de l'écran.
-6. THE Application SHALL respecter un contraste de couleur minimum de 4.5:1 entre le texte et l'arrière-plan pour les éléments interactifs.
-7. THE Application SHALL être entièrement navigable au clavier (focus visible, ordre de tabulation logique) sur la version web.
-
----
-
-### Requirement 18 : Métriques d'observabilité (anciennement REQ-15)
-
-**User Story :** En tant qu'administrateur système, je veux disposer de métriques sur les taux d'erreur LLM, les latences par endpoint, et l'usage par utilisateur, afin de surveiller la santé du système et d'optimiser les ressources.
-
-#### Acceptance Criteria
-
-1. THE MetricsCollector SHALL exposer un endpoint `GET /metrics` au format Prometheus (text/plain) contenant au minimum : `diagno_pilot_http_requests_total` (compteur par méthode, path, status), `diagno_pilot_http_request_duration_seconds` (histogramme par méthode, path), `diagno_pilot_llm_requests_total` (compteur par modèle et statut : success/error), `diagno_pilot_llm_duration_seconds` (histogramme par modèle).
-2. THE MetricsCollector SHALL incrémenter `diagno_pilot_llm_requests_total{model="qwen3", status="error"}` à chaque échec du LLM primaire.
-3. THE MetricsCollector SHALL incrémenter `diagno_pilot_llm_requests_total{model="gpt5", status="success"}` à chaque utilisation réussie du fallback.
-4. WHEN le circuit breaker passe à l'état ouvert, THE MetricsCollector SHALL incrémenter le compteur `diagno_pilot_circuit_breaker_open_total{service="llm_primary"}`.
-5. THE endpoint `/metrics` SHALL être protégé par authentification HTTP Basic ou par restriction d'accès à un réseau interne, et ne pas être exposé publiquement.
+1. THE project SHALL include a documentation file at `docs/architecture.md` that describes the complete new implementation across all six requirement areas (document grounding, multi-agent MCP, RAG pipeline, safety & audit, PDF citation popup, data integrity).
+2. THE `docs/architecture.md` file SHALL contain a Mermaid flowchart diagram of the document ingestion pipeline, covering: file upload → text extraction → semantic chunking → metadata enrichment → embedding → S3 upload → MongoDB storage.
+3. THE `docs/architecture.md` file SHALL contain a Mermaid flowchart diagram of the RAG query pipeline, covering: cache lookup → query embedding → hybrid retrieval (vector + BM25) → Reciprocal Rank Fusion → CrossEncoder re-ranking → SIMILARITY_THRESHOLD filter → grounding system prompt → LLM generation → response caching.
+4. THE `docs/architecture.md` file SHALL contain a Mermaid sequence diagram of the multi-agent diagnostic flow, covering: clinician request → DiagnosticOrchestrator → MCP_Host → parallel dispatch to four specialist agents → Synthesis_Agent → DiagnosticAudit write → DiagnosticResult returned.
+5. THE `docs/architecture.md` file SHALL contain a Mermaid sequence diagram of the PDF citation popup flow, covering: answer render with CitationChips → user click → presigned URL fetch → PDF page render → highlight overlay.
+6. THE `docs/architecture.md` file SHALL contain a section describing the MongoDB collections schema, listing all fields for: `document_chunks`, `medical_documents`, `chat_sessions`, `diagnostic_audit`, and `retrieval_feedback`.
+7. THE `docs/architecture.md` file SHALL contain a section describing the new API endpoints introduced by this implementation: `GET /api/v1/documents/{id}/view`, `POST /api/v1/feedback/retrieval`, `POST /api/v1/admin/migrate-chunks`, and `POST /api/v1/admin/reindex-document/{id}`, including method, path, required roles, request body, and response shape.
+8. WHEN any of the five core services (RAGService, DocumentService, ChatService, DiagnosticOrchestrator, MCP_Host) changes its public interface, THE corresponding diagram and description in `docs/architecture.md` SHALL be updated as part of the same change.

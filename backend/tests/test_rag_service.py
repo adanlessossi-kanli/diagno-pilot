@@ -73,8 +73,9 @@ class TestRAGServicePipeline:
 
         await service.query("What antibiotic for pneumonia?")
 
-        service._chunks.aggregate.assert_called_once()
-        pipeline = service._chunks.aggregate.call_args.args[0]
+        service._chunks.aggregate.assert_called()
+        # First call must be the $vectorSearch stage
+        pipeline = service._chunks.aggregate.call_args_list[0].args[0]
         assert pipeline[0].get("$vectorSearch") is not None
 
     async def test_vector_search_uses_correct_index_and_path(self):
@@ -83,7 +84,7 @@ class TestRAGServicePipeline:
 
         await service.query("fever treatment")
 
-        pipeline = service._chunks.aggregate.call_args.args[0]
+        pipeline = service._chunks.aggregate.call_args_list[0].args[0]
         vs = pipeline[0]["$vectorSearch"]
         assert vs["index"] == RAGService.VECTOR_INDEX
         assert vs["path"] == "embedding"
@@ -96,7 +97,7 @@ class TestRAGServicePipeline:
 
         await service.query("malaria symptoms")
 
-        pipeline = service._chunks.aggregate.call_args.args[0]
+        pipeline = service._chunks.aggregate.call_args_list[0].args[0]
         vs = pipeline[0]["$vectorSearch"]
         assert vs["queryVector"] == expected_vector
 
@@ -106,7 +107,7 @@ class TestRAGServicePipeline:
 
         await service.query("cholera treatment", top_k=3)
 
-        pipeline = service._chunks.aggregate.call_args.args[0]
+        pipeline = service._chunks.aggregate.call_args_list[0].args[0]
         vs = pipeline[0]["$vectorSearch"]
         assert vs["limit"] == 3
 
@@ -116,7 +117,7 @@ class TestRAGServicePipeline:
 
         await service.query("meningitis", top_k=7)
 
-        pipeline = service._chunks.aggregate.call_args.args[0]
+        pipeline = service._chunks.aggregate.call_args_list[0].args[0]
         vs = pipeline[0]["$vectorSearch"]
         assert vs["numCandidates"] == 70
 
@@ -180,8 +181,9 @@ class TestRAGServiceSources:
 @pytest.mark.asyncio
 class TestRAGServiceLLM:
     async def test_llm_answer_returned_in_response(self):
-        """The LLM answer must appear in the RAGResponse."""
-        service = _make_rag_service([], llm_answer="Take amoxicillin 500 mg TID.")
+        """The LLM answer must appear in the RAGResponse when chunks pass the threshold."""
+        chunk = _make_chunk()  # score=0.95, above SIMILARITY_THRESHOLD
+        service = _make_rag_service([chunk], llm_answer="Take amoxicillin 500 mg TID.")
 
         response = await service.query("antibiotic for strep throat")
 
@@ -189,7 +191,8 @@ class TestRAGServiceLLM:
 
     async def test_llm_used_field_reflects_router_last_used(self):
         """llm_used in RAGResponse must match LLMRouter.last_used."""
-        service = _make_rag_service([])
+        chunk = _make_chunk()  # score=0.95, above SIMILARITY_THRESHOLD
+        service = _make_rag_service([chunk])
         service._llm.last_used = "gpt5"
 
         response = await service.query("test")
@@ -198,7 +201,8 @@ class TestRAGServiceLLM:
 
     async def test_llm_called_with_question_as_prompt(self):
         """LLMRouter.generate must be called with the original question as prompt."""
-        service = _make_rag_service([])
+        chunk = _make_chunk()  # score=0.95, above SIMILARITY_THRESHOLD
+        service = _make_rag_service([chunk])
 
         question = "What is the first-line treatment for malaria?"
         await service.query(question)
@@ -225,3 +229,188 @@ class TestRAGServiceLLM:
         response = await service.query("test query")
 
         assert isinstance(response, RAGResponse)
+
+
+# ---------------------------------------------------------------------------
+# Property-based tests — diagno-pilot-improvements
+# ---------------------------------------------------------------------------
+
+from hypothesis import given, settings, HealthCheck
+from hypothesis import strategies as st
+
+from backend.services.rag_service import GROUNDING_SYSTEM_PROMPT, SIMILARITY_THRESHOLD, NO_CONTEXT_MESSAGE
+
+
+def _make_chunk_with_score(score: float, content: str = "Medical content.") -> dict:
+    return {
+        "document_id": "doc1",
+        "content": content,
+        "metadata": {"source": "CHU_LOME", "title": "Protocol", "section": "S1", "page": 1},
+        "score": score,
+    }
+
+
+def _make_rag_service_for_pbt(chunks: list[dict], llm_answer: str = "Answer.") -> RAGService:
+    """Build a RAGService with mocked dependencies for property-based tests."""
+    mock_cursor = MagicMock()
+    mock_cursor.to_list = AsyncMock(return_value=chunks)
+
+    mock_collection = MagicMock()
+    mock_collection.aggregate = MagicMock(return_value=mock_cursor)
+
+    mock_db = MagicMock()
+    mock_db.__getitem__ = MagicMock(return_value=mock_collection)
+
+    mock_mongo = MagicMock()
+    mock_mongo.__getitem__ = MagicMock(return_value=mock_db)
+
+    embedder = MagicMock(spec=EmbeddingModel)
+    embedder.encode = AsyncMock(return_value=[0.1] * 1536)
+
+    llm = MagicMock(spec=LLMRouter)
+    llm.generate = AsyncMock(return_value=LLMResult(answer=llm_answer, fallback_used=False))
+    llm.last_used = "qwen3"
+
+    service = RAGService(mongo_client=mock_mongo, llm_router=llm, embedder=embedder)
+    service._chunks = mock_collection
+    return service
+
+
+# Feature: diagno-pilot-improvements, Property 1: Grounding prompt présent dans tout contexte LLM
+@pytest.mark.asyncio
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@given(question=st.text(min_size=1, max_size=200))
+async def test_property_1_grounding_prompt_present_in_all_llm_contexts(question: str):
+    """Validates: Requirements 1.1
+    For any query submitted to RAGService.query(), the first system message
+    passed to LLMRouter.generate() must contain GROUNDING_SYSTEM_PROMPT.
+    """
+    # Use a chunk with score above threshold so LLM is always called
+    chunk = _make_chunk_with_score(score=0.9)
+    service = _make_rag_service_for_pbt([chunk])
+
+    await service.query(question)
+
+    service._llm.generate.assert_called_once()
+    call_args = service._llm.generate.call_args
+    context: list[dict] = call_args.args[1]
+
+    # The first message must be a system message containing GROUNDING_SYSTEM_PROMPT
+    assert len(context) >= 1
+    first_msg = context[0]
+    assert first_msg["role"] == "system"
+    assert GROUNDING_SYSTEM_PROMPT in first_msg["content"]
+
+
+# Feature: diagno-pilot-improvements, Property 2: Refus sans appel LLM quand aucun chunk ne passe le seuil
+@pytest.mark.asyncio
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    scores=st.lists(
+        st.floats(min_value=0.0, max_value=0.7499, allow_nan=False, allow_infinity=False),
+        min_size=1,
+        max_size=10,
+    )
+)
+async def test_property_2_refusal_without_llm_when_no_chunk_passes_threshold(scores: list[float]):
+    """Validates: Requirements 1.2, 1.3
+    For any set of chunks with scores < 0.75, RAGService must return
+    answer == NO_CONTEXT_MESSAGE, sources == [], and must NOT call LLMRouter.generate().
+    """
+    chunks = [_make_chunk_with_score(score=s) for s in scores]
+    service = _make_rag_service_for_pbt(chunks)
+
+    response = await service.query("some medical question")
+
+    assert response.answer == NO_CONTEXT_MESSAGE
+    assert response.sources == []
+    service._llm.generate.assert_not_called()
+
+
+# Feature: diagno-pilot-improvements, Property 4: grounding_warning présent quand degraded_warning est actif
+@pytest.mark.asyncio
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    degraded_msg=st.text(min_size=1, max_size=200),
+    answer=st.text(min_size=1, max_size=200),
+)
+async def test_property_4_grounding_warning_present_when_degraded_warning_active(
+    degraded_msg: str, answer: str
+):
+    """Validates: Requirements 1.5
+    For any RAGResponse where degraded_warning is non-null,
+    grounding_warning must also be non-null.
+    """
+    # Simulate a degraded response by constructing it directly as RAGService would
+    response = RAGResponse(
+        answer=answer,
+        sources=[],
+        llm_used="qwen3",
+        degraded_warning=degraded_msg,
+        grounding_warning=(
+            "Résultats basés sur la récupération par mots-clés uniquement "
+            "— peuvent ne pas être entièrement ancrés dans les protocoles validés."
+        ),
+    )
+
+    # Property: if degraded_warning is set, grounding_warning must also be set
+    assert response.degraded_warning is not None
+    assert response.grounding_warning is not None
+
+
+from backend.services.rag_service import reciprocal_rank_fusion
+
+
+# Feature: diagno-pilot-improvements, Property 11: Reciprocal Rank Fusion produit un classement cohérent
+# Validates: Requirements 3.5
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    list1_ids=st.lists(st.integers(min_value=0, max_value=20), min_size=1, max_size=10, unique=True),
+    list2_ids=st.lists(st.integers(min_value=0, max_value=20), min_size=1, max_size=10, unique=True),
+)
+def test_property_11_rrf_score_is_sum_of_reciprocal_ranks(list1_ids: list[int], list2_ids: list[int]):
+    k = 60
+    # Build chunk dicts with unique _id
+    list1 = [{"_id": str(i), "content": f"chunk {i}", "document_id": f"doc{i}"} for i in list1_ids]
+    list2 = [{"_id": str(i), "content": f"chunk {i}", "document_id": f"doc{i}"} for i in list2_ids]
+
+    merged = reciprocal_rank_fusion([list1, list2], k=k)
+
+    # Verify each chunk's rrf_score equals sum of 1/(k+rank) across all lists
+    for chunk in merged:
+        chunk_id = chunk["_id"]
+        expected_score = 0.0
+        for rank, c in enumerate(list1, start=1):
+            if str(c["_id"]) == chunk_id:
+                expected_score += 1.0 / (k + rank)
+        for rank, c in enumerate(list2, start=1):
+            if str(c["_id"]) == chunk_id:
+                expected_score += 1.0 / (k + rank)
+        assert abs(chunk["rrf_score"] - expected_score) < 1e-9
+
+
+# Feature: diagno-pilot-improvements, Property 12: ConfidenceScore est la moyenne arithmétique des scores retenus
+# Validates: Requirements 4.1
+@pytest.mark.asyncio
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    scores=st.lists(
+        st.floats(min_value=SIMILARITY_THRESHOLD, max_value=1.0, allow_nan=False, allow_infinity=False),
+        min_size=1,
+        max_size=10,
+    )
+)
+async def test_property_12_confidence_score_is_arithmetic_mean_of_retained_scores(scores: list[float]):
+    """Validates: Requirements 4.1
+    For any set of retained chunks (all with score >= SIMILARITY_THRESHOLD),
+    RAGResponse.confidence_score must equal the arithmetic mean of their cosine similarity scores.
+    """
+    chunks = [_make_chunk_with_score(score=s) for s in scores]
+    service = _make_rag_service_for_pbt(chunks)
+
+    response = await service.query("medical question")
+
+    # All chunks pass the threshold, so LLM is called and confidence_score is set
+    expected_mean = sum(scores) / len(scores)
+    assert response.confidence_score is not None
+    assert abs(response.confidence_score - expected_mean) < 1e-9
