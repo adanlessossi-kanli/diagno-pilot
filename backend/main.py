@@ -96,28 +96,37 @@ async def lifespan(app: FastAPI):
     await _db["users"].create_index("email", unique=True, background=True)
     logger.info("users.email unique index ensured")
 
-    # Ensure vector search index on document_chunks for RAG
+    # Ensure vector search index on document_chunks for RAG (Atlas-only feature)
     try:
         await _db.create_collection("document_chunks")
     except Exception:
         pass  # collection already exists
-    existing = await _db["document_chunks"].list_search_indexes("embedding_index").to_list(1)
-    if not existing:
-        await _db["document_chunks"].create_search_index({
-            "name": "embedding_index",
-            "type": "vectorSearch",
-            "definition": {
-                "fields": [{
-                    "type": "vector",
-                    "path": "embedding",
-                    "numDimensions": 1536,
-                    "similarity": "cosine",
-                }]
-            },
-        })
-        logger.info("embedding_index vector search index created")
-    else:
-        logger.info("embedding_index vector search index already exists")
+    try:
+        existing = await _db["document_chunks"].list_search_indexes("embedding_index").to_list(1)
+        if not existing:
+            await _db["document_chunks"].create_search_index({
+                "name": "embedding_index",
+                "type": "vectorSearch",
+                "definition": {
+                    "fields": [{
+                        "type": "vector",
+                        "path": "embedding",
+                        "numDimensions": 1536,
+                        "similarity": "cosine",
+                    }]
+                },
+            })
+            logger.info("embedding_index vector search index created")
+        else:
+            logger.info("embedding_index vector search index already exists")
+    except Exception as exc:
+        logger.warning("Atlas vector search index not available (non-Atlas MongoDB): %s", exc)
+        # Create a text index as fallback for keyword search
+        try:
+            await _db["document_chunks"].create_index([("content", "text")], background=True)
+            logger.info("Fallback text index created on document_chunks.content")
+        except Exception:
+            pass
 
     # Singleton DiagnosticService (REQ 6.5)
     database = db.get_db()

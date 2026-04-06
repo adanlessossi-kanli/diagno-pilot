@@ -106,6 +106,17 @@ function UploadForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [elapsedSec, setElapsedSec] = useState(0);
+
+  // Timer to show elapsed time during upload
+  useEffect(() => {
+    if (!submitting) {
+      setElapsedSec(0);
+      return;
+    }
+    const interval = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [submitting]);
 
   function set<K extends keyof UploadFormState>(key: K, value: UploadFormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -197,13 +208,24 @@ function UploadForm({
           />
         </div>
 
+        {/* Progress indicator during upload */}
+        {submitting && (
+          <div className="flex items-center gap-3 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded px-4 py-3">
+            <svg className="animate-spin h-5 w-5 text-blue-600 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            <span>{t('uploading')} ({elapsedSec}s)</span>
+          </div>
+        )}
+
         {/* Feedback */}
-        {error && (
+        {error && !submitting && (
           <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
             {error}
           </p>
         )}
-        {success && (
+        {success && !submitting && (
           <p role="status" className="text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
             {success}
           </p>
@@ -213,8 +235,14 @@ function UploadForm({
         <button
           type="submit"
           disabled={submitting || !form.file}
-          className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
+          {submitting && (
+            <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          )}
           {submitting ? t('uploading') : t('upload')}
         </button>
       </form>
