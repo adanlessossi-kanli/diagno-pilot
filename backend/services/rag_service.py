@@ -82,6 +82,23 @@ GROUNDING_SYSTEM_PROMPT = (
 )
 
 
+def _truncate_excerpt(text: str, max_chars: int = 500) -> str:
+    """Truncate text at a sentence boundary up to max_chars, avoiding mid-word cuts."""
+    if len(text) <= max_chars:
+        return text
+    # Try to cut at the last sentence-ending punctuation within max_chars
+    window = text[:max_chars]
+    for sep in ('. ', '.\n', '.\t'):
+        idx = window.rfind(sep)
+        if idx > max_chars // 2:  # only cut if we keep at least half
+            return window[:idx + 1].rstrip()
+    # Fall back to last space to avoid mid-word cut
+    idx = window.rfind(' ')
+    if idx > 0:
+        return window[:idx] + '…'
+    return window + '…'
+
+
 class RAGService:
     """Retrieval-augmented generation service for medical knowledge queries.
 
@@ -272,13 +289,12 @@ class RAGService:
 
         # --- Similarity threshold filter — REQ 1.2, 1.3 ---
         # Discard chunks whose cosine similarity score is below SIMILARITY_THRESHOLD.
-        # Chunks from keyword fallback have no score field; they are kept as-is.
-        # After RRF, filter on the original cosine 'score' field (not rrf_score).
+        # Chunks without a 'score' field (keyword fallback, BM25) are kept as-is.
         if not degraded_warning:
-            chunks = [c for c in chunks if c.get("score", 0.0) >= SIMILARITY_THRESHOLD]
+            chunks = [c for c in chunks if c.get("score", 1.0) >= SIMILARITY_THRESHOLD]
 
         # If no chunks pass the filter, return a structured refusal without calling LLM.
-        if not chunks and not degraded_warning:
+        if not chunks:
             refusal = RAGResponse(
                 answer=NO_CONTEXT_MESSAGE,
                 sources=[],
@@ -294,7 +310,7 @@ class RAGService:
                 title=c.get("metadata", {}).get("title", c.get("metadata", {}).get("source", "")),
                 source=c.get("metadata", {}).get("source", ""),
                 section=c.get("metadata", {}).get("section"),
-                excerpt=c.get("content", "")[:200],
+                excerpt=_truncate_excerpt(c.get("content", "")),
                 page=c.get("metadata", {}).get("page"),
             )
             for c in chunks

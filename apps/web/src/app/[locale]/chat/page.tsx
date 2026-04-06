@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { ChatMessage, PatientProfile, DocumentSource } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -226,6 +226,7 @@ function PatientContextPanel({
 
 export default function ChatPage() {
   const t = useTranslations('chat');
+  const locale = useLocale();
   const { user } = useAuth();
 
   const apiClient = useMemo(() => {
@@ -339,7 +340,12 @@ export default function ChatPage() {
       const patientContext = buildPatientProfile();
       const assistantMsg = await apiClient.chat.sendMessage(sessionId, content, patientContext);
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch {
+    } catch (err) {
+      // If 401, session expired — redirect to login
+      if ((err as { status?: number })?.status === 401) {
+        window.location.href = `/${locale}/login`;
+        return;
+      }
       setError(t('errorSend'));
       // Remove the optimistic user message on failure
       setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));

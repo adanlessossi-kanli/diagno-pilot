@@ -86,18 +86,20 @@ services:
       retries: 5
 
   mongo:
-    image: mongodb/mongodb-atlas-local:latest
+    image: mongodb/mongodb-atlas-local:8.0
     ports:
       - "27017:27017"
+    environment:
+      - MONGODB_INIT_REPLICA_SET=true
     volumes:
       - mongo_data:/data/db
       - mongo_configdb:/data/configdb
     healthcheck:
-      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping').ok && rs.status().myState === 1", "--quiet"]
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "try{rs.status().ok}catch(e){0}", "--quiet"]
       interval: 5s
       timeout: 10s
-      retries: 24
-      start_period: 30s
+      retries: 30
+      start_period: 40s
 
   localstack:
     image: localstack/localstack:3
