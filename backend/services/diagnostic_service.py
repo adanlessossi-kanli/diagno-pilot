@@ -1,10 +1,8 @@
 """DiagnosticOrchestrator — thin orchestrator for the differential diagnosis pipeline."""
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -13,11 +11,13 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from backend.models.consultation import DifferentialDiagnosis, Symptom
 from backend.models.patient import PatientProfile
 from backend.services.diagnostic_parser import DiagnosticParser
+from backend.services.llamaindex_pipeline import LlamaIndexPipeline
 from backend.services.prompt_builder import PromptBuilder
-from backend.services.rag_service import RAGService
 
 if TYPE_CHECKING:
     from backend.agents.synthesis_agent import Synthesis_Agent
+    from backend.services.agent_pipeline import AgentPipeline
+    from backend.services.audit_service import AuditLogger
     from backend.services.mcp_host import MCP_Host
 
 try:
@@ -61,16 +61,16 @@ class DiagnosticResult:
 
 
 class DiagnosticOrchestrator:
-    """Thin orchestrator that coordinates PromptBuilder, RAGService, and DiagnosticParser
+    """Thin orchestrator that coordinates PromptBuilder, LlamaIndexPipeline, and DiagnosticParser
     to produce differential diagnoses.
 
     When ``mcp_host`` is provided, delegates to ``MCP_Host.run_diagnostic()`` and
-    ``Synthesis_Agent.synthesize()`` instead of the RAGService path (REQ 2.8).
-    The existing RAGService path is preserved when ``mcp_host`` is ``None``.
+    ``Synthesis_Agent.synthesize()`` instead of the LlamaIndex path (REQ 2.8).
+    The existing LlamaIndex path is preserved when ``mcp_host`` is ``None``.
 
-    Orchestration flow (RAGService path):
+    Orchestration flow (LlamaIndex path):
     1. PromptBuilder.build() — constructs the LLM prompt from symptoms and patient profile.
-    2. RAGService.query() — performs vector retrieval and LLM generation.
+    2. LlamaIndexPipeline.query() — performs vector retrieval and LLM generation.
     3. DiagnosticParser.parse() — parses and validates the LLM JSON response.
 
     Orchestration flow (MCP path):
@@ -79,7 +79,7 @@ class DiagnosticOrchestrator:
 
     Collaborators:
     - :class:`~backend.services.prompt_builder.PromptBuilder`: pure prompt construction.
-    - :class:`~backend.services.rag_service.RAGService`: retrieval-augmented generation.
+    - :class:`~backend.services.llamaindex_pipeline.LlamaIndexPipeline`: retrieval-augmented generation.
     - :class:`~backend.services.diagnostic_parser.DiagnosticParser`: fault-tolerant response parsing.
     - :class:`~backend.services.mcp_host.MCP_Host`: optional multi-agent orchestrator.
     - :class:`~backend.agents.synthesis_agent.Synthesis_Agent`: optional result merger.
@@ -87,18 +87,22 @@ class DiagnosticOrchestrator:
 
     def __init__(
         self,
-        rag_service: RAGService,
+        rag_service: LlamaIndexPipeline,
         prompt_builder: PromptBuilder | None = None,
         diagnostic_parser: DiagnosticParser | None = None,
         mcp_host: "MCP_Host | None" = None,
         synthesis_agent: "Synthesis_Agent | None" = None,
         db: AsyncIOMotorDatabase | None = None,
+        agent_pipeline: "AgentPipeline | None" = None,
+        audit_logger: "AuditLogger | None" = None,
     ) -> None:
         self._rag = rag_service
         self._prompt_builder = prompt_builder if prompt_builder is not None else PromptBuilder()
         self._diagnostic_parser = diagnostic_parser if diagnostic_parser is not None else DiagnosticParser()
         self._mcp_host = mcp_host
         self._db = db
+        self._agent_pipeline = agent_pipeline
+        self._audit_logger = audit_logger
         # Create a default Synthesis_Agent when mcp_host is provided but synthesis_agent is not.
         if mcp_host is not None and synthesis_agent is None:
             from backend.agents.synthesis_agent import Synthesis_Agent as _SynthesisAgent
@@ -116,7 +120,7 @@ class DiagnosticOrchestrator:
         """Return at least 3 differential diagnoses for the given symptoms.
 
         When ``self._mcp_host`` is set, delegates to the MCP multi-agent path
-        (REQ 2.8). Otherwise uses the existing RAGService path unchanged.
+        (REQ 2.8). Otherwise uses the existing LlamaIndex path unchanged.
 
         After each call (both paths), a DiagnosticAudit document is written to
         MongoDB (REQ 4.3). When fallback_used=True, a disclaimer is added to
@@ -138,6 +142,8 @@ class DiagnosticOrchestrator:
         """
         if self._mcp_host is not None:
             result = await self._get_diagnosis_via_mcp(symptoms, patient_profile, locale, region)
+        elif self._agent_pipeline is not None:
+            result = await self._get_diagnosis_via_agent_pipeline(symptoms, patient_profile, locale, region)
         else:
             result = await self._get_diagnosis_via_rag(symptoms, patient_profile, locale, region)
 
@@ -233,6 +239,57 @@ class DiagnosticOrchestrator:
 
         return result
 
+    async def _get_diagnosis_via_agent_pipeline(
+        self,
+        symptoms: list[Symptom],
+        patient_profile: PatientProfile | None,
+        locale: str,
+        region: str | None,
+    ) -> DiagnosticResult:
+        """AgentPipeline path — in-process LlamaIndex multi-agent pipeline (Req 10.1)."""
+        assert self._agent_pipeline is not None
+
+        symptom_dicts = [s.model_dump() for s in symptoms]
+        pipeline_response = await self._agent_pipeline.run(
+            symptoms=symptom_dicts,
+            patient_profile=patient_profile,
+            region=region,
+        )
+
+        # Log diagnostic session to HIPAA AuditLogger (Req 10.5)
+        if self._audit_logger is not None:
+            try:
+                await self._audit_logger.log_action(
+                    user_id="system",
+                    action="diagnostic_session",
+                    resource="agent_pipeline",
+                    details={
+                        "locale": locale,
+                        "region": region,
+                        "agent_count": len(pipeline_response.agent_results),
+                        "diagnosis_count": len(pipeline_response.diagnoses),
+                        "fallback_used": pipeline_response.fallback_used,
+                    },
+                )
+            except Exception:
+                logger.warning("Failed to log diagnostic session to AuditLogger")
+
+        result = DiagnosticResult(
+            diagnoses=pipeline_response.diagnoses,
+            fallback_used=pipeline_response.fallback_used,
+            degraded_warning=pipeline_response.degraded_warning,
+            locale=locale,
+        )
+
+        logger.info(
+            "DiagnosticAudit [AgentPipeline path] — fallback_used=%r degraded_warning=%r diagnoses=%d",
+            result.fallback_used,
+            result.degraded_warning,
+            len(result.diagnoses),
+        )
+
+        return result
+
     async def _get_diagnosis_via_rag(
         self,
         symptoms: list[Symptom],
@@ -240,7 +297,7 @@ class DiagnosticOrchestrator:
         locale: str,
         region: str | None,
     ) -> DiagnosticResult:
-        """Original RAGService path — preserved unchanged."""
+        """Original LlamaIndex path — preserved unchanged."""
         prompt = self._prompt_builder.build(symptoms, patient_profile, locale=locale, region=region)
         rag_response = await self._rag.query(
             question=prompt,

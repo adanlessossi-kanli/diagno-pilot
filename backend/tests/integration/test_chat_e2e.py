@@ -51,13 +51,13 @@ def _mock_llm_endpoints(router=None):
 def _setup_chat_service(integration_app, real_db):
     """Override the get_chat_service dependency to use the test DB and stubbed LLM."""
     from backend.services.chat_service import ChatService
-    from backend.services.embedding_service import EmbeddingModel
+    from backend.services.embedding_model import EmbeddingModel
     from backend.services.llm_router import LLMRouter
-    from backend.services.rag_service import RAGService
+    from backend.services.index_manager import IndexManager
+    from backend.services.llamaindex_pipeline import LlamaIndexPipeline
     from backend.routers.chat import get_chat_service
 
     # Re-use the real_db client directly
-    mongo_client = real_db.client
     llm_router = LLMRouter(
         primary_url=_LLM_BASE_URL,
         primary_api_key="test-key",
@@ -68,13 +68,13 @@ def _setup_chat_service(integration_app, real_db):
         base_url=_LLM_BASE_URL,
         api_key="test-key",
     )
-    rag = RAGService(
-        mongo_client=mongo_client,
+    index_manager = IndexManager(db=real_db)
+    pipeline = LlamaIndexPipeline(
+        index_manager=index_manager,
         llm_router=llm_router,
         embedder=embedder,
-        db_name=real_db.name,
     )
-    chat_service = ChatService(db=real_db, rag_service=rag)
+    chat_service = ChatService(db=real_db, rag_service=pipeline)
 
     # Override the FastAPI dependency so the router uses our test service
     integration_app.dependency_overrides[get_chat_service] = lambda: chat_service

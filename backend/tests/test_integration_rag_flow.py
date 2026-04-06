@@ -23,7 +23,7 @@ from backend.services.alert_service import AlertService
 from backend.services.chat_service import ChatService
 from backend.services.diagnostic_service import DiagnosticService
 from backend.services.prescription_service import ANTIBIOTIC_PROTOCOLS, PrescriptionService
-from backend.services.rag_service import RAGService
+from backend.services.llm_router import LLMResult
 
 
 # ---------------------------------------------------------------------------
@@ -65,8 +65,8 @@ def _make_diagnosis_json(diagnoses: list[dict] | None = None) -> str:
 def _make_rag_service(
     llm_answer: str = "Réponse médicale basée sur les sources.",
     chunks: list[dict] | None = None,
-) -> RAGService:
-    """Build a RAGService with fully mocked MongoDB and LLM dependencies."""
+) -> MagicMock:
+    """Build a mock RAG pipeline with the same query() interface as LlamaIndexPipeline."""
     if chunks is None:
         chunks = [
             {
@@ -83,32 +83,32 @@ def _make_rag_service(
             },
         ]
 
-    mock_cursor = MagicMock()
-    mock_cursor.to_list = AsyncMock(return_value=chunks)
+    sources = [
+        DocumentSource(
+            document_id=str(c.get("document_id", "")),
+            title=c.get("metadata", {}).get("source", ""),
+            source=c.get("metadata", {}).get("source", ""),
+            section=c.get("metadata", {}).get("section"),
+            excerpt=c.get("content", "")[:200],
+            page=c.get("metadata", {}).get("page"),
+        )
+        for c in chunks
+    ]
 
-    mock_collection = MagicMock()
-    mock_collection.aggregate = MagicMock(return_value=mock_cursor)
+    rag_response = RAGResponse(
+        answer=llm_answer,
+        sources=sources,
+        llm_used="qwen3",
+        fallback_used=False,
+    )
 
-    mock_db = MagicMock()
-    mock_db.__getitem__ = MagicMock(return_value=mock_collection)
-
-    mock_mongo = MagicMock()
-    mock_mongo.__getitem__ = MagicMock(return_value=mock_db)
-
-    mock_embedder = MagicMock()
-    mock_embedder.encode = AsyncMock(return_value=[0.1] * 1536)
-
-    from backend.services.llm_router import LLMResult
     mock_llm = MagicMock()
     mock_llm.generate = AsyncMock(return_value=LLMResult(answer=llm_answer, fallback_used=False))
     mock_llm.last_used = "qwen3"
 
-    service = RAGService(
-        mongo_client=mock_mongo,
-        llm_router=mock_llm,
-        embedder=mock_embedder,
-    )
-    service._chunks = mock_collection
+    service = MagicMock()
+    service.query = AsyncMock(return_value=rag_response)
+    service._llm = mock_llm
     return service
 
 
@@ -179,7 +179,7 @@ class TestDiagnosticFlow:
         )
 
         # RAG query must have been called
-        rag._llm.generate.assert_called_once()
+        rag.query.assert_called_once()
         assert len(result.diagnoses) >= 3
 
     def test_fallback_when_llm_returns_invalid_json(self):
@@ -484,7 +484,7 @@ class TestChatRAGFlow:
 
         assert isinstance(response, RAGResponse)
         # Verify RAG was called with patient context
-        chat_svc._rag._llm.generate.assert_called_once()
+        chat_svc._rag.query.assert_called_once()
 
     def test_chat_session_persisted(self):
         """La session de chat est persistée en base de données."""

@@ -214,12 +214,16 @@ function PdfPageWithHighlight({
   const [pdfPageWidth, setPdfPageWidth] = useState<number | null>(null);
   const [renderWidth, setRenderWidth] = useState(pageWidth);
 
-  // Measure container width on mount
-  useEffect(() => {
-    if (containerRef.current) {
-      setRenderWidth(containerRef.current.clientWidth || pageWidth);
-    }
-  }, [pageWidth]);
+  // Measure container width via callback ref (avoids setState in useEffect)
+  const measureRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      if (node) {
+        setRenderWidth(node.clientWidth || pageWidth);
+      }
+    },
+    [pageWidth],
+  );
 
   // Compute highlight rectangle in rendered pixel coordinates
   // bbox is [x0, y0, x1, y1] in PDF user-space (points, origin bottom-left)
@@ -250,7 +254,7 @@ function PdfPageWithHighlight({
   })();
 
   return (
-    <div ref={containerRef} className="relative w-full overflow-hidden rounded border border-gray-200">
+    <div ref={measureRef} className="relative w-full overflow-hidden rounded border border-gray-200">
       <Document
         file={url}
         loading={

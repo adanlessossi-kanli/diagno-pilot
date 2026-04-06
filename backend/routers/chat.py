@@ -9,9 +9,10 @@ from backend.core.rate_limit import limiter
 from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
-from backend.services.embedding_service import EmbeddingModel
+from backend.services.embedding_model import EmbeddingModel
+from backend.services.index_manager import IndexManager
+from backend.services.llamaindex_pipeline import LlamaIndexPipeline
 from backend.services.llm_router import LLMRouter
-from backend.services.rag_service import RAGService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -52,16 +53,15 @@ class ChatHistoryResponse(BaseModel):
 
 def get_chat_service() -> ChatService:
     database = db.get_db()
-    mongo_client = database.client
     llm_router = LLMRouter()
     embedder = EmbeddingModel()
-    rag = RAGService(
-        mongo_client=mongo_client,
+    index_manager = IndexManager(db=database)
+    pipeline = LlamaIndexPipeline(
+        index_manager=index_manager,
         llm_router=llm_router,
         embedder=embedder,
-        db_name=database.name,
     )
-    return ChatService(db=database, rag_service=rag)
+    return ChatService(db=database, rag_service=pipeline)
 
 
 # ---------------------------------------------------------------------------

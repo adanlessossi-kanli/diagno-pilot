@@ -13,12 +13,18 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
   useLocale: () => 'fr',
 }));
+
+vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: null,
     isLoading: false,
     login: vi.fn(),
     logout: vi.fn(),
   }),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -38,6 +44,6 @@ describe('LoginPage — unit tests', () => {
       el.getAttribute('alt') === IMAGES.loginSide.alt
     );
     expect(sideImg).toBeDefined();
-    expect(sideImg).toHaveAttribute('src', expect.stringContaining(IMAGES.loginSide.src));
+    expect(sideImg).toHaveAttribute('src', expect.stringContaining(encodeURIComponent(IMAGES.loginSide.src)));
   });
 });

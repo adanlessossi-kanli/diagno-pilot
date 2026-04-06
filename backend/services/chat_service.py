@@ -9,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from backend.core.db_metrics import timed_db_op
 from backend.models.document import DocumentSource, RAGResponse
 from backend.models.patient import PatientProfile
-from backend.services.rag_service import RAGService
+from backend.services.llamaindex_pipeline import LlamaIndexPipeline
 
 
 class ChatMessage:
@@ -45,7 +45,7 @@ class ChatService:
 
     COLLECTION = "chat_sessions"
 
-    def __init__(self, db: AsyncIOMotorDatabase, rag_service: RAGService) -> None:
+    def __init__(self, db: AsyncIOMotorDatabase, rag_service: LlamaIndexPipeline) -> None:
         self._db = db
         self._rag = rag_service
 

@@ -366,7 +366,7 @@ def test_p3_embedding_requests_total_equals_number_of_calls(outcomes: list[str])
     """
     from unittest.mock import AsyncMock, MagicMock, patch
 
-    from backend.services.embedding_service import EmbeddingModel
+    from backend.services.embedding_model import EmbeddingModel
 
     async def _run():
         registry, fresh_counter = _make_fresh_embedding_counter()
@@ -386,8 +386,8 @@ def test_p3_embedding_requests_total_equals_number_of_calls(outcomes: list[str])
             else:
                 mock_api = AsyncMock(side_effect=RuntimeError("api error"))
 
-            with patch("backend.services.embedding_service.cache_service", mock_cache):
-                with patch("backend.services.embedding_service.embedding_requests_total", fresh_counter):
+            with patch("backend.services.embedding_model.cache_service", mock_cache):
+                with patch("backend.services.embedding_model.embedding_requests_total", fresh_counter):
                     with patch.object(model, "_call_api", mock_api):
                         try:
                             await model.encode("test text")

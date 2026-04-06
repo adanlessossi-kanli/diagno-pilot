@@ -133,7 +133,7 @@ const DiagnosisResponseSchema = z.object({
   diagnoses: z.array(z.object({
     condition: z.string(),
     probability: z.number().min(0).max(1),
-    icdCode: z.string().optional().nullable(),
+    icdCode: z.string().nullish().transform((v) => v ?? undefined),
     matchingSymptoms: z.array(z.string()).optional().default([]),
     concordantSymptoms: z.array(z.string()).optional().default([]),
   })),
@@ -411,7 +411,7 @@ export function createApiClient(
           patient_profile: serializePatientProfile(patientProfile),
         }),
         signal,
-      }).then((res) => parseResponse(res, DiagnosisResponseSchema));
+      }).then((res) => parseResponse<DiagnosisResponse>(res, DiagnosisResponseSchema as ZodSchema<DiagnosisResponse>));
     },
 
     /** REQ-03 — Request an antibiotic prescription for a given diagnosis */

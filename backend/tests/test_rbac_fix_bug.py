@@ -101,8 +101,7 @@ def _make_mock_document_service() -> MagicMock:
 def _make_mock_chat_service() -> MagicMock:
     """Build a mock ChatService that returns a fake response."""
     mock_svc = MagicMock()
-    from backend.services.rag_service import RAGResponse
-    from backend.models.document import DocumentSource
+    from backend.models.document import RAGResponse
     fake_rag = RAGResponse(
         answer="Test answer",
         sources=[],

@@ -35,6 +35,36 @@ class MedicalDocument(BaseModel):
     created_at: datetime | None = None
 
 
+class ChunkMetadata(BaseModel):
+    """Metadata attached to each LlamaIndex TextNode stored in MongoDB.
+
+    Requirements: 2.6, 3.7
+    """
+    source: str
+    page: int | None = None
+    section: str | None = None
+    region: str = "ALL"
+    disease_tags: list[str] = []
+    document_type: str = "other"  # protocol | guideline | other
+    evidence_level: str = "other"
+    bbox: list[float] | None = None
+    page_char_start: int | None = None
+    page_char_end: int | None = None
+    title: str | None = None
+
+
+class ChunkNode(BaseModel):
+    """Represents a LlamaIndex TextNode stored in MongoDB.
+
+    Requirements: 2.6, 3.7
+    """
+    id: str
+    document_id: str
+    content: str
+    embedding: list[float]
+    metadata: ChunkMetadata
+
+
 class RAGResponse(BaseModel):
     answer: str
     sources: list[DocumentSource]

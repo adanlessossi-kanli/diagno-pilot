@@ -116,7 +116,17 @@ export default function NavBar({ locale }: NavBarProps) {
             </button>
           </>
         )}
-        {!user && <LanguageSwitcher />}
+        {!user && (
+          <>
+            <Link
+              href={`${base}/login`}
+              className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors duration-150"
+            >
+              {t('signin')}
+            </Link>
+            <LanguageSwitcher />
+          </>
+        )}
       </div>
 
       {/* Mobile drawer overlay */}

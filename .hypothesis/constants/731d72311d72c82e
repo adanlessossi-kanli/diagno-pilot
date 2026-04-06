@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\feedback.py
+# hypothesis_version: 6.151.9
+
+['/feedback', '/retrieval', '_id', 'admin', 'chunk_id', 'document_id', 'feedback', 'infirmière', 'insert_one', 'medecin', 'rating', 'retrieval_feedback', 'session_id', 'timestamp', 'user_id']

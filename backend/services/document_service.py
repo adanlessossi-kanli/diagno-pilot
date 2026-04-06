@@ -20,9 +20,13 @@ from fastapi import UploadFile
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from backend.models.document import MedicalDocument
-from backend.services.chunker import Chunker, ChunkResult
-from backend.services.embedding_service import EmbeddingModel
+from backend.services.embedding_model import EmbeddingModel
+from backend.services.encryption_service import EncryptionService
+from backend.services.index_manager import IndexManager
+from backend.services.phi_classifier import PHIClassifier
 from backend.services.s3_service import S3Service
+from backend.services.semantic_chunker import SemanticChunkerService
+from backend.services.source_loaders import SourceLoaderService
 from backend.core.db_metrics import timed_db_op
 
 logger = logging.getLogger(__name__)
@@ -270,12 +274,22 @@ class DocumentService:
         database: AsyncIOMotorDatabase,
         embedder: EmbeddingModel,
         s3: S3Service,
+        source_loader: SourceLoaderService | None = None,
+        semantic_chunker: SemanticChunkerService | None = None,
+        index_manager: IndexManager | None = None,
+        encryption_service: EncryptionService | None = None,
+        phi_classifier: PHIClassifier | None = None,
     ) -> None:
         self._db = database
         self._docs = database["medical_documents"]
         self._chunks = database["document_chunks"]
         self._embedder = embedder
         self._s3 = s3
+        self._source_loader = source_loader or SourceLoaderService()
+        self._semantic_chunker = semantic_chunker or SemanticChunkerService(embed_model=embedder)
+        self._index_manager = index_manager or IndexManager(db=database)
+        self._encryption_service = encryption_service
+        self._phi_classifier = phi_classifier or PHIClassifier()
         # Load CrossEncoder singleton at startup (best-effort)
         try:
             get_cross_encoder()
@@ -324,13 +338,13 @@ class DocumentService:
         source: str,
         region: str = "ALL",
     ) -> MedicalDocument:
-        """Ingest a document: extract text → chunk → embed → store in MongoDB + S3.
+        """Ingest a document: load → chunk → embed → store in MongoDB + S3.
 
-        The `region` parameter (TG, BJ, or ALL) is stored in metadata.region on
-        each document_chunk, enabling RAG pre-filtering by region (Requirement 8.4).
-
-        For PDF files, BBox and character offsets are extracted and stored on each
-        chunk (Requirements 5.1, 5.8).
+        Uses the new LlamaIndex pipeline:
+        1. SourceLoaderService — format-specific loading with metadata extraction
+        2. SemanticChunkerService — semantic splitting into TextNodes
+        3. IndexManager.insert_nodes() — incremental index update
+        4. EncryptionService — encrypt PHI fields on patient-annotated chunks
 
         Returns the persisted MedicalDocument.
         """
@@ -344,13 +358,13 @@ class DocumentService:
 
         ext = extension.lower().lstrip(".")
 
-        # 1. Extract text (and PDF page data for bbox extraction)
+        # 1. Load via SourceLoaderService (format-specific, with metadata)
+        documents = self._source_loader.load(content, filename, source, region)
+
+        # Also extract text for legacy compatibility (PDF bbox path)
         pdf_pages: list[PdfPageData] | None = None
         if ext == "pdf":
             pdf_pages = _extract_pdf_pages_with_bbox(content)
-            text = "\n".join(p.text for p in pdf_pages)
-        else:
-            text = extract_text(content, extension)
 
         # 2. Upload source file to S3 under documents/ prefix
         s3_key = await self._upload_to_s3(content, filename, file.content_type or "application/octet-stream")
@@ -370,14 +384,15 @@ class DocumentService:
         async with timed_db_op("medical_documents", "insert_one"):
             await self._docs.insert_one(doc_record)
 
-        # 4. Chunk, embed and insert into document_chunks
-        chunker = Chunker()
-        chunk_results = chunker.chunk(text)
-        chunk_count = await self._index_chunks(
-            chunk_results, doc_id, source, region=region, pdf_pages=pdf_pages
+        # 4. Chunk via SemanticChunkerService
+        nodes = self._semantic_chunker.chunk(documents)
+
+        # 5. Build chunk records and embed
+        chunk_count = await self._index_chunks_llamaindex(
+            nodes, doc_id, source, region=region, pdf_pages=pdf_pages,
         )
 
-        # 5. Update chunk_count
+        # 6. Update chunk_count
         async with timed_db_op("medical_documents", "update_one"):
             await self._docs.update_one({"_id": doc_id}, {"$set": {"chunk_count": chunk_count}})
 
@@ -408,64 +423,63 @@ class DocumentService:
         )
         return key
 
-    async def _index_chunks(
-        self, chunks: list[ChunkResult], doc_id: ObjectId, source: str, region: str = "ALL",
+    async def _index_chunks_llamaindex(
+        self,
+        nodes: list,
+        doc_id: ObjectId,
+        source: str,
+        region: str = "ALL",
         pdf_pages: list[PdfPageData] | None = None,
     ) -> int:
-        """Embed each chunk and insert into document_chunks. Returns count inserted.
+        """Embed each TextNode and insert via IndexManager. Returns count inserted.
 
-        Stores enriched metadata (disease_tags, document_type, evidence_level, section)
-        on each chunk for RAG pre-filtering and retrieval quality.
-
-        For PDF documents, also stores bbox, page_char_start, page_char_end
-        (Requirements 5.1, 5.8).
+        Applies EncryptionService.encrypt_phi_fields() on patient-annotated
+        chunk metadata before storage (Requirement 7.1).
         """
-        if not chunks:
+        if not nodes:
             return 0
 
         document_type = infer_document_type(source)
         evidence_level = document_type
 
-        # Build a flat character offset map for PDF pages if available
-        # Maps global char offset → (page_idx, page_char_offset)
-        page_char_offsets: list[tuple[int, int]] | None = None  # (page_idx, offset_in_page)
+        # Build cumulative page offsets for PDF bbox mapping
         page_cumulative_lengths: list[int] | None = None
         if pdf_pages is not None:
             page_cumulative_lengths = []
             cumulative = 0
             for p in pdf_pages:
                 page_cumulative_lengths.append(cumulative)
-                cumulative += len(p.text) + 1  # +1 for the "\n" separator
+                cumulative += len(p.text) + 1  # +1 for "\n" separator
 
-        records = []
-        # Track global char offset as we iterate chunks (for PDF bbox mapping)
+        records: list[dict] = []
         global_char_offset = 0
 
-        for chunk in chunks:
-            embedding = await self._embedder.encode(chunk.content)
-            content_lower = chunk.content.lower()
+        for node in nodes:
+            embedding = await self._embedder.encode(node.text)
+            content_lower = node.text.lower()
             disease_tags = [kw for kw in DISEASE_KEYWORDS if kw in content_lower]
 
+            # Merge metadata from the TextNode with enriched fields
+            node_meta = dict(node.metadata) if node.metadata else {}
             metadata: dict = {
-                "source": source,
-                "page": None,
-                "section": chunk.section,
-                "region": region,
-                "disease_tags": disease_tags,
-                "document_type": document_type,
+                "source": node_meta.get("source", source),
+                "page": node_meta.get("page"),
+                "section": node_meta.get("section"),
+                "region": node_meta.get("region", region),
+                "disease_tags": node_meta.get("disease_tags", disease_tags),
+                "document_type": node_meta.get("document_type", document_type),
                 "evidence_level": evidence_level,
                 "bbox": None,
                 "page_char_start": None,
                 "page_char_end": None,
             }
 
-            # PDF-specific: extract bbox and character offsets (REQ 5.1)
+            # PDF-specific: extract bbox and character offsets
             if pdf_pages is not None and page_cumulative_lengths is not None:
-                chunk_len = len(chunk.content)
+                chunk_len = len(node.text)
                 chunk_global_start = global_char_offset
                 chunk_global_end = global_char_offset + chunk_len
 
-                # Find which page this chunk starts on
                 page_idx = 0
                 for i, cum in enumerate(page_cumulative_lengths):
                     if cum <= chunk_global_start:
@@ -488,23 +502,32 @@ class DocumentService:
                     metadata["page_char_end"] = page_char_end
                     metadata["bbox"] = bbox if bbox is not None else [0.0, 0.0, 0.0, 0.0]
 
-                global_char_offset += chunk_len + 1  # +1 for separator
+                global_char_offset += chunk_len + 1
             else:
-                global_char_offset += len(chunk.content) + 1
+                global_char_offset += len(node.text) + 1
+
+            # Encrypt PHI fields on patient-annotated chunks (Req 7.1)
+            if self._encryption_service is not None:
+                try:
+                    metadata = self._encryption_service.encrypt_phi_fields(
+                        metadata, self._phi_classifier
+                    )
+                except Exception:
+                    logger.warning("PHI encryption failed for chunk; storing unencrypted metadata")
 
             records.append({
                 "_id": ObjectId(),
                 "document_id": doc_id,
-                "content": chunk.content,
+                "content": node.text,
                 "embedding": embedding,
                 "metadata": metadata,
             })
 
         if records:
-            async with timed_db_op("document_chunks", "insert_one"):
-                await self._chunks.insert_many(records)
+            count = await self._index_manager.insert_nodes(records)
+            return count
 
-        return len(records)
+        return 0
 
     # ------------------------------------------------------------------
     # List

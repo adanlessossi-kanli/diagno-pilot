@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\migration_service.py
+# hypothesis_version: 6.151.9
+
+['$set', '/', 'ALL', '_', '_id', 'bbox', 'chunk_count', 'content', 'delete_many', 'disease_tags', 'document_chunks', 'document_id', 'document_type', 'embedding', 'evidence_level', 'find', 'find_one', 'medical_documents', 'metadata', 'metadata.region', 'page', 'page_char_end', 'page_char_start', 'region', 's3_key', 'section', 'source', 'title', 'unknown', 'update_one']

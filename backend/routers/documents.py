@@ -20,8 +20,9 @@ from backend.core.cache import cache_service
 from backend.core.database import db
 from backend.models.document import MedicalDocument
 from backend.services.document_service import SUPPORTED_FORMATS, DocumentService
-from backend.services.embedding_service import EmbeddingModel
+from backend.services.embedding_model import EmbeddingModel
 from backend.services.s3_service import s3_service
+from backend.services.index_manager import IndexManager
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,13 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 def _get_document_service() -> DocumentService:
     database = db.get_db()
     embedder = EmbeddingModel()
-    return DocumentService(database=database, embedder=embedder, s3=s3_service)
+    index_manager = IndexManager(db=database)
+    return DocumentService(
+        database=database,
+        embedder=embedder,
+        s3=s3_service,
+        index_manager=index_manager,
+    )
 
 
 # ---------------------------------------------------------------------------

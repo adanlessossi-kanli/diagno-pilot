@@ -34,17 +34,30 @@ interface CitationChipProps {
 }
 
 /**
+ * Build a tooltip string from section and page metadata when available.
+ */
+function buildTooltip(source: DocumentSource): string | undefined {
+  const parts: string[] = [];
+  if (source.section) parts.push(source.section);
+  if (source.page != null) parts.push(`p. ${source.page}`);
+  return parts.length > 0 ? parts.join(' — ') : undefined;
+}
+
+/**
  * Renders an inline [N] chip. Clicking it opens the CitationPopup.
+ * Tooltip shows section and page from LlamaIndex node metadata when available.
  */
 export function CitationChip({ index, source }: CitationChipProps) {
   const [open, setOpen] = useState(false);
+  const tooltip = buildTooltip(source);
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label={`Citation ${index}: ${source.title}`}
+        title={tooltip}
+        aria-label={`Citation ${index}: ${source.title}${tooltip ? ` (${tooltip})` : ''}`}
         className="inline-flex items-center justify-center mx-0.5 px-1 py-0.5 text-xs font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400"
       >
         [{index}]

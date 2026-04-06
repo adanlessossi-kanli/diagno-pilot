@@ -41,6 +41,7 @@ services:
       - EMBED_MODEL=${EMBED_MODEL}
       - JWT_SECRET=${JWT_SECRET}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - MODEL_CONTAINER_URL=http://model:8080/v1
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/workspace/backend
@@ -160,6 +161,57 @@ services:
       - prometheus_data:/prometheus
     depends_on:
       - backend
+
+  model:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./model:/models:ro
+    environment:
+      - LLAMA_ARG_MODEL=/models/MedicalQwen3-Reasoning-4B.Q8_0.gguf
+      - LLAMA_ARG_CTX_SIZE=${MODEL_CONTEXT_SIZE:-4096}
+      - LLAMA_ARG_N_GPU_LAYERS=${MODEL_GPU_LAYERS:-99}
+      - LLAMA_ARG_THREADS=${MODEL_THREADS:-4}
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - gpu
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  model-cpu:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./model:/models:ro
+    environment:
+      - LLAMA_ARG_MODEL=/models/MedicalQwen3-Reasoning-4B.Q8_0.gguf
+      - LLAMA_ARG_CTX_SIZE=${MODEL_CONTEXT_SIZE:-4096}
+      - LLAMA_ARG_N_GPU_LAYERS=0
+      - LLAMA_ARG_THREADS=${MODEL_THREADS:-4}
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+    profiles:
+      - cpu
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
 volumes:
   mongo_data:

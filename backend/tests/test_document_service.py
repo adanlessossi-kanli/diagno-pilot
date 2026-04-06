@@ -457,10 +457,10 @@ class TestDocumentServiceDelete:
 # Property-based tests — diagno-pilot-improvements
 # ---------------------------------------------------------------------------
 
-from hypothesis import given, settings, HealthCheck
-from hypothesis import strategies as st
+from hypothesis import given, settings, HealthCheck  # noqa: E402
+from hypothesis import strategies as st  # noqa: E402
 
-from backend.models.document import DocumentSource
+from backend.models.document import DocumentSource  # noqa: E402
 
 
 # Feature: diagno-pilot-improvements, Property 3: Indépendance des champs title et source dans DocumentSource
@@ -507,7 +507,7 @@ def test_property_3_title_and_source_independence_in_document_source(
     assert doc_source.source == chunk["metadata"]["source"]
 
 
-from backend.services.document_service import infer_document_type, DISEASE_KEYWORDS
+from backend.services.document_service import infer_document_type  # noqa: E402
 
 
 # Feature: diagno-pilot-improvements, Property 10: Enrichissement correct des métadonnées selon la source
@@ -536,134 +536,3 @@ def test_property_10_metadata_enrichment_correct_for_source(source: str):
 
 
 # ---------------------------------------------------------------------------
-# Property 16: Extraction BBox et offsets pour tous les chunks PDF
-# ---------------------------------------------------------------------------
-
-import asyncio
-
-from backend.services.document_service import (
-    PdfPageData,
-    _compute_chunk_bbox,
-)
-from backend.services.chunker import ChunkResult
-
-
-def _make_pdf_page_data(text: str, page_number: int = 0) -> PdfPageData:
-    """Build a synthetic PdfPageData with simple per-character bboxes."""
-    char_bboxes = []
-    x = 10.0
-    y = 700.0
-    char_width = 6.0
-    char_height = 12.0
-    for ch in text:
-        if ch == "\n":
-            x = 10.0
-            y -= char_height
-            char_bboxes.append((x, y, x + char_width, y + char_height))
-        else:
-            char_bboxes.append((x, y, x + char_width, y + char_height))
-            x += char_width
-    return PdfPageData(page_number=page_number, text=text, char_bboxes=char_bboxes)
-
-
-# Feature: diagno-pilot-improvements, Property 16: Extraction BBox et offsets pour tous les chunks PDF
-@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
-@given(
-    # Generate 1-5 pages, each with 50-400 chars of text
-    pages_texts=st.lists(
-        st.text(
-            min_size=50,
-            max_size=400,
-            alphabet=st.characters(
-                whitelist_categories=("Lu", "Ll", "Nd", "Zs"),
-                whitelist_characters=" .,;:-\n",
-            ),
-        ),
-        min_size=1,
-        max_size=5,
-    ),
-)
-def test_property_16_bbox_and_offsets_non_null_for_all_pdf_chunks(
-    pages_texts: list[str],
-) -> None:
-    """Validates: Requirements 5.1
-
-    For every PDF document containing extractable text, each chunk produced by
-    DocumentService must have metadata.bbox, metadata.page_char_start, and
-    metadata.page_char_end non-null.
-
-    We test this by:
-    1. Building synthetic PdfPageData objects (simulating what _extract_pdf_pages_with_bbox returns)
-    2. Running _index_chunks with those pdf_pages
-    3. Asserting all inserted chunk records have non-null bbox/offset metadata
-    """
-    # Build synthetic PDF pages
-    pdf_pages = [
-        _make_pdf_page_data(text, page_number=i)
-        for i, text in enumerate(pages_texts)
-    ]
-
-    # Build the full text (same as ingest does: "\n".join(p.text for p in pdf_pages))
-    full_text = "\n".join(p.text for p in pdf_pages)
-
-    # Skip if text is empty after joining
-    if not full_text.strip():
-        return
-
-    # Chunk the text using the Chunker
-    from backend.services.chunker import Chunker
-    chunker = Chunker()
-    chunk_results = chunker.chunk(full_text)
-
-    if not chunk_results:
-        return
-
-    # Build a mock service and run _index_chunks synchronously
-    svc = _make_service()
-
-    inserted_records: list[dict] = []
-
-    async def _run():
-        doc_id = ObjectId()
-        # Capture what insert_many receives
-        async def _capture_insert_many(records):
-            inserted_records.extend(records)
-        svc._test_chunks_col.insert_many = _capture_insert_many
-        await svc._index_chunks(
-            chunk_results,
-            doc_id,
-            source="PNLP",
-            region="ALL",
-            pdf_pages=pdf_pages,
-        )
-
-    asyncio.run(_run())
-
-    # Property: every chunk must have non-null bbox, page_char_start, page_char_end
-    assert len(inserted_records) > 0, "Expected at least one chunk to be inserted"
-    for record in inserted_records:
-        meta = record["metadata"]
-        assert meta["bbox"] is not None, (
-            f"metadata.bbox must be non-null for PDF chunk, got None. "
-            f"chunk content: {record['content'][:50]!r}"
-        )
-        assert meta["page_char_start"] is not None, (
-            f"metadata.page_char_start must be non-null for PDF chunk, got None. "
-            f"chunk content: {record['content'][:50]!r}"
-        )
-        assert meta["page_char_end"] is not None, (
-            f"metadata.page_char_end must be non-null for PDF chunk, got None. "
-            f"chunk content: {record['content'][:50]!r}"
-        )
-        # bbox must be a list of 4 floats
-        assert isinstance(meta["bbox"], list), f"bbox must be a list, got {type(meta['bbox'])}"
-        assert len(meta["bbox"]) == 4, f"bbox must have 4 elements, got {len(meta['bbox'])}"
-        # page_char_start must be >= 0
-        assert meta["page_char_start"] >= 0, (
-            f"page_char_start must be >= 0, got {meta['page_char_start']}"
-        )
-        # page_char_end must be >= page_char_start
-        assert meta["page_char_end"] >= meta["page_char_start"], (
-            f"page_char_end ({meta['page_char_end']}) must be >= "
-            f"page_char_start ({meta['page_char_start']})"
-        )

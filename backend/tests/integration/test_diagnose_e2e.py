@@ -67,9 +67,10 @@ def _setup_diagnostic_service(integration_app):
     _LLM_BASE_URL so that respx can intercept the requests.
     """
     from backend.services.diagnostic_service import DiagnosticService
-    from backend.services.embedding_service import EmbeddingModel
+    from backend.services.embedding_model import EmbeddingModel
     from backend.services.llm_router import LLMRouter
-    from backend.services.rag_service import RAGService
+    from backend.services.index_manager import IndexManager
+    from backend.services.llamaindex_pipeline import LlamaIndexPipeline
     from motor.motor_asyncio import AsyncIOMotorClient
 
     # Use the same LLM base URL so respx can intercept the requests
@@ -83,7 +84,7 @@ def _setup_diagnostic_service(integration_app):
         base_url=_LLM_BASE_URL,
         api_key="test-key",
     )
-    # Use a dummy mongo client with a very short timeout for the RAG service
+    # Use a dummy mongo client with a very short timeout for the pipeline
     # (vector search will fail gracefully and fall back to keyword search,
     # which also returns empty — the LLM stub still produces the diagnoses)
     mongo_client = AsyncIOMotorClient(
@@ -91,13 +92,14 @@ def _setup_diagnostic_service(integration_app):
         serverSelectionTimeoutMS=100,  # fail fast
         connectTimeoutMS=100,
     )
-    rag = RAGService(
-        mongo_client=mongo_client,
+    database = mongo_client["diagno_pilot_test"]
+    index_manager = IndexManager(db=database)
+    pipeline = LlamaIndexPipeline(
+        index_manager=index_manager,
         llm_router=llm_router,
         embedder=embedder,
-        db_name="diagno_pilot_test",
     )
-    integration_app.state.diagnostic_service = DiagnosticService(rag_service=rag)
+    integration_app.state.diagnostic_service = DiagnosticService(rag_service=pipeline)
 
 
 def _mock_llm_endpoints(router=None):

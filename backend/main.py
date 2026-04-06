@@ -30,11 +30,14 @@ from backend.core.logging_config import request_id_var, setup_logging  # noqa: E
 from backend.core.rate_limit import limiter  # noqa: E402
 from backend.routers import admin, alerts, auth, chat, diagnose, documents, feedback, files, medecin, patients, qa  # noqa: E402
 from backend.services.diagnostic_service import DiagnosticService  # noqa: E402
-from backend.services.embedding_service import EmbeddingModel  # noqa: E402
+from backend.services.embedding_model import EmbeddingModel  # noqa: E402
 from backend.services.llm_router import LLMRouter  # noqa: E402
 from backend.services.alert_service import alert_service  # noqa: E402
 from backend.services.prescription_service import prescription_service  # noqa: E402
-from backend.services.rag_service import RAGService  # noqa: E402
+from backend.services.audit_service import audit_logger  # noqa: E402
+from backend.services.index_manager import IndexManager  # noqa: E402
+from backend.services.llamaindex_pipeline import LlamaIndexPipeline  # noqa: E402
+from backend.services.agent_pipeline import AgentPipeline  # noqa: E402
 
 # Initialise structured logging before anything else
 setup_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
@@ -130,22 +133,33 @@ async def lifespan(app: FastAPI):
 
     # Singleton DiagnosticService (REQ 6.5)
     database = db.get_db()
-    mongo_client = database.client
     llm_router = LLMRouter()
     embedder = EmbeddingModel()
-    rag = RAGService(
-        mongo_client=mongo_client,
+
+    # LlamaIndex pipeline + AgentPipeline for in-process multi-agent diagnostics
+    index_manager = IndexManager(db=database)
+    llamaindex_pipeline = LlamaIndexPipeline(
+        index_manager=index_manager,
         llm_router=llm_router,
         embedder=embedder,
-        db_name=database.name,
     )
-    app.state.diagnostic_service = DiagnosticService(rag_service=rag)
-    logger.info("DiagnosticService singleton initialised")
+    agent_pipeline = AgentPipeline(
+        pipeline=llamaindex_pipeline,
+        llm_router=llm_router,
+        audit_logger=audit_logger,
+    )
+
+    app.state.diagnostic_service = DiagnosticService(
+        rag_service=llamaindex_pipeline,
+        agent_pipeline=agent_pipeline,
+        audit_logger=audit_logger,
+    )
+    logger.info("DiagnosticService singleton initialised (with AgentPipeline)")
 
     # Detect unmigrated chunks at startup — REQ 6.1
     from backend.services.document_service import DocumentService
     from backend.services.s3_service import s3_service
-    _doc_svc = DocumentService(database=database, embedder=embedder, s3=s3_service)
+    _doc_svc = DocumentService(database=database, embedder=embedder, s3=s3_service, index_manager=index_manager)
     await _doc_svc.check_unmigrated_chunks()
 
     yield

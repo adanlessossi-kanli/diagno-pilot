@@ -27,6 +27,23 @@ class Settings(BaseSettings):
     LLM_RETRY_BASE_DELAY: float = 1.0
     LLM_RETRY_MAX_DELAY: float = 30.0
 
+    # Model_Container (local llama.cpp server)
+    MODEL_CONTAINER_URL: str = "http://model:8080/v1"
+    MODEL_CONTAINER_API_KEY: str = ""
+    MODEL_GPU_LAYERS: int = 99
+    MODEL_CONTEXT_SIZE: int = 4096
+    MODEL_THREADS: int = 4
+
+    # LlamaIndex pipeline
+    LLAMAINDEX_CHUNK_SIZE: int = 512
+    LLAMAINDEX_CHUNK_OVERLAP_TOKENS: int = 50
+    LLAMAINDEX_SIMILARITY_THRESHOLD: float = 0.75
+
+    # HIPAA compliance
+    HIPAA_ENCRYPTION_KEY_ID: str = ""
+    HIPAA_AUDIT_HASH_CHAIN_ENABLED: bool = True
+    HIPAA_PHI_STRIP_ON_FALLBACK: bool = True
+
     ALLOWED_ORIGINS: str = "*"
     RATE_LIMIT_STORAGE_URI: str = "memory://"
     LOG_LEVEL: str = "INFO"
@@ -75,6 +92,14 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "ALLOWED_ORIGINS must be an explicit list in production (ENV=production). "
                     "Set ALLOWED_ORIGINS=https://app.example.com,https://api.example.com"
+                )
+            if not self.HIPAA_ENCRYPTION_KEY_ID:
+                raise ValueError(
+                    "HIPAA_ENCRYPTION_KEY_ID must be set in production (ENV=production)."
+                )
+            if not self.HIPAA_PHI_STRIP_ON_FALLBACK:
+                raise ValueError(
+                    "HIPAA_PHI_STRIP_ON_FALLBACK must be enabled in production (ENV=production)."
                 )
 
         # Warn early when the URI looks like a Docker service name but we're

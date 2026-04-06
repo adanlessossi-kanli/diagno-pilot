@@ -1,15 +1,19 @@
-"""LLMRouter — routes to MedicalQwen3 (primary) with GPT-5 fallback.
+"""LLMRouter — routes to MedicalQwen3-Reasoning-4B (primary) with GPT-5 fallback.
 
 Two CircuitBreakers protect the primary and fallback LLMs.  After 5 consecutive
 failures the circuit opens and requests bypass that LLM.  RetryPolicy wraps
 each _LLMClient call with jittered exponential backoff before recording a
 circuit-breaker failure.
+
+When falling back to GPT-5, the BAA_Controller strips all PHI from the
+request context before transmission (HIPAA/BAA compliance).
 """
 from __future__ import annotations
 
 import logging
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 from fastapi import HTTPException
@@ -76,14 +80,17 @@ class _LLMClient:
 
 
 class LLMRouter:
-    """Routes generation requests to MedicalQwen3; falls back to GPT-5 on failure.
+    """Routes generation requests to Model_Container; falls back to GPT-5 on failure.
 
     Two CircuitBreakers protect the primary and fallback LLMs.  RetryPolicy
     wraps each client call with jittered exponential backoff.  When the fallback
     also exhausts retries, HTTP 503 is raised with a structured error body.
+
+    When falling back to GPT-5, the BAA_Controller strips all PHI from the
+    context to comply with HIPAA/BAA requirements.
     """
 
-    PRIMARY_MODEL = "MedicalQwen3-Reasoning-14B"
+    PRIMARY_MODEL = "MedicalQwen3-Reasoning-4B"
     FALLBACK_MODEL = "gpt-5"
 
     def __init__(
@@ -94,9 +101,12 @@ class LLMRouter:
         fallback_api_key: str | None = None,
         circuit_breaker: CircuitBreaker | None = None,
         fallback_circuit_breaker: CircuitBreaker | None = None,
+        baa_controller: Any | None = None,
+        phi_classifier: Any | None = None,
     ) -> None:
-        primary_url = primary_url or settings.LLM_PRIMARY_URL or ""
-        primary_api_key = primary_api_key or settings.LLM_PRIMARY_API_KEY or ""
+        # Primary defaults to Model_Container URL
+        primary_url = primary_url or settings.MODEL_CONTAINER_URL or settings.LLM_PRIMARY_URL or ""
+        primary_api_key = primary_api_key or settings.MODEL_CONTAINER_API_KEY or settings.LLM_PRIMARY_API_KEY or ""
         fallback_url = fallback_url or settings.LLM_FALLBACK_URL or ""
         fallback_api_key = fallback_api_key or settings.LLM_FALLBACK_API_KEY or ""
 
@@ -105,14 +115,18 @@ class LLMRouter:
         self._primary_cb = circuit_breaker or CircuitBreaker(service_name="qwen3")
         self._fallback_cb = fallback_circuit_breaker or CircuitBreaker()
 
+        self._baa_controller = baa_controller
+        self._phi_classifier = phi_classifier
+
         # Keep last_used for backward compat with RAGService (updated below)
         self.last_used: str = ""
 
     async def generate(self, prompt: str, context: list[dict]) -> LLMResult:
-        """Generate a response, falling back to GPT-5 if MedicalQwen3 is unavailable.
+        """Generate a response, falling back to GPT-5 if Model_Container is unavailable.
 
         Sets a deadline from ``settings.LLM_TIMEOUT`` and passes it to both
-        client calls.  Returns ``LLMResult(answer, fallback_used)``.
+        client calls.  When falling back to GPT-5, BAA_Controller strips PHI
+        from the context.  Returns ``LLMResult(answer, fallback_used)``.
 
         Raises:
             HTTPException(503): When both LLMs are exhausted.
@@ -120,13 +134,14 @@ class LLMRouter:
         deadline = time.monotonic() + settings.LLM_TIMEOUT
         primary_skipped = False
 
-        # --- Primary LLM attempt ---
+        # --- Primary LLM attempt (Model_Container — full PHI allowed) ---
         try:
             t0 = time.perf_counter()
             answer = await self._primary_cb.call_fn(
                 self._primary.generate, prompt, context, deadline=deadline
             )
-            llm_duration_seconds.labels(model=self.PRIMARY_MODEL, status="success").observe(time.perf_counter() - t0)
+            elapsed = time.perf_counter() - t0
+            llm_duration_seconds.labels(model=self.PRIMARY_MODEL, status="success").observe(elapsed)
             llm_requests_total.labels(model=self.PRIMARY_MODEL, status="success").inc()
             self.last_used = self.PRIMARY_MODEL
             return LLMResult(answer=answer, fallback_used=False)
@@ -141,13 +156,30 @@ class LLMRouter:
             llm_requests_total.labels(model=self.PRIMARY_MODEL, status="error").inc()
             logger.warning("Primary LLM exhausted retries — trying fallback.")
 
-        # --- Fallback LLM attempt ---
+        # --- BAA PHI stripping before fallback (Req 5.4, 9.1) ---
+        fallback_context = context
+        if self._baa_controller is not None and self._phi_classifier is not None:
+            try:
+                fallback_context = self._baa_controller.strip_phi(context, self._phi_classifier)
+            except Exception as exc:
+                logger.error("BAA PHI stripping failed — blocking external LLM call: %s", exc)
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "phi_strip_failed",
+                        "code": "PHI_STRIP_FAILED",
+                        "retryable": False,
+                    },
+                ) from exc
+
+        # --- Fallback LLM attempt (GPT-5 — zero PHI) ---
         try:
             t0 = time.perf_counter()
             answer = await self._fallback_cb.call_fn(
-                self._fallback.generate, prompt, context, deadline=deadline
+                self._fallback.generate, prompt, fallback_context, deadline=deadline
             )
-            llm_duration_seconds.labels(model=self.FALLBACK_MODEL, status="success").observe(time.perf_counter() - t0)
+            elapsed = time.perf_counter() - t0
+            llm_duration_seconds.labels(model=self.FALLBACK_MODEL, status="success").observe(elapsed)
             llm_requests_total.labels(model=self.FALLBACK_MODEL, status="success").inc()
             self.last_used = self.FALLBACK_MODEL
             return LLMResult(answer=answer, fallback_used=True)
