@@ -164,12 +164,12 @@ class LlamaIndexPipeline:
             )
             return response
 
-        # --- Build sources (top 5 most relevant only) ---
+        # --- Build unified top_chunks (sorted by ce_score when available, else score) ---
         top_chunks = sorted(
             chunks,
-            key=lambda c: float(c.get("score", 0.0)),
+            key=lambda c: float(c.get("ce_score", c.get("score", 0.0))),
             reverse=True,
-        )[:5]
+        )[:min(top_k, 5)]
         sources = [
             DocumentSource(
                 document_id=str(c.get("document_id", "")),
@@ -203,18 +203,18 @@ class LlamaIndexPipeline:
             llm_context.append(
                 {"role": "system", "content": f"Patient context: {context.model_dump_json()}"}
             )
-        for c in chunks[:3]:
+        for c in top_chunks[:3]:
             llm_context.append({"role": "system", "content": c.get("content", "")[:300]})
 
         # --- Generate answer ---
         llm_result = await self._llm.generate(question, llm_context)
 
-        # --- Confidence score (arithmetic mean of cosine scores) ---
-        cosine_scores: list[float] = [
-            float(c["score"]) for c in chunks if c.get("score") is not None
+        # --- Confidence score (mean of source chunk scores) ---
+        source_scores: list[float] = [
+            float(c.get("ce_score", c.get("score", 0.0))) for c in top_chunks
         ]
         confidence_score: float | None = (
-            (sum(cosine_scores) / len(cosine_scores)) if cosine_scores else None
+            (sum(source_scores) / len(source_scores)) if source_scores else None
         )
 
         response = RAGResponse(

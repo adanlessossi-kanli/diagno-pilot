@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\agents\mcp_servers\treatment_server.py
+# hypothesis_version: 6.151.9
+
+[0.0, 500, ', ', '8004', 'Retrieval error: %s', 'SERVER_PORT', 'Treatment Protocols', '__main__', 'agent_name', 'application/json', 'array', 'chunks', 'condition', 'confidence_score', 'content', 'description', 'document_chunks', 'document_id', 'duration_days', 'excerpt', 'fallback_used', 'guideline', 'icd_code', 'integer', 'items', 'locale', 'matching_symptoms', 'metadata', 'name', 'nullable', 'object', 'page', 'partial_differential', 'patient_profile', 'probability', 'properties', 'query_treatment', 'region', 'required', 'score', 'severity', 'source', 'string', 'sub_question', 'symptoms', 'text', 'title', 'treatment', 'treatment_query', 'type']

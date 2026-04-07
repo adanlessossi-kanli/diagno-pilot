@@ -41,7 +41,7 @@ def filter_by_similarity(
     Implements Requirement 4.4.
     """
     threshold = threshold if threshold is not None else settings.LLAMAINDEX_SIMILARITY_THRESHOLD
-    return [c for c in chunks if c.get("score", 1.0) >= threshold]
+    return [c for c in chunks if c.get("ce_score", c.get("score", 1.0)) >= threshold]
 
 
 def filter_by_region(
@@ -141,12 +141,9 @@ def cross_encoder_rerank(
         cross_encoder = get_cross_encoder()
         pairs = [(query, c.get("content", "")) for c in chunks]
         ce_scores = cross_encoder.predict(pairs)
-        return [
-            c
-            for _, c in sorted(
-                zip(ce_scores, chunks), key=lambda x: x[0], reverse=True
-            )
-        ]
+        for score, chunk in zip(ce_scores, chunks):
+            chunk["ce_score"] = float(score)
+        return sorted(chunks, key=lambda c: c["ce_score"], reverse=True)
     except Exception:
         logger.debug("Cross-encoder unavailable — skipping re-rank.")
         return chunks
