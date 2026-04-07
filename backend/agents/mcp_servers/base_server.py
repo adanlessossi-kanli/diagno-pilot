@@ -178,8 +178,16 @@ class BaseMCPServer:
         params = request.get("params", {})
         req_id = request.get("id")
 
-        if jsonrpc != "2.0" or not method:
+        if jsonrpc != "2.0" or not method or not isinstance(method, str):
             return _jsonrpc_error(req_id, INVALID_REQUEST, "Invalid Request")
+
+        # Validate id type (JSON-RPC 2.0: string, integer, or null)
+        if "id" in request and not isinstance(req_id, (str, int, type(None))):
+            return _jsonrpc_error(None, INVALID_REQUEST, "Invalid Request")
+
+        # Validate params type (JSON-RPC 2.0: dict or list only)
+        if "params" in request and not isinstance(request["params"], (dict, list)):
+            return _jsonrpc_error(req_id, INVALID_PARAMS, "Invalid params")
 
         dispatch: dict[str, Callable[..., Any]] = {
             "tools/list": self._handle_tools_list,

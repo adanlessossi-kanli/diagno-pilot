@@ -18,7 +18,7 @@
 Diagno-Pilot implémente les contrôles HIPAA suivants :
 
 1. **Classification PHI** — Identification automatique des champs contenant des informations de santé protégées
-2. **Chiffrement au repos** — AES-256 (Fernet) pour les champs PHI dans MongoDB
+2. **Chiffrement au repos** — AES-256-GCM (AESGCM) pour les champs PHI dans MongoDB, avec fallback Fernet pour la compatibilité descendante
 3. **Audit anti-falsification** — Journal d'audit avec chaîne de hachage SHA-256
 4. **Contrôles BAA** — Zéro PHI dans les appels vers les LLM externes (GPT-5)
 5. **Frontière PHI** — Séparation stricte entre le modèle local (PHI autorisé) et les services externes (PHI interdit)
@@ -52,27 +52,53 @@ Le service `PHIClassifier` (`backend/services/phi_classifier.py`) classifie chaq
 
 Les champs inconnus (non listés ci-dessus) sont classifiés comme PHI par défaut. Cette approche conservatrice garantit qu'aucune donnée sensible n'est accidentellement exposée.
 
-## Chiffrement AES-256
+## Chiffrement AES-256-GCM
 
 Le service `EncryptionService` (`backend/services/encryption_service.py`) fournit le chiffrement au niveau des champs.
 
 ### Algorithme
 
-- **Fernet** (AES-128-CBC + HMAC-SHA256) — chiffrement authentifié
-- Clé de 256 bits encodée en base64 URL-safe
-- Chaque opération de chiffrement produit un ciphertext unique (IV aléatoire)
+- **AES-256-GCM** via `cryptography.hazmat.primitives.ciphers.aead.AESGCM` — chiffrement authentifié
+- Clé de 32 octets (256 bits) encodée en base64 URL-safe
+- Nonce aléatoire de 12 octets (96 bits) généré pour chaque opération de chiffrement
+- Tag d'authentification GCM de 16 octets intégré au ciphertext
+
+### Format ciphertext
+
+```
+base64url( nonce[12 octets] || ciphertext + tag[16 octets] )
+```
+
+Le nonce de 12 octets est préfixé au ciphertext+tag, puis le tout est encodé en base64 URL-safe pour stockage en MongoDB.
+
+### Génération d'une clé
+
+```bash
+python -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+```
 
 ### Flux de chiffrement
 
 ```
-Plaintext → Fernet.encrypt() → Base64 ciphertext → Stockage MongoDB
+Plaintext → AESGCM.encrypt(nonce, plaintext_utf8) → base64url(nonce || ciphertext+tag) → Stockage MongoDB
 ```
 
 ### Flux de déchiffrement
 
 ```
-Base64 ciphertext → Fernet.decrypt() → Plaintext original
+base64url ciphertext → Extraire nonce[12] et ciphertext+tag → AESGCM.decrypt(nonce, ciphertext+tag) → Plaintext original
 ```
+
+### Fallback Fernet (compatibilité descendante)
+
+Les données chiffrées avec l'ancien algorithme Fernet (AES-128-CBC + HMAC-SHA256) sont toujours lisibles. Le service de déchiffrement détecte automatiquement le format :
+
+- Les tokens Fernet commencent par `gAAAAA` (base64 standard)
+- Les tokens AES-256-GCM utilisent base64 URL-safe
+
+Si le déchiffrement AES-256-GCM échoue, le service tente automatiquement un déchiffrement Fernet avant de lever une erreur.
+
+> **Migration :** Les anciennes clés Fernet (44 caractères base64 standard) ne sont pas compatibles avec AES-256-GCM. Générez une nouvelle clé avec la commande ci-dessus et mettez à jour `HIPAA_ENCRYPTION_KEY_ID`.
 
 ### Chiffrement des champs PHI
 
@@ -80,13 +106,13 @@ Base64 ciphertext → Fernet.decrypt() → Plaintext original
 from backend.services.encryption_service import EncryptionService
 from backend.services.phi_classifier import PHIClassifier
 
-enc = EncryptionService(key="votre_clé_fernet_base64")
+enc = EncryptionService(key="votre_clé_aesgcm_base64url")
 classifier = PHIClassifier()
 
 # Chiffrer tous les champs PHI d'un dictionnaire
 data = {"full_name": "Jean Dupont", "region": "TG"}
 encrypted = enc.encrypt_phi_fields(data, classifier)
-# → {"full_name": "gAAAAABk...", "region": "TG"}
+# → {"full_name": "base64url_nonce_ciphertext...", "region": "TG"}
 
 # Déchiffrer
 decrypted = enc.decrypt_phi_fields(encrypted, classifier)
@@ -234,23 +260,23 @@ Le service `EncryptionService` supporte la rotation de clés de chiffrement.
 ### Procédure
 
 ```python
-enc = EncryptionService(key="ancienne_clé")
+enc = EncryptionService(key="ancienne_clé_aesgcm")
 
 # Rotation vers une nouvelle clé
-enc.rotate_key("nouvelle_clé_fernet_base64")
+enc.rotate_key("nouvelle_clé_aesgcm_base64url")
 
 # Après rotation :
-# - Les nouvelles écritures utilisent la nouvelle clé
-# - Les lectures tentent d'abord la nouvelle clé, puis l'ancienne
+# - Les nouvelles écritures utilisent la nouvelle clé AES-256-GCM
+# - Les lectures tentent d'abord la nouvelle clé, puis l'ancienne (AESGCM), puis le fallback Fernet
 ```
 
 ### Étapes de rotation en production
 
-1. Générer une nouvelle clé Fernet
+1. Générer une nouvelle clé AES-256-GCM : `python -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`
 2. Mettre à jour `HIPAA_ENCRYPTION_KEY_ID` dans la configuration
-3. Appeler `rotate_key()` sur le service — l'ancienne clé est conservée pour le déchiffrement
+3. Appeler `rotate_key()` sur le service — l'ancienne clé AESGCM et l'ancienne clé Fernet sont conservées pour le déchiffrement
 4. Re-chiffrer progressivement les données existantes avec la nouvelle clé
-5. Une fois toutes les données re-chiffrées, l'ancienne clé peut être retirée
+5. Une fois toutes les données re-chiffrées, les anciennes clés peuvent être retirées
 
 ## Frontière PHI dans le pipeline d'agents
 

@@ -61,16 +61,17 @@ Configuration des contrôles de conformité HIPAA.
 
 | Variable | Type | Défaut | Requis en prod | Description |
 |---|---|---|---|---|
-| `HIPAA_ENCRYPTION_KEY_ID` | `str` | `""` | **Oui** | Identifiant de la clé de chiffrement AES-256. Doit être une clé Fernet base64 valide. |
+| `HIPAA_ENCRYPTION_KEY_ID` | `str` | `""` | **Oui** | Clé de chiffrement AES-256-GCM : 32 octets encodés en base64 URL-safe. |
 | `HIPAA_AUDIT_HASH_CHAIN_ENABLED` | `bool` | `true` | Non | Active la chaîne de hachage dans les logs d'audit HIPAA |
 | `HIPAA_PHI_STRIP_ON_FALLBACK` | `bool` | `true` | **Oui** | Active le stripping PHI avant les appels LLM externes. Doit être `true` en production. |
 
-**Génération d'une clé Fernet :**
+**Génération d'une clé AES-256-GCM :**
 
-```python
-from cryptography.fernet import Fernet
-print(Fernet.generate_key().decode())
+```bash
+python -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 ```
+
+> **Note :** Les anciennes clés Fernet ne sont pas compatibles avec AES-256-GCM. Le service de chiffrement conserve un fallback Fernet pour déchiffrer les données existantes pendant la migration.
 
 ## LLM (hérité)
 
@@ -101,7 +102,9 @@ Paramètres LLM existants maintenus pour compatibilité ascendante. Le `MODEL_CO
 
 | Variable | Type | Défaut | Requis en prod | Description |
 |---|---|---|---|---|
-| `MONGODB_URI` | `str` | `mongodb://localhost:27017/diagno_pilot` | Non | URI de connexion MongoDB |
+| `MONGODB_URI` | `str` | `mongodb://localhost:27017/diagno_pilot` | Non | URI de connexion MongoDB (format authentifié : `mongodb://user:pass@host:27017/diagno_pilot?authSource=admin`) |
+| `MONGO_USERNAME` | `str` | `diagno_dev` | **Oui** | Utilisateur root MongoDB (utilisé dans `docker-compose.yml`) |
+| `MONGO_PASSWORD` | `str` | `diagno_dev_pass` | **Oui** | Mot de passe root MongoDB (utilisé dans `docker-compose.yml`) |
 
 ## AWS / S3
 
@@ -117,7 +120,8 @@ Paramètres LLM existants maintenus pour compatibilité ascendante. Le `MODEL_CO
 
 | Variable | Type | Défaut | Requis en prod | Description |
 |---|---|---|---|---|
-| `REDIS_URL` | `str` | `redis://localhost:6379/0` | Non | URL de connexion Redis |
+| `REDIS_URL` | `str` | `redis://:diagno_redis_dev@localhost:6379/0` | Non | URL de connexion Redis (format authentifié : `redis://:password@host:6379/0`) |
+| `REDIS_PASSWORD` | `str` | `diagno_redis_dev` | **Oui** | Mot de passe Redis (utilisé dans `docker-compose.yml`) |
 | `CACHE_TTL_PROTOCOLS` | `int` | `3600` | Non | TTL du cache protocoles (secondes) |
 | `CACHE_TTL_INTERACTIONS` | `int` | `3600` | Non | TTL du cache interactions (secondes) |
 | `CACHE_TTL_EMBEDDINGS` | `int` | `86400` | Non | TTL du cache embeddings (24h) |
@@ -129,7 +133,8 @@ Paramètres LLM existants maintenus pour compatibilité ascendante. Le `MODEL_CO
 | Variable | Type | Défaut | Requis en prod | Description |
 |---|---|---|---|---|
 | `ENV` | `str` | `development` | Non | Environnement (`development`, `staging`, `production`) |
-| `ALLOWED_ORIGINS` | `str` | `*` | **Oui** | Origines CORS autorisées (liste séparée par virgules). Ne peut pas être `*` en production. |
+| `ALLOWED_ORIGINS` | `str` | `http://localhost:3000` | **Oui** | Origines CORS autorisées (liste séparée par virgules). Ne peut pas être `*` en production. |
+| `CSP_POLICY` | `str` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'` | Non | Valeur de l'en-tête Content-Security-Policy pour les réponses API backend |
 | `LOG_LEVEL` | `str` | `INFO` | Non | Niveau de log (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `LOG_FORMAT` | `str` | `json` | Non | Format de log (`json` ou `text`) |
 | `METRICS_AUTH` | `str` | `""` | Non | Authentification Basic Auth pour `/metrics` (format `user:password`) |

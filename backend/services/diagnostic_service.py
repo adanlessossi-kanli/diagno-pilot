@@ -42,8 +42,10 @@ FALLBACK_DISCLAIMER = (
 
 DIAGNOSIS_SYSTEM_PROMPT = (
     "Tu es un assistant médical expert en maladies tropicales. "
-    "En te basant UNIQUEMENT sur les passages de documents fournis, "
+    "En te basant en priorité sur les passages de documents fournis, "
     "génère un diagnostic différentiel au format JSON strict. "
+    "Si les passages ne contiennent pas assez d'information, utilise tes connaissances "
+    "médicales pour compléter le diagnostic. "
     "Réponds UNIQUEMENT avec un tableau JSON valide, sans texte avant ou après. "
     "Format requis : "
     '[{"condition": "<nom>", "probability": <0.0-1.0>, "icd_code": "<CIM-10>", "matching_symptoms": ["<symptôme>"]}, ...]. '
@@ -241,6 +243,37 @@ class DiagnosticOrchestrator:
         )
 
         result = self._synthesis_agent.synthesize(agent_results, locale=locale)
+
+        # If agents returned chunks but no differentials (retrieval-only mode),
+        # use the LLM to generate diagnoses from the merged chunks.
+        all_chunks_content = []
+        for ar in agent_results:
+            for chunk in ar.chunks:
+                excerpt = chunk.get("excerpt", chunk.get("content", ""))
+                if excerpt:
+                    all_chunks_content.append(excerpt[:300])
+
+        has_only_placeholders = all(
+            d.condition.startswith("Diagnostic différentiel") for d in result.diagnoses
+        )
+
+        if has_only_placeholders and all_chunks_content:
+            try:
+                context_text = "\n---\n".join(all_chunks_content[:5])
+                symptom_names = ", ".join(s.name for s in symptoms)
+                llm_context = [
+                    {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT},
+                    {"role": "system", "content": f"Documents pertinents :\n{context_text}"},
+                ]
+                llm_result = await self._rag._llm.generate(
+                    f"Symptômes : {symptom_names}", llm_context
+                )
+                parsed = self._diagnostic_parser.parse(llm_result.answer)
+                if parsed and len(parsed) >= 3:
+                    result.diagnoses = parsed
+                    result.fallback_used = llm_result.fallback_used
+            except Exception as exc:
+                logger.warning("LLM diagnosis generation failed: %s", exc)
 
         duration_ms = round((time.perf_counter() - start) * 1000, 1)
 

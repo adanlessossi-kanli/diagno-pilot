@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     MONGODB_URI: str = "mongodb://localhost:27017/diagno_pilot"
     JWT_SECRET: str = "change_me_in_production_use_a_long_secret_key"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 15
+    JWT_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_EXPIRE_DAYS: int = 7
 
     AWS_ENDPOINT_URL: str | None = None
@@ -50,14 +50,15 @@ class Settings(BaseSettings):
     HIPAA_AUDIT_HASH_CHAIN_ENABLED: bool = True
     HIPAA_PHI_STRIP_ON_FALLBACK: bool = True
 
-    ALLOWED_ORIGINS: str = "*"
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+    CSP_POLICY: str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'"
     RATE_LIMIT_STORAGE_URI: str = "memory://"
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # "json" | "text"
     METRICS_AUTH: str = ""  # "user:password" for /metrics Basic Auth
 
     # Cache / Redis settings
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://:diagno_redis_dev@localhost:6379/0"
     CACHE_TTL_PROTOCOLS: int = 3600
     CACHE_TTL_INTERACTIONS: int = 3600
     CACHE_TTL_EMBEDDINGS: int = 86400

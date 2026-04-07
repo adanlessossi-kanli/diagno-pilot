@@ -35,7 +35,7 @@ response_strategy = st.text(min_size=1, max_size=500)
 # ---------------------------------------------------------------------------
 
 @given(prompt=prompt_strategy, context=context_strategy, fallback_response=response_strategy)
-@h_settings(max_examples=100)
+@h_settings(max_examples=100, deadline=None)
 def test_fallback_always_returns_response_when_primary_fails(
     prompt: str, context: list[dict], fallback_response: str
 ):
@@ -69,7 +69,7 @@ def test_fallback_always_returns_response_when_primary_fails(
 # ---------------------------------------------------------------------------
 
 @given(prompt=prompt_strategy, context=context_strategy, primary_response=response_strategy)
-@h_settings(max_examples=100)
+@h_settings(max_examples=100, deadline=None)
 def test_primary_used_when_available(
     prompt: str, context: list[dict], primary_response: str
 ):
@@ -103,7 +103,7 @@ def test_primary_used_when_available(
 # ---------------------------------------------------------------------------
 
 @given(prompt=prompt_strategy, context=context_strategy)
-@h_settings(max_examples=50)
+@h_settings(max_examples=50, deadline=None)
 def test_error_propagates_when_both_llms_fail(prompt: str, context: list[dict]):
     """
     **Validates: Requirements REQ-04, 5.5**

@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 SERVER_PORT = int(os.environ.get("SERVER_PORT", "8001"))
-SOURCE_FILTER = {"metadata.document_type": "epidemiology"}
+SOURCE_FILTER = {"metadata.document_type": "guideline"}
 
 TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -158,16 +158,15 @@ class EpidemiologyMCPServer(BaseMCPServer):
     async def _handle_query_epidemiology(self, arguments: dict[str, Any]) -> dict:
         """Handle the ``query_epidemiology`` tool invocation.
 
-        Builds an epidemiological sub-question from the symptoms, queries the
-        RAG pipeline with the epidemiological source filter and region, then
-        parses the response into an AgentResult-like dict.
+        Retrieval-only: embeds the sub-question, retrieves relevant chunks
+        via vector search + BM25, and returns them without calling the LLM.
+        The synthesis agent on the backend handles LLM-based diagnosis.
         """
         symptoms = arguments.get("symptoms", [])
-        _patient_profile = arguments.get("patient_profile")  # noqa: F841 — reserved for future use
-        _locale = arguments.get("locale", "fr-TG")  # noqa: F841 — reserved for future use
+        _patient_profile = arguments.get("patient_profile")  # noqa: F841
+        _locale = arguments.get("locale", "fr-TG")  # noqa: F841
         region = arguments.get("region")
 
-        # Build sub-question
         symptom_names = ", ".join(s["name"] for s in symptoms if isinstance(s, dict) and "name" in s)
         region_clause = f" dans la région {region}" if region else ""
         sub_question = (
@@ -175,17 +174,15 @@ class EpidemiologyMCPServer(BaseMCPServer):
             f"suivants{region_clause} : {symptom_names} ?"
         )
 
-        # Query RAG pipeline
+        # Retrieval-only: embed query then search chunks (no LLM call)
         try:
-            rag_response = await self._pipeline.query(
-                question=sub_question,
-                context=None,
-                top_k=5,
-                region=region,
+            query_vector = await self._embedder.encode(sub_question)
+            raw_chunks = await self._index_manager.retrieve(
+                query_vector, sub_question, top_k=5, region=region,
                 source_filter=SOURCE_FILTER,
             )
         except Exception as exc:
-            logger.error("RAG pipeline error: %s", exc)
+            logger.error("Retrieval error: %s", exc)
             return {
                 "agent_name": "epidemiology",
                 "sub_question": sub_question,
@@ -195,31 +192,27 @@ class EpidemiologyMCPServer(BaseMCPServer):
                 "fallback_used": False,
             }
 
-        # Extract chunks from sources
         chunks = [
             {
-                "document_id": src.document_id,
-                "title": src.title,
-                "source": src.source,
-                "excerpt": src.excerpt or "",
-                "page": src.page,
+                "document_id": str(c.get("document_id", "")),
+                "title": c.get("metadata", {}).get("title", c.get("metadata", {}).get("source", "")),
+                "source": c.get("metadata", {}).get("source", ""),
+                "excerpt": c.get("content", "")[:500],
+                "page": c.get("metadata", {}).get("page"),
             }
-            for src in rag_response.sources
+            for c in raw_chunks
         ]
 
-        confidence_score = rag_response.confidence_score if rag_response.confidence_score is not None else 0.0
-        fallback_used = rag_response.fallback_used
-
-        # Parse partial_differential from LLM answer
-        partial_differential = _parse_partial_differential(rag_response.answer)
+        cosine_scores = [float(c["score"]) for c in raw_chunks if c.get("score") is not None]
+        confidence_score = (sum(cosine_scores) / len(cosine_scores)) if cosine_scores else 0.0
 
         return {
             "agent_name": "epidemiology",
             "sub_question": sub_question,
             "chunks": chunks,
             "confidence_score": confidence_score,
-            "partial_differential": partial_differential,
-            "fallback_used": fallback_used,
+            "partial_differential": [],
+            "fallback_used": False,
         }
 
 

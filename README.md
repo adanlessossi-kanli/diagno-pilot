@@ -77,7 +77,10 @@ LLM_FALLBACK_URL=https://api.openai.com/v1  # GPT-5
 LLM_FALLBACK_API_KEY=your_openai_key
 EMBED_MODEL=text-embedding-ada-002
 JWT_SECRET=change_this_to_a_strong_secret_32chars
-MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+MONGODB_URI=mongodb://diagno_dev:diagno_dev_pass@mongo:27017/diagno_pilot?authSource=admin
+MONGO_USERNAME=diagno_dev
+MONGO_PASSWORD=diagno_dev_pass
+REDIS_PASSWORD=diagno_redis_dev
 ```
 
 ### 2. Démarrer l'application
@@ -100,12 +103,10 @@ start.bat
 | Frontend web | http://localhost:3000 |
 | API backend | http://localhost:8000 |
 | Docs API (Swagger) | http://localhost:8000/docs |
-| Agent Épidémiologie | http://localhost:8001 |
-| Agent Symptomatologie | http://localhost:8002 |
-| Agent Laboratoire | http://localhost:8003 |
-| Agent Traitement | http://localhost:8004 |
 | MongoDB | mongodb://localhost:27017 |
 | LocalStack (S3) | http://localhost:4566 |
+
+> **Note :** Les serveurs MCP agents (Épidémiologie, Symptomatologie, Laboratoire, Traitement) communiquent uniquement via le réseau Docker interne et ne sont pas exposés sur l'hôte.
 
 ### 4. Comptes par défaut
 
@@ -124,7 +125,17 @@ python -m backend.scripts.migrate_consultations_add_mcp_fields
 
 > Ce script ajoute les champs MCP (`mcp_session_id`, `agent_contributions`, `evidence_citations`) aux consultations existantes et crée les index nécessaires. Idempotent — peut être relancé sans risque.
 
-### 6. Arrêter l'application
+### 6. Migration des volumes MongoDB existants
+
+Si vous mettez à jour depuis une version sans authentification MongoDB, supprimez le volume existant avant le premier démarrage :
+
+```bash
+docker compose down -v
+```
+
+> **Attention :** `MONGODB_INITDB_ROOT_USERNAME` n'est exécuté que sur un volume vierge. Sans cette étape, MongoDB démarrera sans authentification et les services ne pourront pas se connecter.
+
+### 7. Arrêter l'application
 
 ```bash
 ./stop.sh        # Linux/macOS

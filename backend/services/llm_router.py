@@ -41,6 +41,14 @@ class _LLMClient:
         self.api_key = api_key
         self.model = model
         self._retry_policy = RetryPolicy()
+        self._client = httpx.AsyncClient(
+            timeout=settings.LLM_TIMEOUT,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client to release pooled connections."""
+        await self._client.aclose()
 
     async def generate(self, prompt: str, context: list[dict], *, deadline: float) -> str:
         """Generate a response, delegating retries to RetryPolicy.
@@ -68,15 +76,14 @@ class _LLMClient:
         payload = {"model": self.model, "messages": messages}
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
 
-        async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        resp = await self._client.post(
+            f"{self.base_url}/chat/completions",
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
 
 
 class LLMRouter:
@@ -120,6 +127,11 @@ class LLMRouter:
 
         # Keep last_used for backward compat with RAGService (updated below)
         self.last_used: str = ""
+
+    async def close(self) -> None:
+        """Close HTTP clients on both primary and fallback _LLMClients."""
+        await self._primary.close()
+        await self._fallback.close()
 
     async def generate(self, prompt: str, context: list[dict]) -> LLMResult:
         """Generate a response, falling back to GPT-5 if Model_Container is unavailable.

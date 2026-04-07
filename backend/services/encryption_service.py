@@ -1,21 +1,36 @@
 """
-Service de chiffrement AES-256 pour les champs PHI — Diagno-Pilot
+Service de chiffrement AES-256-GCM pour les champs PHI — Diagno-Pilot
 
 Fournit le chiffrement/déchiffrement au niveau des champs pour les données
 PHI stockées dans MongoDB, avec support de rotation de clés.
 
-Validates: Requirements 7.1, 7.4, 7.5, 7.6
+Migration Fernet → AES-256-GCM :
+- Le chiffrement utilise désormais AES-256-GCM (nonce 12 octets, tag 16 octets).
+- Le déchiffrement tente d'abord AES-256-GCM, puis Fernet en fallback
+  pour les données chiffrées avant la migration.
+- Les tokens Fernet commencent par ``gAAAAA`` (base64 standard).
+
+Génération d'une clé AES-256-GCM compatible ::
+
+    python -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+
+Validates: Requirements 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7
 """
 from __future__ import annotations
 
+import base64
 import logging
+import os
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from backend.services.phi_classifier import PHIClassifier
 
 logger = logging.getLogger(__name__)
+
+_NONCE_SIZE = 12  # 96-bit nonce recommended for AES-GCM
 
 
 class EncryptionError(Exception):
@@ -23,29 +38,50 @@ class EncryptionError(Exception):
 
 
 class EncryptionService:
-    """AES-256 field-level encryption for PHI data using Fernet (AES-128-CBC inside Fernet envelope).
+    """AES-256-GCM field-level encryption for PHI data.
 
-    Fernet provides authenticated encryption (AES-CBC + HMAC-SHA256) which
-    satisfies the AES-256-class security requirement while being simpler to
-    use correctly than raw AES-GCM.  The 256-bit Fernet key is derived from
-    the configured ``key_id``.
+    Accepts a 32-byte key encoded as URL-safe base64.  Each encryption
+    generates a random 12-byte nonce.  Ciphertext format::
+
+        base64url( nonce[12] || ciphertext+tag )
+
+    Backward-compatible: decryption falls back to Fernet for legacy data
+    (tokens starting with ``gAAAAA``).
+
+    Key generation::
+
+        python -c "import os, base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
     """
 
     def __init__(self, key: str | None = None, audit_logger: Any | None = None):
-        """Initialise with a Fernet-compatible base64 key.
+        """Initialise with a base64url-encoded 32-byte AES-256 key.
 
         Parameters
         ----------
         key:
-            A URL-safe base64-encoded 32-byte key.  If *None*, a new key is
-            generated (useful for tests).
+            A URL-safe base64-encoded 32-byte key.  If *None*, a new random
+            key is generated (useful for tests).
         audit_logger:
             Optional audit logger instance for recording failures.
+
+        Raises
+        ------
+        ValueError
+            If the decoded key is not exactly 32 bytes.
         """
         if key is None:
-            key = Fernet.generate_key().decode()
+            raw = os.urandom(32)
+            key = base64.urlsafe_b64encode(raw).decode()
+        else:
+            raw = base64.urlsafe_b64decode(key)
+            if len(raw) != 32:
+                raise ValueError(
+                    f"AES-256-GCM key must be exactly 32 bytes, got {len(raw)}"
+                )
+
         self._key = key
-        self._fernet = Fernet(key.encode() if isinstance(key, str) else key)
+        self._aesgcm = AESGCM(raw)
+        self._previous_aesgcm: AESGCM | None = None
         self._previous_fernet: Fernet | None = None
         self._audit_logger = audit_logger
 
@@ -54,31 +90,52 @@ class EncryptionService:
     # ------------------------------------------------------------------
 
     def encrypt_field(self, plaintext: str) -> str:
-        """Encrypt *plaintext* and return a base64-encoded ciphertext string."""
+        """Encrypt *plaintext* and return a base64url-encoded ciphertext string.
+
+        Format: ``base64url(nonce[12] || ciphertext+tag)``
+        """
         try:
-            return self._fernet.encrypt(plaintext.encode("utf-8")).decode("ascii")
+            nonce = os.urandom(_NONCE_SIZE)
+            ct = self._aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
+            return base64.urlsafe_b64encode(nonce + ct).decode("ascii")
         except Exception:
             self._log_failure("encrypt_field")
             raise EncryptionError("Encryption failed")
 
     def decrypt_field(self, ciphertext: str) -> str:
-        """Decrypt *ciphertext* and return the original plaintext string."""
+        """Decrypt *ciphertext* and return the original plaintext string.
+
+        Tries AES-256-GCM first (current key, then previous key), then
+        falls back to Fernet for legacy data.
+        """
+        # --- Try AES-256-GCM with current key ---
         try:
-            return self._fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
-        except InvalidToken:
-            # Try previous key if available (key rotation window)
-            if self._previous_fernet is not None:
-                try:
-                    return self._previous_fernet.decrypt(
-                        ciphertext.encode("ascii")
-                    ).decode("utf-8")
-                except InvalidToken:
-                    pass
-            self._log_failure("decrypt_field")
-            raise EncryptionError("Decryption failed")
+            raw = base64.urlsafe_b64decode(ciphertext)
+            nonce, ct = raw[:_NONCE_SIZE], raw[_NONCE_SIZE:]
+            return self._aesgcm.decrypt(nonce, ct, None).decode("utf-8")
         except Exception:
-            self._log_failure("decrypt_field")
-            raise EncryptionError("Decryption failed")
+            pass
+
+        # --- Try AES-256-GCM with previous key (rotation window) ---
+        if self._previous_aesgcm is not None:
+            try:
+                raw = base64.urlsafe_b64decode(ciphertext)
+                nonce, ct = raw[:_NONCE_SIZE], raw[_NONCE_SIZE:]
+                return self._previous_aesgcm.decrypt(nonce, ct, None).decode("utf-8")
+            except Exception:
+                pass
+
+        # --- Fernet fallback for legacy data ---
+        if self._previous_fernet is not None:
+            try:
+                return self._previous_fernet.decrypt(
+                    ciphertext.encode("ascii")
+                ).decode("utf-8")
+            except (InvalidToken, Exception):
+                pass
+
+        self._log_failure("decrypt_field")
+        raise EncryptionError("Decryption failed")
 
     # ------------------------------------------------------------------
     # Bulk PHI field operations
@@ -113,10 +170,15 @@ class EncryptionService:
     # ------------------------------------------------------------------
 
     def rotate_key(self, new_key: str) -> None:
-        """Rotate to *new_key*, keeping the old key for decryption fallback."""
-        self._previous_fernet = self._fernet
+        """Rotate to *new_key*, keeping the old key for decryption fallback.
+
+        The previous AES-GCM key is stored for the rotation window.
+        Any existing Fernet fallback is preserved for legacy data.
+        """
+        self._previous_aesgcm = self._aesgcm
         self._key = new_key
-        self._fernet = Fernet(new_key.encode() if isinstance(new_key, str) else new_key)
+        raw = base64.urlsafe_b64decode(new_key)
+        self._aesgcm = AESGCM(raw)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -127,8 +189,6 @@ class EncryptionService:
         logger.error("EncryptionService.%s failed", operation)
         if self._audit_logger is not None:
             try:
-                # Fire-and-forget; audit_logger.log_action is async but we
-                # don't await here — callers can use the sync path.
                 import asyncio
 
                 loop = asyncio.get_event_loop()

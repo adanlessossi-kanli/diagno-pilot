@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      target: dev
     ports:
       - "3000:3000"
     environment:
@@ -12,8 +13,6 @@ services:
       - ./apps/web/src:/app/apps/web/src
       - ./apps/web/public:/app/apps/web/public
       - ./packages:/app/packages
-      - web_node_modules:/app/node_modules
-      - web_next_cache:/app/apps/web/.next
     depends_on:
       - backend
     healthcheck:
@@ -25,10 +24,11 @@ services:
 
   backend:
     build: ./backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.py
     ports:
       - "8000:8000"
     environment:
-      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-diagno_dev}:${MONGO_PASSWORD:-diagno_dev_pass}@mongo:27017/diagno_pilot?authSource=admin
       - AWS_ENDPOINT_URL=http://localstack:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
@@ -42,11 +42,13 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
       - MODEL_CONTAINER_URL=http://model:8080/v1
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-diagno_redis_dev}@redis:6379/0
       - AGENT_EPIDEMIOLOGY_URL=http://agent-epidemiology:8001
       - AGENT_SYMPTOMATOLOGY_URL=http://agent-symptomatology:8002
       - AGENT_LAB_URL=http://agent-lab:8003
       - AGENT_TREATMENT_URL=http://agent-treatment:8004
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-180}
+      - LLM_RETRY_MAX=${LLM_RETRY_MAX:-1}
     volumes:
       - ./backend:/workspace/backend
     depends_on:
@@ -78,15 +80,16 @@ services:
       context: ./backend
       dockerfile: agents/mcp_servers/Dockerfile
     command: python -m backend.agents.mcp_servers.epidemiology_server
-    ports:
-      - "8001:8001"
     environment:
-      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-diagno_dev}:${MONGO_PASSWORD:-diagno_dev_pass}@mongo:27017/diagno_pilot?authSource=admin
+      - MODEL_CONTAINER_URL=http://model:8080/v1
       - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
       - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
       - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
       - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
       - EMBED_MODEL=${EMBED_MODEL}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-180}
+      - LLM_RETRY_MAX=${LLM_RETRY_MAX:-1}
       - SERVER_PORT=8001
     depends_on:
       mongo:
@@ -103,15 +106,16 @@ services:
       context: ./backend
       dockerfile: agents/mcp_servers/Dockerfile
     command: python -m backend.agents.mcp_servers.symptomatology_server
-    ports:
-      - "8002:8002"
     environment:
-      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-diagno_dev}:${MONGO_PASSWORD:-diagno_dev_pass}@mongo:27017/diagno_pilot?authSource=admin
+      - MODEL_CONTAINER_URL=http://model:8080/v1
       - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
       - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
       - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
       - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
       - EMBED_MODEL=${EMBED_MODEL}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-180}
+      - LLM_RETRY_MAX=${LLM_RETRY_MAX:-1}
       - SERVER_PORT=8002
     depends_on:
       mongo:
@@ -128,15 +132,16 @@ services:
       context: ./backend
       dockerfile: agents/mcp_servers/Dockerfile
     command: python -m backend.agents.mcp_servers.lab_server
-    ports:
-      - "8003:8003"
     environment:
-      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-diagno_dev}:${MONGO_PASSWORD:-diagno_dev_pass}@mongo:27017/diagno_pilot?authSource=admin
+      - MODEL_CONTAINER_URL=http://model:8080/v1
       - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
       - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
       - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
       - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
       - EMBED_MODEL=${EMBED_MODEL}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-180}
+      - LLM_RETRY_MAX=${LLM_RETRY_MAX:-1}
       - SERVER_PORT=8003
     depends_on:
       mongo:
@@ -153,15 +158,16 @@ services:
       context: ./backend
       dockerfile: agents/mcp_servers/Dockerfile
     command: python -m backend.agents.mcp_servers.treatment_server
-    ports:
-      - "8004:8004"
     environment:
-      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-diagno_dev}:${MONGO_PASSWORD:-diagno_dev_pass}@mongo:27017/diagno_pilot?authSource=admin
+      - MODEL_CONTAINER_URL=http://model:8080/v1
       - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
       - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
       - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
       - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
       - EMBED_MODEL=${EMBED_MODEL}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-180}
+      - LLM_RETRY_MAX=${LLM_RETRY_MAX:-1}
       - SERVER_PORT=8004
     depends_on:
       mongo:
@@ -176,7 +182,7 @@ services:
   seed:
     build: ./backend
     environment:
-      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-diagno_dev}:${MONGO_PASSWORD:-diagno_dev_pass}@mongo:27017/diagno_pilot?authSource=admin
     volumes:
       - ./backend:/workspace/backend
       - ./scripts:/workspace/scripts
@@ -188,27 +194,35 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-diagno_redis_dev}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:-diagno_redis_dev} redis-cli ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
+  # ⚠️ MongoDB authentication: existing dev environments must remove the mongo volume
+  # before the first start with auth, because MONGODB_INITDB_ROOT_USERNAME is only
+  # executed on a fresh volume:
+  #   docker compose down -v
   mongo:
     image: mongodb/mongodb-atlas-local:8.0
+    hostname: mongo
     ports:
       - "27017:27017"
     environment:
       - MONGODB_INIT_REPLICA_SET=true
+      - MONGODB_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-diagno_dev}
+      - MONGODB_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-diagno_dev_pass}
     volumes:
       - mongo_data:/data/db
       - mongo_configdb:/data/configdb
     healthcheck:
-      test: ["CMD", "mongosh", "--port", "27017", "--eval", "try{rs.status().ok}catch(e){0}", "--quiet"]
+      test: ["CMD-SHELL", "mongosh --port 27017 --eval 'try{rs.status().ok}catch(e){0}' --quiet"]
       interval: 5s
       timeout: 10s
       retries: 30
@@ -253,7 +267,8 @@ services:
       - "3001:3000"
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      # In production, disable anonymous access: GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
     volumes:
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana_data:/var/lib/grafana
@@ -275,36 +290,7 @@ services:
       - backend
 
   model:
-    image: ghcr.io/ggerganov/llama.cpp:server
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./model:/models:ro
-    environment:
-      - LLAMA_ARG_MODEL=/models/MedicalQwen3-Reasoning-4B.Q8_0.gguf
-      - LLAMA_ARG_CTX_SIZE=${MODEL_CONTEXT_SIZE:-4096}
-      - LLAMA_ARG_N_GPU_LAYERS=${MODEL_GPU_LAYERS:-99}
-      - LLAMA_ARG_THREADS=${MODEL_THREADS:-4}
-      - LLAMA_ARG_HOST=0.0.0.0
-      - LLAMA_ARG_PORT=8080
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    profiles:
-      - gpu
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  model-cpu:
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server
     ports:
       - "8080:8080"
     volumes:
@@ -313,11 +299,11 @@ services:
       - LLAMA_ARG_MODEL=/models/MedicalQwen3-Reasoning-4B.Q8_0.gguf
       - LLAMA_ARG_CTX_SIZE=${MODEL_CONTEXT_SIZE:-4096}
       - LLAMA_ARG_N_GPU_LAYERS=0
+      - LLAMA_ARG_N_PREDICT=${MODEL_MAX_TOKENS:-512}
+      - LLAMA_ARG_REASONING_BUDGET=0
       - LLAMA_ARG_THREADS=${MODEL_THREADS:-4}
       - LLAMA_ARG_HOST=0.0.0.0
       - LLAMA_ARG_PORT=8080
-    profiles:
-      - cpu
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -330,8 +316,6 @@ volumes:
   mongo_configdb:
   localstack_data:
   redis_data:
-  web_node_modules:
-  web_next_cache:
   loki_data:
   promtail_positions:
   grafana_data:

@@ -111,10 +111,9 @@ async def test_chat_message_returns_answer_and_sources(
     medecin_client: AsyncClient,
     real_db: AsyncIOMotorDatabase,
 ):
-    _setup_chat_service(integration_app, real_db)
-
-    with respx.mock(assert_all_mocked=True) as mock_router:
+    with respx.mock(assert_all_mocked=True, assert_all_called=False) as mock_router:
         _mock_llm_endpoints(mock_router)
+        _setup_chat_service(integration_app, real_db)
 
         resp = await medecin_client.post(
             "/api/v1/chat/message",
@@ -143,8 +142,6 @@ async def test_multiple_messages_history_chronological_order(
     medecin_client: AsyncClient,
     real_db: AsyncIOMotorDatabase,
 ):
-    _setup_chat_service(integration_app, real_db)
-
     session_id = str(uuid.uuid4())
     messages = [
         "Quels sont les symptômes du paludisme?",
@@ -152,8 +149,9 @@ async def test_multiple_messages_history_chronological_order(
         "Y a-t-il des contre-indications?",
     ]
 
-    with respx.mock(assert_all_mocked=True) as mock_router:
+    with respx.mock(assert_all_mocked=True, assert_all_called=False) as mock_router:
         _mock_llm_endpoints(mock_router)
+        _setup_chat_service(integration_app, real_db)
         for msg in messages:
             resp = await medecin_client.post(
                 "/api/v1/chat/message",
@@ -199,13 +197,12 @@ async def test_message_persisted_in_mongodb(
     medecin_client: AsyncClient,
     real_db: AsyncIOMotorDatabase,
 ):
-    _setup_chat_service(integration_app, real_db)
-
     session_id = str(uuid.uuid4())
     user_message = "Quels antibiotiques pour une pneumonie?"
 
-    with respx.mock(assert_all_mocked=True) as mock_router:
+    with respx.mock(assert_all_mocked=True, assert_all_called=False) as mock_router:
         _mock_llm_endpoints(mock_router)
+        _setup_chat_service(integration_app, real_db)
         resp = await medecin_client.post(
             "/api/v1/chat/message",
             json={"message": user_message, "session_id": session_id},
@@ -262,7 +259,7 @@ async def test_unauthenticated_chat_returns_401(integration_app):
 @pytest.mark.asyncio
 @given(messages=st.lists(st.text(min_size=1, max_size=50), min_size=1, max_size=5))
 @settings(max_examples=5, deadline=None, suppress_health_check=[hypothesis.HealthCheck.function_scoped_fixture])
-@respx.mock(assert_all_mocked=True)
+@respx.mock(assert_all_mocked=True, assert_all_called=False)
 async def test_property_chat_history_ordering(
     integration_app,
     real_db: AsyncIOMotorDatabase,
@@ -276,8 +273,6 @@ async def test_property_chat_history_ordering(
     # Feature: testing-coverage, Property 9: Chat history ordering
     Validates: Requirements 6.2
     """
-    _setup_chat_service(integration_app, real_db)
-
     # Reset rate limiter for each Hypothesis example
     from backend.core.rate_limit import limiter
     try:
@@ -297,8 +292,9 @@ async def test_property_chat_history_ordering(
         )
         assert login_resp.status_code == 200, f"login failed: {login_resp.text}"
 
-        with respx.mock(assert_all_mocked=True) as mock_router:
+        with respx.mock(assert_all_mocked=True, assert_all_called=False) as mock_router:
             _mock_llm_endpoints(mock_router)
+            _setup_chat_service(integration_app, real_db)
             for msg in messages:
                 resp = await client.post(
                     "/api/v1/chat/message",

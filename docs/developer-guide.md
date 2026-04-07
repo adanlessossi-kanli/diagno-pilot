@@ -21,7 +21,7 @@ Diagno-Pilot est une application de diagnostic médical assisté par IA composé
 - **Backend** — FastAPI (Python 3.12) avec MongoDB Atlas, Redis, S3
 - **Model\_Container** — Serveur llama.cpp servant MedicalQwen3-Reasoning-4B (GGUF)
 - **Pipeline RAG** — LlamaIndex avec chunking sémantique, recherche hybride, re-ranking
-- **Couche HIPAA** — Classification PHI, chiffrement AES-256, audit anti-falsification, contrôles BAA
+- **Couche HIPAA** — Classification PHI, chiffrement AES-256-GCM (avec fallback Fernet), audit anti-falsification, contrôles BAA
 
 ### Diagramme d'architecture
 
@@ -325,6 +325,20 @@ Les tests de propriétés valident les invariants du système :
 | Idempotence migration | `test_migration_properties.py` | Req 12.5, 12.6 |
 | Exécution parallèle agents | `test_mcp_host_properties.py` | Req 15.3 |
 
+## En-têtes de sécurité HTTP
+
+Le middleware `SecurityHeadersMiddleware` (`backend/core/security_headers.py`) injecte les en-têtes de sécurité suivants sur toutes les réponses API backend :
+
+| En-tête | Valeur | Description |
+|---|---|---|
+| `Content-Security-Policy` | Configurable via `CSP_POLICY` (défaut : `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'`) | Contrôle les sources de contenu autorisées |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Contrôle les informations de referrer envoyées |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=()` | Désactive les fonctionnalités non utilisées |
+
+> **Backend vs Frontend :** La CSP backend s'applique uniquement aux réponses API directes (FastAPI). Le frontend Next.js injecte sa propre CSP via `next.config.ts` avec des directives adaptées (incluant `https://images.unsplash.com` pour les images et `'unsafe-eval'` en dev pour le HMR). Les deux politiques ne sont pas en conflit car elles s'appliquent à des réponses HTTP distinctes.
+
+Ces en-têtes sont appliqués dans tous les environnements (développement, staging, production).
+
 ## Ajout d'un nouvel agent (Architecture MCP)
 
 Depuis la migration vers l'architecture MCP, chaque agent spécialiste est un serveur MCP Docker indépendant. Pour ajouter un nouvel agent :
@@ -469,10 +483,25 @@ curl -X POST http://localhost:8005/rpc \
 Tous les serveurs MCP héritent de `BaseMCPServer` (`backend/agents/mcp_servers/base_server.py`) qui fournit :
 
 - Dispatch JSON-RPC 2.0 automatique pour les 6 méthodes MCP standard
+- Validation stricte de l'enveloppe JSON-RPC 2.0 (voir ci-dessous)
 - Réponses SSE (`text/event-stream`)
 - Endpoint `GET /health` pour les health checks Docker
 - Méthodes `register_tool()`, `register_resource()`, `register_prompt()`
 - Gestion des erreurs JSON-RPC 2.0 (codes -32700 à -32603)
+
+### Validation JSON-RPC renforcée
+
+`BaseMCPServer._handle_request` valide rigoureusement l'enveloppe JSON-RPC 2.0 avant le dispatch :
+
+| Validation | Code d'erreur | Description |
+|---|---|---|
+| `jsonrpc` ≠ `"2.0"` | -32600 | Invalid Request |
+| `method` absent ou non-string | -32600 | Invalid Request |
+| `id` de type invalide (ni string, ni int, ni null) | -32600 | Invalid Request |
+| `params` présent mais ni dict ni list | -32602 | Invalid Params |
+| Méthode inconnue | -32601 | Method not found |
+
+Les requêtes valides (`jsonrpc="2.0"`, `method` = string non vide, `params` = dict/list/absent, `id` = string/int/null/absent) sont dispatchées au handler approprié.
 
 ### Serveurs existants
 

@@ -4,15 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.core.auth import require_role
-from backend.core.database import db
 from backend.core.rate_limit import limiter
 from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
-from backend.services.embedding_model import EmbeddingModel
-from backend.services.index_manager import IndexManager
-from backend.services.llamaindex_pipeline import LlamaIndexPipeline
-from backend.services.llm_router import LLMRouter
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -51,17 +46,9 @@ class ChatHistoryResponse(BaseModel):
 # Dependency: ChatService
 # ---------------------------------------------------------------------------
 
-def get_chat_service() -> ChatService:
-    database = db.get_db()
-    llm_router = LLMRouter()
-    embedder = EmbeddingModel()
-    index_manager = IndexManager(db=database)
-    pipeline = LlamaIndexPipeline(
-        index_manager=index_manager,
-        llm_router=llm_router,
-        embedder=embedder,
-    )
-    return ChatService(db=database, rag_service=pipeline)
+def get_chat_service(request: Request) -> ChatService:
+    """Return the ChatService singleton stored in app.state."""
+    return request.app.state.chat_service
 
 
 # ---------------------------------------------------------------------------

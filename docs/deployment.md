@@ -30,10 +30,10 @@ Le fichier `docker-compose.yml` définit les services suivants :
 | `backend` | Build local (`./backend`) | 8000 | API FastAPI |
 | `model` | `ghcr.io/ggerganov/llama.cpp:server` | 8080 | LLM local (profil GPU) |
 | `model-cpu` | `ghcr.io/ggerganov/llama.cpp:server` | 8080 | LLM local (profil CPU) |
-| `agent-epidemiology` | Build local (`./backend`) | 8001 | Serveur MCP Épidémiologie |
-| `agent-symptomatology` | Build local (`./backend`) | 8002 | Serveur MCP Symptomatologie |
-| `agent-lab` | Build local (`./backend`) | 8003 | Serveur MCP Laboratoire |
-| `agent-treatment` | Build local (`./backend`) | 8004 | Serveur MCP Traitement |
+| `agent-epidemiology` | Build local (`./backend`) | — (interne) | Serveur MCP Épidémiologie |
+| `agent-symptomatology` | Build local (`./backend`) | — (interne) | Serveur MCP Symptomatologie |
+| `agent-lab` | Build local (`./backend`) | — (interne) | Serveur MCP Laboratoire |
+| `agent-treatment` | Build local (`./backend`) | — (interne) | Serveur MCP Traitement |
 | `mongo` | `mongodb/mongodb-atlas-local:8.0` | 27017 | MongoDB Atlas Local |
 | `redis` | `redis:7-alpine` | 6379 | Cache Redis |
 | `localstack` | `localstack/localstack:3` | 4566 | S3 local (dev) |
@@ -48,6 +48,8 @@ Le fichier `docker-compose.yml` définit les services suivants :
 ```bash
 cp .env.example .env
 ```
+
+> **Authentification MongoDB et Redis :** Les services MongoDB et Redis sont protégés par mot de passe. Les valeurs par défaut de développement (`diagno_dev` / `diagno_dev_pass` pour MongoDB, `diagno_redis_dev` pour Redis) sont préconfigurées dans `docker-compose.yml`. En production, définissez `MONGO_USERNAME`, `MONGO_PASSWORD` et `REDIS_PASSWORD` dans votre fichier `.env`.
 
 ### 2. Placer le modèle
 
@@ -178,7 +180,7 @@ docker compose exec redis redis-cli ping
 
 ### Monitoring (Grafana + Prometheus + Loki)
 
-- Grafana : http://localhost:3001 (accès anonyme admin activé en dev)
+- Grafana : http://localhost:3001 (accès anonyme en lecture seule — rôle `Viewer`)
 - Prometheus : http://localhost:9090
 - Les métriques backend sont exposées sur `/metrics` (authentification Basic Auth configurable via `METRICS_AUTH`)
 
@@ -228,6 +230,38 @@ Chaque service agent reçoit les variables suivantes :
 | `EMBED_MODEL` | Modèle d'embedding |
 | `SERVER_PORT` | Port d'écoute du serveur |
 
+## Migration depuis une version sans authentification
+
+Si vous mettez à jour un environnement existant (avant l'ajout de l'authentification MongoDB/Redis), suivez ces étapes :
+
+### 1. Supprimer le volume MongoDB existant
+
+MongoDB n'exécute `MONGODB_INITDB_ROOT_USERNAME` que sur un volume vierge. Vous devez supprimer le volume existant :
+
+```bash
+docker compose down -v
+# ou sélectivement :
+docker volume rm diagno-pilot_mongo_data
+```
+
+> **Attention :** Cette opération supprime toutes les données MongoDB. Exportez vos données avant si nécessaire.
+
+### 2. Mettre à jour le fichier `.env`
+
+Ajoutez les nouvelles variables (ou utilisez les valeurs par défaut dev) :
+
+```env
+MONGO_USERNAME=diagno_dev
+MONGO_PASSWORD=diagno_dev_pass
+REDIS_PASSWORD=diagno_redis_dev
+```
+
+### 3. Redémarrer les services
+
+```bash
+docker compose up -d
+```
+
 ## Vérification du déploiement
 
 ```bash
@@ -240,15 +274,14 @@ curl http://localhost:8000/health
 # Vérifier le health check du Model_Container
 curl http://localhost:8080/health
 
-# Vérifier les serveurs MCP agents
-curl http://localhost:8001/health   # Épidémiologie
-curl http://localhost:8002/health   # Symptomatologie
-curl http://localhost:8003/health   # Laboratoire
-curl http://localhost:8004/health   # Traitement
-
 # Vérifier le frontend
 curl http://localhost:3000
 ```
+
+> **Note :** Les serveurs MCP agents ne sont plus exposés sur l'hôte (ports internes uniquement). Utilisez `docker compose exec` pour les tester :
+> ```bash
+> docker compose exec agent-epidemiology curl -f http://localhost:8001/health
+> ```
 
 ### Logs
 

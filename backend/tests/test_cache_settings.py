@@ -62,11 +62,11 @@ def test_p11_ttl_rejects_non_integer(field: str, bad_value: str):
 # ---------------------------------------------------------------------------
 
 def test_redis_url_default(monkeypatch):
-    """REDIS_URL defaults to redis://localhost:6379/0 when env var is absent."""
+    """REDIS_URL defaults to authenticated redis URL when env var is absent."""
     monkeypatch.delenv("REDIS_URL", raising=False)
     # Bypass .env file loading by constructing Settings without env_file
     s = Settings(_env_file=None)
-    assert s.REDIS_URL == "redis://localhost:6379/0"
+    assert s.REDIS_URL == "redis://:diagno_redis_dev@localhost:6379/0"
 
 
 def test_cache_ttl_defaults():

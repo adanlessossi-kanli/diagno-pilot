@@ -30,10 +30,12 @@ logger = logging.getLogger(__name__)
 NO_CONTEXT_MESSAGE = "Information non disponible dans la base de connaissances."
 
 GROUNDING_SYSTEM_PROMPT = (
-    "Tu es un assistant médical. Réponds UNIQUEMENT en te basant sur les passages "
-    "de documents fournis ci-dessous. Si aucun passage pertinent n'est disponible, "
-    'réponds exactement : "' + NO_CONTEXT_MESSAGE + '". '
-    "N'utilise jamais tes connaissances paramétriques."
+    "Tu es un assistant médical spécialisé en maladies tropicales et médecine générale. "
+    "Réponds en priorité en te basant sur les passages de documents fournis ci-dessous. "
+    "Si les passages fournis ne contiennent pas d'information pertinente, tu peux utiliser "
+    "tes connaissances médicales pour répondre, mais uniquement pour des questions médicales "
+    "et cliniques. Précise alors que la réponse provient de tes connaissances générales. "
+    "Refuse poliment toute question non médicale."
 )
 
 
@@ -127,20 +129,47 @@ class LlamaIndexPipeline:
             source_filter=source_filter,
         )
 
-        # --- No context → structured refusal ---
+        # --- No chunks: still call LLM with medical knowledge ---
         if not chunks:
-            refusal = RAGResponse(
-                answer=NO_CONTEXT_MESSAGE,
+            llm_context: list[dict[str, str]] = [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                    if system_prompt is not None
+                    else GROUNDING_SYSTEM_PROMPT,
+                },
+            ]
+            if session_history:
+                for msg in session_history:
+                    role = msg.get("role", "user")
+                    content_val = msg.get("content", "")
+                    if role in ("user", "assistant") and content_val:
+                        llm_context.append({"role": role, "content": content_val})
+            if context:
+                llm_context.append(
+                    {"role": "system", "content": f"Patient context: {context.model_dump_json()}"}
+                )
+
+            llm_result = await self._llm.generate(question, llm_context)
+
+            response = RAGResponse(
+                answer=llm_result.answer,
                 sources=[],
-                llm_used="none",
-                confidence_score=0.0,
+                llm_used=self._llm.last_used or "unknown",
+                fallback_used=llm_result.fallback_used,
+                confidence_score=None,
             )
             await cache_service.set(
-                cache_key, refusal.model_dump_json(), ttl=settings.CACHE_TTL_RAG
+                cache_key, response.model_dump_json(), ttl=settings.CACHE_TTL_RAG
             )
-            return refusal
+            return response
 
-        # --- Build sources ---
+        # --- Build sources (top 5 most relevant only) ---
+        top_chunks = sorted(
+            chunks,
+            key=lambda c: float(c.get("score", 0.0)),
+            reverse=True,
+        )[:5]
         sources = [
             DocumentSource(
                 document_id=str(c.get("document_id", "")),
@@ -152,7 +181,7 @@ class LlamaIndexPipeline:
                 excerpt=_truncate_excerpt(c.get("content", "")),
                 page=c.get("metadata", {}).get("page"),
             )
-            for c in chunks
+            for c in top_chunks
         ]
 
         # --- Build LLM context ---
@@ -174,8 +203,8 @@ class LlamaIndexPipeline:
             llm_context.append(
                 {"role": "system", "content": f"Patient context: {context.model_dump_json()}"}
             )
-        for c in chunks:
-            llm_context.append({"role": "system", "content": c.get("content", "")})
+        for c in chunks[:3]:
+            llm_context.append({"role": "system", "content": c.get("content", "")[:300]})
 
         # --- Generate answer ---
         llm_result = await self._llm.generate(question, llm_context)

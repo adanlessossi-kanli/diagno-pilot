@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants — REQ 2.1, 2.10
 # ---------------------------------------------------------------------------
-AGENT_TIMEOUT = 30  # seconds
+AGENT_TIMEOUT = 120  # seconds (increased for CPU-only model serving concurrent agents)
 
 # Agent URLs read from settings (REQ 14.3)
 _AGENT_URLS: dict[str, str] = {
@@ -93,7 +93,7 @@ class MCP_Host:
 
     def __init__(self) -> None:
         self._capability_cache: dict[str, MCPCapabilities] = {}
-        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=AGENT_TIMEOUT)
+        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=AGENT_TIMEOUT + 10)
 
     # ------------------------------------------------------------------
     # SSE parsing

@@ -88,15 +88,8 @@ export function AuthProvider({ children, locale }: { children: React.ReactNode; 
     let cancelled = false;
 
     async function restoreSession() {
-      // Skip the probe entirely if there's no access_token cookie — avoids
-      // noisy 401 console errors when the user is not logged in.
-      const hasToken = document.cookie.split(';').some((c) => c.trim().startsWith('access_token='));
-      if (!hasToken) {
-        setUser(null);
-        return;
-      }
-
-      // Try /auth/me — cookies are sent automatically by the browser
+      // Always try /auth/me — the access_token cookie is HttpOnly so
+      // document.cookie cannot see it, but the browser sends it automatically.
       try {
         const apiUser = await apiClient.auth.me();
         if (cancelled) return;

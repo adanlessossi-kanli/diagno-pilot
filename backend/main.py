@@ -107,30 +107,50 @@ async def lifespan(app: FastAPI):
         pass  # collection already exists
     try:
         existing = await _db["document_chunks"].list_search_indexes("embedding_index").to_list(1)
-        if not existing:
+        needs_update = False
+        if existing:
+            # Check if filter fields are present in the existing index
+            fields = existing[0].get("latestDefinition", {}).get("fields", [])
+            has_filters = any(f.get("type") == "filter" for f in fields)
+            if not has_filters:
+                needs_update = True
+                logger.info("embedding_index missing filter fields — recreating")
+                await _db["document_chunks"].drop_search_index("embedding_index")
+        if not existing or needs_update:
             await _db["document_chunks"].create_search_index({
                 "name": "embedding_index",
                 "type": "vectorSearch",
                 "definition": {
-                    "fields": [{
-                        "type": "vector",
-                        "path": "embedding",
-                        "numDimensions": 1536,
-                        "similarity": "cosine",
-                    }]
+                    "fields": [
+                        {
+                            "type": "vector",
+                            "path": "embedding",
+                            "numDimensions": 1536,
+                            "similarity": "cosine",
+                        },
+                        {
+                            "type": "filter",
+                            "path": "metadata.document_type",
+                        },
+                        {
+                            "type": "filter",
+                            "path": "metadata.region",
+                        },
+                    ]
                 },
             })
-            logger.info("embedding_index vector search index created")
+            logger.info("embedding_index vector search index created (with filter fields)")
         else:
             logger.info("embedding_index vector search index already exists")
     except Exception as exc:
         logger.warning("Atlas vector search index not available (non-Atlas MongoDB): %s", exc)
-        # Create a text index as fallback for keyword search
-        try:
-            await _db["document_chunks"].create_index([("content", "text")], background=True)
-            logger.info("Fallback text index created on document_chunks.content")
-        except Exception:
-            pass
+
+    # Always create text index for BM25 keyword search (used alongside vector search)
+    try:
+        await _db["document_chunks"].create_index([("content", "text")], background=True)
+        logger.info("Text index ensured on document_chunks.content")
+    except Exception:
+        pass  # index may already exist
 
     # Singleton DiagnosticService (REQ 6.5)
     database = db.get_db()
@@ -162,6 +182,11 @@ async def lifespan(app: FastAPI):
     )
     logger.info("DiagnosticService singleton initialised (with AgentPipeline + MCP_Host)")
 
+    # Singleton ChatService — reuses the same LLMRouter and EmbeddingModel
+    from backend.services.chat_service import ChatService
+    app.state.chat_service = ChatService(db=database, rag_service=llamaindex_pipeline)
+    logger.info("ChatService singleton initialised")
+
     # Detect unmigrated chunks at startup — REQ 6.1
     from backend.services.document_service import DocumentService
     from backend.services.s3_service import s3_service
@@ -169,6 +194,12 @@ async def lifespan(app: FastAPI):
     await _doc_svc.check_unmigrated_chunks()
 
     yield
+    # Shutdown LLM HTTP clients — REQ 11.4
+    try:
+        await llm_router.close()
+        logger.info("LLMRouter HTTP clients closed")
+    except Exception:
+        logger.error("LLMRouter HTTP client shutdown failed", exc_info=True)
     # Shutdown MCP_Host — REQ 14.4
     try:
         await mcp_host.shutdown()

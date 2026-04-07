@@ -226,6 +226,7 @@ export default function DiagnosePage() {
           src={IMAGES.diagnoseHeader.src}
           alt={IMAGES.diagnoseHeader.alt}
           fill
+          priority
           className="object-cover"
           sizes="(max-width: 768px) 100vw, 768px"
         />
