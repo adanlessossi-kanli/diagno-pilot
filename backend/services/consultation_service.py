@@ -26,6 +26,9 @@ def _doc_to_consultation(doc: dict) -> Consultation:
         llm_used=doc.get("llm_used"),
         is_one_shot=doc.get("is_one_shot", False),
         created_at=doc.get("created_at"),
+        mcp_session_id=doc.get("mcp_session_id"),
+        agent_contributions=doc.get("agent_contributions", []),
+        evidence_citations=doc.get("evidence_citations", []),
     )
 
 
@@ -71,3 +74,30 @@ async def create_consultation(
         result = await database["consultations"].insert_one(doc)
     doc["_id"] = result.inserted_id
     return _doc_to_consultation(doc)
+
+
+async def list_my_consultations(
+    user_id: str, page: int = 1, page_size: int = 20
+) -> tuple[list[Consultation], int]:
+    """Return paginated consultation history for a practitioner, sorted by created_at desc.
+
+    REQ 11.10 — supports the ``GET /api/v1/consultations/me`` endpoint.
+    """
+    database = db.get_db()
+    query = {"user_id": ObjectId(user_id)}
+
+    async with timed_db_op("consultations", "count_documents"):
+        total = await database["consultations"].count_documents(query)
+
+    skip = (page - 1) * page_size
+    async with timed_db_op("consultations", "find"):
+        cursor = (
+            database["consultations"]
+            .find(query)
+            .sort("created_at", -1)
+            .skip(skip)
+            .limit(page_size)
+        )
+        docs = await cursor.to_list(length=page_size)
+
+    return [_doc_to_consultation(d) for d in docs], total

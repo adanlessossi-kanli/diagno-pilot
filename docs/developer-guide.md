@@ -8,7 +8,8 @@
 - [Pipeline RAG LlamaIndex](#pipeline-rag-llamaindex)
 - [Configuration du développement local](#configuration-du-développement-local)
 - [Exécution des tests](#exécution-des-tests)
-- [Ajout d'un nouvel agent](#ajout-dun-nouvel-agent)
+- [Ajout d'un nouvel agent](#ajout-dun-nouvel-agent-architecture-mcp)
+- [Développement de serveurs MCP](#développement-de-serveurs-mcp)
 
 ---
 
@@ -306,33 +307,207 @@ Les tests de propriétés valident les invariants du système :
 | Exclusion PHI audit | `test_audit_properties.py` | Req 8.2, 9.3 |
 | Frontière PHI agents | `test_agent_pipeline_properties.py` | Req 10.2, 10.3 |
 | Agrégation agents | `test_agent_pipeline_properties.py` | Req 10.6 |
+| Round-trip sérialisation MCP | `test_mcp_serialization_properties.py` | Req 3.4 |
+| Validité structurelle JSON-RPC 2.0 | `test_jsonrpc_validation_properties.py` | Req 2.4, 3.1 |
+| Idempotence cache découverte | `test_mcp_host_properties.py` | Req 2.2, 2.3, 2.4 |
+| Agents en erreur marqués omis | `test_mcp_host_properties.py` | Req 2.9, 3.6 |
+| Invariant structurel AgentResult | `test_agent_result_properties.py` | Req 4.5, 4.6 |
+| Déduplication probabilité max | `test_synthesis_properties.py` | Req 5.2 |
+| Tri diagnostics décroissant | `test_synthesis_properties.py` | Req 5.3 |
+| Minimum 3 diagnostics | `test_synthesis_properties.py` | Req 5.4 |
+| Citations de preuves | `test_synthesis_properties.py` | Req 5.7 |
+| Score confiance pondéré | `test_synthesis_properties.py` | Req 5.8 |
+| Disclaimer fallback | `test_synthesis_properties.py` | Req 4.7, 6.2, 8.3 |
+| warnings_present dérivé | `test_endpoint_properties.py` | Req 8.4 |
+| Passthrough Locale | `test_mcp_host_properties.py` | Req 9.1, 9.4, 9.5 |
+| Intégrité Consultations MCP | `test_consultation_properties.py` | Req 11.2, 11.5–11.8 |
+| Historique trié par date | `test_consultation_properties.py` | Req 11.10 |
+| Idempotence migration | `test_migration_properties.py` | Req 12.5, 12.6 |
+| Exécution parallèle agents | `test_mcp_host_properties.py` | Req 15.3 |
 
-## Ajout d'un nouvel agent
+## Ajout d'un nouvel agent (Architecture MCP)
 
-Pour ajouter un agent au pipeline diagnostique :
+Depuis la migration vers l'architecture MCP, chaque agent spécialiste est un serveur MCP Docker indépendant. Pour ajouter un nouvel agent :
 
-1. Ajouter l'entrée dans `AgentPipeline.AGENTS` (`backend/services/agent_pipeline.py`) :
+### 1. Créer le serveur MCP
+
+Créer un fichier `backend/agents/mcp_servers/{name}_server.py` en héritant de `BaseMCPServer` :
 
 ```python
-AGENTS = {
-    # ... agents existants ...
-    "nouvel_agent": {
-        "source_filter": {"metadata.document_type": "protocol"},
-    },
-}
+"""
+Serveur MCP {Name} — Diagno-Pilot
+
+Primitives exposées :
+- Tool : `query_{name}` — Description du tool
+- Resource : `{name}://documents` — Description de la resource
+- Prompt : `{name}_query` — Template de requête
+"""
+
+from backend.agents.mcp_servers.base_server import BaseMCPServer
+
+class MyNewMCPServer(BaseMCPServer):
+    def __init__(self, port: int = 8005) -> None:
+        super().__init__(server_name="my_new_agent", port=port)
+
+        # Infrastructure isolée (MongoDB, EmbeddingModel, IndexManager, Pipeline)
+        # ...
+
+        # Enregistrer les primitives MCP
+        self.register_tool(
+            name="query_my_domain",
+            description="Description du tool",
+            input_schema=TOOL_INPUT_SCHEMA,  # Schéma commun
+            handler=self._handle_query,
+        )
+
+        self.register_resource(
+            uri="my_domain://documents",
+            name="My Domain Documents",
+            description="Description de la collection",
+            mime_type="application/json",
+        )
+
+        self.register_prompt(
+            name="my_domain_query",
+            description="Template de requête pour le domaine",
+            arguments=[
+                {"name": "symptoms", "description": "Liste des symptômes", "required": True},
+                {"name": "locale", "description": "Locale BCP-47", "required": True},
+                {"name": "region", "description": "Code région", "required": False},
+            ],
+        )
+
+    async def read_resource(self, uri: str) -> dict:
+        if uri == "my_domain://documents":
+            return {"text": "Description des données disponibles."}
+        return {"text": ""}
+
+    async def _handle_query(self, arguments: dict) -> dict:
+        # Implémenter la logique de requête RAG
+        # Retourner un dict au format AgentResult
+        return {
+            "agent_name": "my_new_agent",
+            "sub_question": "...",
+            "chunks": [],
+            "confidence_score": 0.0,
+            "partial_differential": [],
+            "fallback_used": False,
+        }
+
+if __name__ == "__main__":
+    server = MyNewMCPServer()
+    server.run()
 ```
 
-2. Ajouter le template de sous-question dans `_SUB_QUESTIONS` :
+### 2. Configurer l'URL dans `backend/core/config.py`
 
 ```python
-_SUB_QUESTIONS = {
-    # ... questions existantes ...
-    "nouvel_agent": (
-        "Question spécialisée pour les symptômes : {symptoms}? "
-        "Région : {region}."
-    ),
-}
+AGENT_MY_NEW_URL: str = "http://agent-my-new:8005"
 ```
 
-3. Mettre à jour la documentation (ce fichier et `docs/api-reference.md`)
-4. Ajouter des tests de propriétés pour le nouvel agent
+### 3. Ajouter l'URL dans `backend/services/mcp_host.py`
+
+```python
+_AGENT_URLS["my_new_agent"] = settings.AGENT_MY_NEW_URL
+```
+
+### 4. Ajouter le service Docker dans `docker-compose.yml`
+
+```yaml
+agent-my-new:
+  build:
+    context: ./backend
+    dockerfile: agents/mcp_servers/Dockerfile
+  command: python -m backend.agents.mcp_servers.my_new_server
+  ports:
+    - "8005:8005"
+  environment:
+    - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+    - SERVER_PORT=8005
+  depends_on:
+    mongo:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 15s
+```
+
+### 5. Tester localement
+
+```bash
+# Lancer le serveur en local
+python -m backend.agents.mcp_servers.my_new_server
+
+# Tester le health check
+curl http://localhost:8005/health
+
+# Lister les tools
+curl -X POST http://localhost:8005/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 1}'
+
+# Invoquer le tool
+curl -X POST http://localhost:8005/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "query_my_domain", "arguments": {"symptoms": [{"name": "fièvre"}], "locale": "fr-TG"}}, "id": 2}'
+```
+
+### 6. Ajouter des tests
+
+- Tests unitaires pour le handler du tool
+- Tests property-based pour les invariants (round-trip sérialisation, structure AgentResult)
+
+---
+
+## Développement de serveurs MCP
+
+### Architecture des serveurs MCP
+
+Tous les serveurs MCP héritent de `BaseMCPServer` (`backend/agents/mcp_servers/base_server.py`) qui fournit :
+
+- Dispatch JSON-RPC 2.0 automatique pour les 6 méthodes MCP standard
+- Réponses SSE (`text/event-stream`)
+- Endpoint `GET /health` pour les health checks Docker
+- Méthodes `register_tool()`, `register_resource()`, `register_prompt()`
+- Gestion des erreurs JSON-RPC 2.0 (codes -32700 à -32603)
+
+### Serveurs existants
+
+| Fichier | Classe | Port | Domaine |
+|---|---|---|---|
+| `epidemiology_server.py` | `EpidemiologyMCPServer` | 8001 | Données épidémiologiques régionales |
+| `symptomatology_server.py` | `SymptomatologyMCPServer` | 8002 | Guidelines cliniques |
+| `lab_server.py` | `LabMCPServer` | 8003 | Examens biologiques |
+| `treatment_server.py` | `TreatmentMCPServer` | 8004 | Protocoles thérapeutiques |
+
+### Isolation des processus
+
+Chaque serveur MCP Docker instancie sa propre connexion MongoDB, `EmbeddingModel`, `IndexManager` et `LlamaIndexPipeline`. Aucune ressource du processus backend n'est partagée. La communication se fait via le réseau Docker interne.
+
+### Tester un serveur MCP avec curl
+
+```bash
+# Health check
+curl http://localhost:8001/health
+
+# Découverte des primitives
+curl -X POST http://localhost:8001/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 1}'
+
+curl -X POST http://localhost:8001/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "resources/list", "params": {}, "id": 2}'
+
+curl -X POST http://localhost:8001/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "prompts/list", "params": {}, "id": 3}'
+
+# Invocation d'un tool
+curl -X POST http://localhost:8001/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "query_epidemiology", "arguments": {"symptoms": [{"name": "fièvre"}, {"name": "céphalées"}], "locale": "fr-TG", "region": "TG"}}, "id": 4}'
+```

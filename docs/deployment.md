@@ -30,6 +30,10 @@ Le fichier `docker-compose.yml` définit les services suivants :
 | `backend` | Build local (`./backend`) | 8000 | API FastAPI |
 | `model` | `ghcr.io/ggerganov/llama.cpp:server` | 8080 | LLM local (profil GPU) |
 | `model-cpu` | `ghcr.io/ggerganov/llama.cpp:server` | 8080 | LLM local (profil CPU) |
+| `agent-epidemiology` | Build local (`./backend`) | 8001 | Serveur MCP Épidémiologie |
+| `agent-symptomatology` | Build local (`./backend`) | 8002 | Serveur MCP Symptomatologie |
+| `agent-lab` | Build local (`./backend`) | 8003 | Serveur MCP Laboratoire |
+| `agent-treatment` | Build local (`./backend`) | 8004 | Serveur MCP Traitement |
 | `mongo` | `mongodb/mongodb-atlas-local:8.0` | 27017 | MongoDB Atlas Local |
 | `redis` | `redis:7-alpine` | 6379 | Cache Redis |
 | `localstack` | `localstack/localstack:3` | 4566 | S3 local (dev) |
@@ -178,6 +182,52 @@ docker compose exec redis redis-cli ping
 - Prometheus : http://localhost:9090
 - Les métriques backend sont exposées sur `/metrics` (authentification Basic Auth configurable via `METRICS_AUTH`)
 
+## Serveurs MCP Agents
+
+Les quatre serveurs MCP spécialistes sont déployés comme services Docker indépendants. Chaque serveur expose un endpoint `GET /health` pour les vérifications de disponibilité.
+
+### Health checks
+
+Chaque service agent est configuré avec un health check Docker :
+
+```yaml
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost:{port}/health"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 15s
+```
+
+| Service | Port | Health check |
+|---|---|---|
+| `agent-epidemiology` | 8001 | `curl -f http://localhost:8001/health` |
+| `agent-symptomatology` | 8002 | `curl -f http://localhost:8002/health` |
+| `agent-lab` | 8003 | `curl -f http://localhost:8003/health` |
+| `agent-treatment` | 8004 | `curl -f http://localhost:8004/health` |
+
+### Considérations de scaling
+
+- Chaque agent est stateless et peut être répliqué indépendamment via `docker compose up --scale agent-epidemiology=2`
+- Les agents communiquent avec MongoDB via le réseau Docker interne
+- Le `MCP_Host` du backend utilise un pool de connexions HTTP (`httpx.AsyncClient`) pour réduire la latence
+- Le timeout par agent est de 30 secondes (couvrant découverte + invocation)
+- Les agents en timeout ou en erreur sont automatiquement omis du diagnostic sans bloquer les autres
+
+### Variables d'environnement des agents
+
+Chaque service agent reçoit les variables suivantes :
+
+| Variable | Description |
+|---|---|
+| `MONGODB_URI` | URI de connexion MongoDB |
+| `LLM_PRIMARY_URL` | URL du LLM principal |
+| `LLM_PRIMARY_API_KEY` | Clé API du LLM principal |
+| `LLM_FALLBACK_URL` | URL du LLM de fallback |
+| `LLM_FALLBACK_API_KEY` | Clé API du LLM de fallback |
+| `EMBED_MODEL` | Modèle d'embedding |
+| `SERVER_PORT` | Port d'écoute du serveur |
+
 ## Vérification du déploiement
 
 ```bash
@@ -189,6 +239,12 @@ curl http://localhost:8000/health
 
 # Vérifier le health check du Model_Container
 curl http://localhost:8080/health
+
+# Vérifier les serveurs MCP agents
+curl http://localhost:8001/health   # Épidémiologie
+curl http://localhost:8002/health   # Symptomatologie
+curl http://localhost:8003/health   # Laboratoire
+curl http://localhost:8004/health   # Traitement
 
 # Vérifier le frontend
 curl http://localhost:3000

@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     LLAMAINDEX_CHUNK_OVERLAP_TOKENS: int = 50
     LLAMAINDEX_SIMILARITY_THRESHOLD: float = 0.75
 
+    # MCP Agent URLs
+    AGENT_EPIDEMIOLOGY_URL: str = "http://agent-epidemiology:8001"
+    AGENT_SYMPTOMATOLOGY_URL: str = "http://agent-symptomatology:8002"
+    AGENT_LAB_URL: str = "http://agent-lab:8003"
+    AGENT_TREATMENT_URL: str = "http://agent-treatment:8004"
+
     # HIPAA compliance
     HIPAA_ENCRYPTION_KEY_ID: str = ""
     HIPAA_AUDIT_HASH_CHAIN_ENABLED: bool = True

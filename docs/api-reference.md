@@ -290,3 +290,259 @@ Contrôle BAA (Business Associate Agreement) — garantit zéro PHI dans les app
 2. Vérification post-stripping (aucun PHI résiduel)
 3. Journalisation de l'événement (types de champs uniquement, pas de valeurs PHI)
 4. Si le stripping échoue → l'appel LLM externe est bloqué (`BAAStripError`)
+
+
+---
+
+## Serveurs MCP — Endpoints JSON-RPC 2.0
+
+Chaque serveur MCP spécialiste est un service Docker FastAPI exposant deux endpoints HTTP. La communication utilise le protocole JSON-RPC 2.0 : les requêtes sont envoyées via HTTP POST et les réponses sont streamées via Server-Sent Events (SSE).
+
+### `POST /rpc`
+
+Point d'entrée JSON-RPC 2.0 pour toutes les interactions MCP (découverte et invocation des primitives).
+
+**En-têtes requis :**
+
+| En-tête | Valeur |
+|---|---|
+| `Content-Type` | `application/json` |
+
+**Corps de la requête (JSON-RPC 2.0) :**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/list | tools/call | resources/list | resources/read | prompts/list | prompts/get",
+  "params": {},
+  "id": 1
+}
+```
+
+**Méthodes supportées :**
+
+| Méthode | Description | Paramètres |
+|---|---|---|
+| `tools/list` | Liste les tools disponibles | `{}` |
+| `tools/call` | Invoque un tool | `{"name": "tool_name", "arguments": {...}}` |
+| `resources/list` | Liste les resources disponibles | `{}` |
+| `resources/read` | Lit le contenu d'une resource | `{"uri": "resource_uri"}` |
+| `prompts/list` | Liste les prompts disponibles | `{}` |
+| `prompts/get` | Récupère un prompt | `{"name": "prompt_name"}` |
+
+**Réponse (SSE — `text/event-stream`) :**
+
+Succès :
+```
+data: {"jsonrpc": "2.0", "result": {...}, "id": 1}
+```
+
+Erreur :
+```
+data: {"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found"}, "id": 1}
+```
+
+**Codes d'erreur JSON-RPC 2.0 :**
+
+| Code | Signification |
+|---|---|
+| `-32700` | Parse error — JSON invalide |
+| `-32600` | Invalid Request — structure JSON-RPC invalide |
+| `-32601` | Method not found — méthode inconnue |
+| `-32602` | Invalid params — paramètres manquants ou invalides |
+| `-32603` | Internal error — erreur interne du serveur |
+
+### `GET /health`
+
+Vérification de la disponibilité du serveur MCP.
+
+**Réponse (200) :**
+
+```json
+{"status": "ok", "server": "epidemiology"}
+```
+
+### Serveurs MCP disponibles
+
+| Serveur | Port | Tool | Resource URI | Prompt |
+|---|---|---|---|---|
+| Épidémiologie | 8001 | `query_epidemiology` | `epidemiology://documents` | `epidemiology_query` |
+| Symptomatologie | 8002 | `query_symptomatology` | `guidelines://documents` | `symptomatology_query` |
+| Laboratoire | 8003 | `query_lab` | `laboratory://documents` | `lab_query` |
+| Traitement | 8004 | `query_treatment` | `protocols://documents` | `treatment_query` |
+
+### Schéma d'entrée commun des Tools MCP
+
+Tous les tools MCP acceptent le même schéma JSON d'entrée :
+
+```json
+{
+  "symptoms": [
+    {"name": "fièvre", "severity": "élevée", "duration_days": 3}
+  ],
+  "patient_profile": {"age": 35, "weight_kg": 70, "sex": "M"},
+  "locale": "fr-TG",
+  "region": "TG"
+}
+```
+
+| Paramètre | Type | Requis | Description |
+|---|---|---|---|
+| `symptoms` | `array[object]` | Oui | Liste des symptômes (chaque objet contient `name`, `severity` optionnel, `duration_days` optionnel) |
+| `patient_profile` | `object \| null` | Non | Profil patient (âge, poids, antécédents) |
+| `locale` | `string` | Oui | Locale BCP-47 (`fr-TG`, `fr-BJ`, `en`) |
+| `region` | `string \| null` | Non | Code région ISO 3166-1 alpha-2 (`TG`, `BJ`) |
+
+### Schéma de sortie AgentResult
+
+Retourné dans le champ `result` de la réponse JSON-RPC 2.0 :
+
+```json
+{
+  "agent_name": "epidemiology",
+  "sub_question": "Quelles sont les données épidémiologiques...",
+  "chunks": [
+    {
+      "document_id": "ObjectId",
+      "title": "Bulletin épidémiologique Togo 2024",
+      "source": "PNLP",
+      "excerpt": "La prévalence du paludisme...",
+      "page": 12
+    }
+  ],
+  "confidence_score": 0.85,
+  "partial_differential": [
+    {
+      "condition": "Paludisme",
+      "probability": 0.75,
+      "icd_code": "B50",
+      "matching_symptoms": ["fièvre", "céphalées"]
+    }
+  ],
+  "fallback_used": false
+}
+```
+
+---
+
+## Diagnostic guidé multi-agent — Réponse enrichie
+
+### `POST /api/v1/diagnose/symptoms` — Schéma de réponse enrichi
+
+Le endpoint existant retourne désormais des champs additionnels liés au pipeline MCP multi-agent.
+
+**Nouveaux champs dans `DiagnoseResponse` :**
+
+| Champ | Type | Description |
+|---|---|---|
+| `mcp_session_id` | `string \| null` | Identifiant unique de la session MCP (UUID) |
+| `confidence_score` | `float \| null` | Score de confiance global [0.0, 1.0], moyenne pondérée par chunks |
+| `agent_contributions` | `array[AgentContribution]` | Contributions de chaque agent spécialiste |
+| `evidence_citations` | `array[EvidenceCitation]` | Citations de preuves documentaires |
+| `fallback_warning` | `string \| null` | Avertissement si le LLM de secours a été utilisé |
+| `degraded_warning` | `string \| null` | Avertissement listant les agents omis |
+| `warnings_present` | `boolean` | `true` si `fallback_warning` ou `degraded_warning` est présent |
+
+**Schéma `AgentContribution` :**
+
+```json
+{
+  "agent_name": "epidemiology",
+  "confidence_score": 0.85,
+  "partial_differential": [
+    {"condition": "Paludisme", "probability": 0.75, "icd_code": "B50", "matching_symptoms": ["fièvre"]}
+  ]
+}
+```
+
+**Schéma `EvidenceCitation` :**
+
+```json
+{
+  "document_id": "ObjectId",
+  "title": "Bulletin épidémiologique Togo 2024",
+  "source": "PNLP",
+  "excerpt": "La prévalence du paludisme dans la région...",
+  "page": 12
+}
+```
+
+**Exemple de réponse complète :**
+
+```json
+{
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "mcp_session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "diagnoses": [
+    {"condition": "Paludisme", "probability": 0.75, "icd_code": "B50", "matching_symptoms": ["fièvre", "céphalées"]}
+  ],
+  "confidence_score": 0.82,
+  "agent_contributions": [
+    {"agent_name": "epidemiology", "confidence_score": 0.85, "partial_differential": [...]},
+    {"agent_name": "symptomatology", "confidence_score": 0.80, "partial_differential": [...]}
+  ],
+  "evidence_citations": [
+    {"document_id": "...", "title": "Bulletin épidémiologique", "source": "PNLP", "excerpt": "...", "page": 12}
+  ],
+  "fallback_warning": null,
+  "degraded_warning": null,
+  "warnings_present": false
+}
+```
+
+---
+
+### `GET /api/v1/consultations/me`
+
+Retourne l'historique paginé des consultations du praticien authentifié, triées par date décroissante.
+
+| Attribut | Valeur |
+|---|---|
+| Méthode | `GET` |
+| Chemin | `/api/v1/consultations/me` |
+| Rôles requis | `admin`, `medecin`, `infirmière` |
+| Rate limit | 30 requêtes/minute par utilisateur |
+
+**Paramètres de requête :**
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `page` | `int` | `1` | Numéro de page (≥ 1) |
+| `page_size` | `int` | `20` | Nombre d'éléments par page (1–100) |
+
+**Réponse 200 OK — `PaginatedResponse[Consultation]` :**
+
+```json
+{
+  "items": [
+    {
+      "id": "ObjectId",
+      "patient_id": "ObjectId | null",
+      "user_id": "ObjectId",
+      "symptoms": [...],
+      "diagnoses": [...],
+      "prescription": null,
+      "alerts": [],
+      "llm_used": "MedicalQwen3-Reasoning-14B",
+      "is_one_shot": true,
+      "created_at": "2026-04-07T10:30:00Z",
+      "mcp_session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "agent_contributions": [
+        {"agent_name": "epidemiology", "confidence_score": 0.85, "partial_differential": [...]}
+      ],
+      "evidence_citations": [
+        {"document_id": "...", "title": "...", "source": "PNLP", "excerpt": "...", "page": 12}
+      ]
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+**Réponse 403 Forbidden** — rôle non autorisé
+
+```json
+{"detail": "Insufficient permissions"}
+```

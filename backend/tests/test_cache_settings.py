@@ -61,16 +61,12 @@ def test_p11_ttl_rejects_non_integer(field: str, bad_value: str):
 # Unit tests — Settings defaults
 # ---------------------------------------------------------------------------
 
-def test_redis_url_default():
+def test_redis_url_default(monkeypatch):
     """REDIS_URL defaults to redis://localhost:6379/0 when env var is absent."""
-    import os
-    env_backup = os.environ.pop("REDIS_URL", None)
-    try:
-        s = Settings()
-        assert s.REDIS_URL == "redis://localhost:6379/0"
-    finally:
-        if env_backup is not None:
-            os.environ["REDIS_URL"] = env_backup
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    # Bypass .env file loading by constructing Settings without env_file
+    s = Settings(_env_file=None)
+    assert s.REDIS_URL == "redis://localhost:6379/0"
 
 
 def test_cache_ttl_defaults():

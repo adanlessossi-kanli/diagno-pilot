@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\mcp_host.py
+# hypothesis_version: 6.151.9
+
+[0.0, '$in', ', ', 'Agent %r stderr: %s', 'agent_name', 'chunks', 'confidence_score', 'epidemiology', 'guideline', 'lab', 'laboratory', 'locale', 'partial_differential', 'patient_profile', 'protocol', 'python', 'region', 'replace', 'source_filter', 'sub_question', 'symptomatology', 'treatment']

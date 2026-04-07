@@ -43,6 +43,10 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
       - MODEL_CONTAINER_URL=http://model:8080/v1
       - REDIS_URL=redis://redis:6379/0
+      - AGENT_EPIDEMIOLOGY_URL=http://agent-epidemiology:8001
+      - AGENT_SYMPTOMATOLOGY_URL=http://agent-symptomatology:8002
+      - AGENT_LAB_URL=http://agent-lab:8003
+      - AGENT_TREATMENT_URL=http://agent-treatment:8004
     volumes:
       - ./backend:/workspace/backend
     depends_on:
@@ -54,8 +58,116 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      agent-epidemiology:
+        condition: service_healthy
+      agent-symptomatology:
+        condition: service_healthy
+      agent-lab:
+        condition: service_healthy
+      agent-treatment:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  agent-epidemiology:
+    build:
+      context: ./backend
+      dockerfile: agents/mcp_servers/Dockerfile
+    command: python -m backend.agents.mcp_servers.epidemiology_server
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
+      - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
+      - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
+      - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
+      - EMBED_MODEL=${EMBED_MODEL}
+      - SERVER_PORT=8001
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  agent-symptomatology:
+    build:
+      context: ./backend
+      dockerfile: agents/mcp_servers/Dockerfile
+    command: python -m backend.agents.mcp_servers.symptomatology_server
+    ports:
+      - "8002:8002"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
+      - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
+      - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
+      - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
+      - EMBED_MODEL=${EMBED_MODEL}
+      - SERVER_PORT=8002
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  agent-lab:
+    build:
+      context: ./backend
+      dockerfile: agents/mcp_servers/Dockerfile
+    command: python -m backend.agents.mcp_servers.lab_server
+    ports:
+      - "8003:8003"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
+      - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
+      - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
+      - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
+      - EMBED_MODEL=${EMBED_MODEL}
+      - SERVER_PORT=8003
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  agent-treatment:
+    build:
+      context: ./backend
+      dockerfile: agents/mcp_servers/Dockerfile
+    command: python -m backend.agents.mcp_servers.treatment_server
+    ports:
+      - "8004:8004"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+      - LLM_PRIMARY_URL=${LLM_PRIMARY_URL}
+      - LLM_PRIMARY_API_KEY=${LLM_PRIMARY_API_KEY}
+      - LLM_FALLBACK_URL=${LLM_FALLBACK_URL}
+      - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY}
+      - EMBED_MODEL=${EMBED_MODEL}
+      - SERVER_PORT=8004
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -28,7 +28,7 @@ from backend.core.security_headers import SecurityHeadersMiddleware  # noqa: E40
 from backend.core.database import db  # noqa: E402
 from backend.core.logging_config import request_id_var, setup_logging  # noqa: E402
 from backend.core.rate_limit import limiter  # noqa: E402
-from backend.routers import admin, alerts, auth, chat, diagnose, documents, feedback, files, medecin, patients, qa  # noqa: E402
+from backend.routers import admin, alerts, auth, chat, consultations, diagnose, documents, feedback, files, medecin, patients, qa  # noqa: E402
 from backend.services.diagnostic_service import DiagnosticService  # noqa: E402
 from backend.services.embedding_model import EmbeddingModel  # noqa: E402
 from backend.services.llm_router import LLMRouter  # noqa: E402
@@ -38,6 +38,7 @@ from backend.services.audit_service import audit_logger  # noqa: E402
 from backend.services.index_manager import IndexManager  # noqa: E402
 from backend.services.llamaindex_pipeline import LlamaIndexPipeline  # noqa: E402
 from backend.services.agent_pipeline import AgentPipeline  # noqa: E402
+from backend.services.mcp_host import MCP_Host  # noqa: E402
 
 # Initialise structured logging before anything else
 setup_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
@@ -149,12 +150,17 @@ async def lifespan(app: FastAPI):
         audit_logger=audit_logger,
     )
 
+    # MCP_Host for multi-agent diagnostics — REQ 14.3, 14.4
+    mcp_host = MCP_Host()
+
     app.state.diagnostic_service = DiagnosticService(
         rag_service=llamaindex_pipeline,
         agent_pipeline=agent_pipeline,
         audit_logger=audit_logger,
+        mcp_host=mcp_host,
+        db=database,
     )
-    logger.info("DiagnosticService singleton initialised (with AgentPipeline)")
+    logger.info("DiagnosticService singleton initialised (with AgentPipeline + MCP_Host)")
 
     # Detect unmigrated chunks at startup — REQ 6.1
     from backend.services.document_service import DocumentService
@@ -163,6 +169,12 @@ async def lifespan(app: FastAPI):
     await _doc_svc.check_unmigrated_chunks()
 
     yield
+    # Shutdown MCP_Host — REQ 14.4
+    try:
+        await mcp_host.shutdown()
+        logger.info("MCP_Host shut down")
+    except Exception:
+        logger.error("MCP_Host shutdown failed", exc_info=True)
     await cache_service.disconnect()
     await db.disconnect()
     logger.info("MongoDB disconnected")
@@ -228,6 +240,10 @@ async def log_requests(request: Request, call_next):
     req_id = str(uuid.uuid4())
     token = request_id_var.set(req_id)
     request.state.request_id = req_id
+    # Pre-initialise view_rate_limit so slowapi's decorator never hits an
+    # AttributeError when Redis is unreachable and the error is swallowed.
+    if not hasattr(request.state, "view_rate_limit"):
+        request.state.view_rate_limit = None
     start = time.perf_counter()
     response = await call_next(request)
     duration_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -273,6 +289,7 @@ API_PREFIX = "/api/v1"
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)
 app.include_router(diagnose.router, prefix=API_PREFIX)
+app.include_router(consultations.router, prefix=API_PREFIX)
 app.include_router(patients.router, prefix=API_PREFIX)
 app.include_router(documents.router, prefix=API_PREFIX)
 app.include_router(files.router, prefix=API_PREFIX)

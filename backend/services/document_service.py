@@ -148,9 +148,10 @@ def _extract_pdf_pages_with_bbox(content: bytes) -> list[PdfPageData]:
                 if not text:
                     return
                 # tm is the text matrix [a, b, c, d, e, f] where (e, f) is position
-                if tm is not None and len(tm) >= 6:
-                    x0 = float(tm[4])
-                    y0 = float(tm[5])
+                tm_seq: list[float] | tuple[float, ...] | None = tm if isinstance(tm, (list, tuple)) else None  # type: ignore[assignment]
+                if tm_seq is not None and len(tm_seq) >= 6:
+                    x0 = float(tm_seq[4])
+                    y0 = float(tm_seq[5])
                     # Approximate width per character using font_size
                     char_width = float(font_size) * 0.5 if font_size else 6.0
                     char_height = float(font_size) if font_size else 12.0

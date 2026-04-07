@@ -6,6 +6,7 @@ Tous les paramètres sont centralisés dans la classe `Settings` (`backend/core/
 
 - [Model\_Container](#model_container)
 - [LlamaIndex Pipeline](#llamaindex-pipeline)
+- [Serveurs MCP Agents](#serveurs-mcp-agents)
 - [HIPAA Compliance](#hipaa-compliance)
 - [LLM (hérité)](#llm-hérité)
 - [Authentification](#authentification)
@@ -37,7 +38,22 @@ Configuration du pipeline RAG LlamaIndex.
 |---|---|---|---|---|
 | `LLAMAINDEX_CHUNK_SIZE` | `int` | `512` | Non | Taille maximale des chunks (tokens) |
 | `LLAMAINDEX_CHUNK_OVERLAP_TOKENS` | `int` | `50` | Non | Chevauchement entre chunks (tokens) |
-| `LLAMAINDEX_SIMILARITY_THRESHOLD` | `float` | `0.75` | Non | Seuil de similarité pour le filtrage des résultats |
+| `LLAMAINDEX_SIMILARITY_THRESHOLD` | `float` | `0.75` | Non | Seuil de similarité pour le filtrage des résultats. Utilisé par le pipeline RAG et par chaque serveur MCP agent pour déterminer si des données pertinentes existent dans sa collection de documents. |
+
+## Serveurs MCP Agents
+
+Configuration des URLs des serveurs MCP spécialistes. Chaque serveur est un service Docker indépendant communiquant via JSON-RPC 2.0 sur HTTP+SSE.
+
+| Variable | Type | Défaut | Requis en prod | Description |
+|---|---|---|---|---|
+| `AGENT_EPIDEMIOLOGY_URL` | `str` | `http://agent-epidemiology:8001` | Non | URL du serveur MCP Épidémiologie |
+| `AGENT_SYMPTOMATOLOGY_URL` | `str` | `http://agent-symptomatology:8002` | Non | URL du serveur MCP Symptomatologie |
+| `AGENT_LAB_URL` | `str` | `http://agent-lab:8003` | Non | URL du serveur MCP Laboratoire |
+| `AGENT_TREATMENT_URL` | `str` | `http://agent-treatment:8004` | Non | URL du serveur MCP Traitement |
+
+Les valeurs par défaut correspondent aux hostnames Docker internes. Pour le développement local (hors Docker), surcharger avec `http://localhost:800X`.
+
+> **Note :** Les serveurs MCP agents utilisent également `LLAMAINDEX_SIMILARITY_THRESHOLD` (défaut `0.75`) pour filtrer les chunks non pertinents lors de la recherche vectorielle. Ce seuil est lu depuis la configuration partagée.
 
 ## HIPAA Compliance
 

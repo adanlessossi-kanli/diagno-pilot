@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -58,6 +60,10 @@ class DiagnosticResult:
     locale: str = "fr-TG"
     language_mismatch: bool = False
     disclaimer: str | None = None
+    session_id: str | None = None
+    confidence_score: float = 0.0
+    evidence_citations: list = field(default_factory=list)
+    agent_contributions: list = field(default_factory=list)
 
 
 class DiagnosticOrchestrator:
@@ -116,6 +122,7 @@ class DiagnosticOrchestrator:
         patient_profile: PatientProfile | None = None,
         locale: str = "fr-TG",
         region: str | None = None,
+        user_id: str | None = None,
     ) -> DiagnosticResult:
         """Return at least 3 differential diagnoses for the given symptoms.
 
@@ -132,6 +139,7 @@ class DiagnosticOrchestrator:
             locale: BCP-47 locale string (e.g. ``fr-TG``, ``fr-BJ``, ``en``).
                 Defaults to ``fr-TG``.
             region: ISO 3166-1 alpha-2 country code or ``None``.
+            user_id: Optional authenticated user ID for consultation creation.
 
         Returns:
             DiagnosticResult with diagnoses, fallback_used, degraded_warning,
@@ -141,7 +149,7 @@ class DiagnosticOrchestrator:
             HTTPException: Propagated from RAGService if the LLM is unavailable.
         """
         if self._mcp_host is not None:
-            result = await self._get_diagnosis_via_mcp(symptoms, patient_profile, locale, region)
+            result = await self._get_diagnosis_via_mcp(symptoms, patient_profile, locale, region, user_id=user_id)
         elif self._agent_pipeline is not None:
             result = await self._get_diagnosis_via_agent_pipeline(symptoms, patient_profile, locale, region)
         else:
@@ -215,10 +223,15 @@ class DiagnosticOrchestrator:
         patient_profile: PatientProfile | None,
         locale: str,
         region: str | None,
+        *,
+        user_id: str | None = None,
     ) -> DiagnosticResult:
-        """MCP multi-agent path — REQ 2.8."""
+        """MCP multi-agent path — REQ 2.8, 6.1, 6.3, 7.1, 11.1, 15.4."""
         assert self._mcp_host is not None  # guarded by caller
         assert self._synthesis_agent is not None  # always set when mcp_host is set
+
+        mcp_session_id = str(uuid.uuid4())
+        start = time.perf_counter()
 
         agent_results, audit_data = await self._mcp_host.run_diagnostic(
             symptoms=symptoms,
@@ -229,15 +242,88 @@ class DiagnosticOrchestrator:
 
         result = self._synthesis_agent.synthesize(agent_results, locale=locale)
 
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+
         logger.info(
-            "DiagnosticAudit [MCP path] — timeouts=%r omissions=%r agents=%d diagnoses=%d",
+            "MCP session %s completed in %.1f ms — timeouts=%r omissions=%r agents=%d diagnoses=%d",
+            mcp_session_id,
+            duration_ms,
             audit_data.timeouts,
             audit_data.omissions,
             len(audit_data.agent_results),
             len(result.diagnoses),
         )
 
+        # Handle fallback_used from AgentResults — REQ 6.2, 8.3
+        if result.fallback_used:
+            result.disclaimer = FALLBACK_DISCLAIMER
+
+        # Assign session_id — REQ 6.3
+        result.session_id = mcp_session_id
+
+        # Auto-create Consultation — REQ 11.1, 11.11 (best-effort)
+        await self._create_mcp_consultation(
+            mcp_session_id=mcp_session_id,
+            user_id=user_id,
+            symptoms=symptoms,
+            result=result,
+        )
+
         return result
+
+    async def _create_mcp_consultation(
+        self,
+        *,
+        mcp_session_id: str,
+        user_id: str | None,
+        symptoms: list[Symptom],
+        result: DiagnosticResult,
+        patient_id: str | None = None,
+    ) -> None:
+        """Auto-create a Consultation document for the MCP session — REQ 11.1–11.8, 11.11.
+
+        Best-effort: catches all exceptions and logs errors so the diagnostic
+        response is never blocked by a consultation write failure.
+        Skips creation when ``user_id`` is ``None`` (internal/test calls).
+        """
+        if user_id is None:
+            logger.debug("_create_mcp_consultation: no user_id, skipping")
+            return
+        if self._db is None:
+            logger.debug("_create_mcp_consultation: no db configured, skipping")
+            return
+        try:
+            from backend.models.consultation import (
+                AgentContribution,
+                Consultation,
+                EvidenceCitation,
+            )
+
+            consultation = Consultation(
+                patient_id=patient_id,
+                user_id=user_id,
+                symptoms=symptoms,
+                diagnoses=result.diagnoses,
+                is_one_shot=patient_id is None,
+                created_at=datetime.now(timezone.utc),
+                mcp_session_id=mcp_session_id,
+                agent_contributions=[
+                    AgentContribution(**c) if isinstance(c, dict) else c
+                    for c in result.agent_contributions
+                ],
+                evidence_citations=[
+                    EvidenceCitation(**c) if isinstance(c, dict) else c
+                    for c in result.evidence_citations
+                ],
+            )
+            await self._db["consultations"].insert_one(consultation.model_dump())
+            logger.debug(
+                "MCP Consultation created for session %s user_id=%s",
+                mcp_session_id,
+                user_id,
+            )
+        except Exception as exc:
+            logger.error("Failed to create MCP Consultation: %s", exc)
 
     async def _get_diagnosis_via_agent_pipeline(
         self,

@@ -27,6 +27,7 @@ Application web et mobile d'aide au diagnostic des maladies infectieuses et à l
 | Base de données | MongoDB Atlas (données + Vector Search) |
 | LLM principal | MedicalQwen3-Reasoning-14B |
 | LLM fallback | GPT-5 |
+| Pipeline MCP | JSON-RPC 2.0 sur HTTP+SSE (4 serveurs agents Docker) |
 | Stockage fichiers | AWS S3 (LocalStack en local) |
 | Tests backend | pytest + Hypothesis (property-based testing) |
 | Tests frontend | Vitest + React Testing Library |
@@ -46,6 +47,7 @@ diagno-pilot/
 │   ├── types/        # Types TypeScript partagés
 │   └── i18n/         # Traductions FR/EN
 ├── backend/          # FastAPI + services + modèles
+│   └── agents/mcp_servers/  # Serveurs MCP spécialistes (Épidémiologie, Symptomatologie, Laboratoire, Traitement)
 ├── scripts/          # Scripts d'initialisation (LocalStack)
 ├── docker-compose.yml
 ├── start.sh / start.bat
@@ -98,6 +100,10 @@ start.bat
 | Frontend web | http://localhost:3000 |
 | API backend | http://localhost:8000 |
 | Docs API (Swagger) | http://localhost:8000/docs |
+| Agent Épidémiologie | http://localhost:8001 |
+| Agent Symptomatologie | http://localhost:8002 |
+| Agent Laboratoire | http://localhost:8003 |
+| Agent Traitement | http://localhost:8004 |
 | MongoDB | mongodb://localhost:27017 |
 | LocalStack (S3) | http://localhost:4566 |
 
@@ -110,7 +116,15 @@ start.bat
 
 > Le script de seed crée ces comptes automatiquement au premier démarrage. Relancer manuellement : `python scripts/seed.py`
 
-### 4. Arrêter l'application
+### 5. Exécuter la migration MCP (si mise à jour)
+
+```bash
+python -m backend.scripts.migrate_consultations_add_mcp_fields
+```
+
+> Ce script ajoute les champs MCP (`mcp_session_id`, `agent_contributions`, `evidence_citations`) aux consultations existantes et crée les index nécessaires. Idempotent — peut être relancé sans risque.
+
+### 6. Arrêter l'application
 
 ```bash
 ./stop.sh        # Linux/macOS
@@ -180,6 +194,7 @@ GET    /api/v1/chat/history/{session_id}
 POST   /api/v1/diagnose/symptoms
 POST   /api/v1/diagnose/prescription
 GET    /api/v1/diagnose/session/{session_id}
+GET    /api/v1/consultations/me
 
 GET    /api/v1/patients
 POST   /api/v1/patients
@@ -207,6 +222,7 @@ La documentation interactive complète est disponible sur http://localhost:8000/
 | Rôle | Accès |
 |---|---|
 | `medecin` | Mode guidé, chat, dossiers patients |
+| `infirmière` | Mode guidé, chat, historique des diagnostics |
 | `pharmacien` | Chat, consultation des prescriptions |
 | `admin` | Tout + gestion documents et utilisateurs |
 

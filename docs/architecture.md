@@ -86,56 +86,147 @@ flowchart TD
 
 ---
 
-## 3. Flux diagnostique multi-agents
+## 3. Flux diagnostique multi-agents (MCP HTTP+SSE)
 
-Ce diagramme décrit l'orchestration des agents spécialistes via MCP pour produire un diagnostic différentiel.
+Le pipeline de diagnostic multi-agent utilise le protocole MCP (Model Context Protocol) standard. Chaque agent spécialiste est un serveur MCP Docker indépendant exposant trois primitives (Tools, Resources, Prompts) via JSON-RPC 2.0 sur HTTP+SSE. Le MCP_Host orchestre les quatre serveurs en parallèle via `httpx.AsyncClient`.
+
+### Diagramme de composants MCP
+
+```mermaid
+graph TB
+    subgraph "API Layer"
+        R[diagnose.py Router]
+        RC[consultations.py Router — /me]
+    end
+
+    subgraph "Service Layer"
+        DO[DiagnosticOrchestrator]
+        MH["MCP_Host (httpx.AsyncClient)"]
+        SA[Synthesis_Agent]
+        CS[ConsultationService]
+    end
+
+    subgraph "MCP Servers — Services Docker"
+        ME["epidemiology_server.py (FastAPI :8001)"]
+        MS["symptomatology_server.py (FastAPI :8002)"]
+        ML["lab_server.py (FastAPI :8003)"]
+        MT["treatment_server.py (FastAPI :8004)"]
+    end
+
+    subgraph "Data Layer"
+        DB[(MongoDB Atlas)]
+        LIP[LlamaIndexPipeline — RAG]
+    end
+
+    R --> DO
+    RC --> CS
+    DO --> MH
+    DO --> SA
+    DO --> CS
+    MH -->|"HTTP POST /rpc + SSE"| ME
+    MH -->|"HTTP POST /rpc + SSE"| MS
+    MH -->|"HTTP POST /rpc + SSE"| ML
+    MH -->|"HTTP POST /rpc + SSE"| MT
+    ME --> LIP
+    MS --> LIP
+    ML --> LIP
+    MT --> LIP
+    LIP --> DB
+    CS --> DB
+    DO --> DB
+```
+
+### Diagramme de séquence du pipeline MCP
 
 ```mermaid
 sequenceDiagram
     actor Clinicien
-    participant Orch as DiagnosticOrchestrator
-    participant MCP as MCP_Host
-    participant Epi as Epidemiology_Agent
-    participant Symp as Symptomatology_Agent
-    participant Lab as Lab_Agent
-    participant Treat as Treatment_Agent
-    participant Synth as Synthesis_Agent
-    participant Audit as diagnostic_audit (MongoDB)
+    participant API as POST /diagnose/symptoms
+    participant DO as DiagnosticOrchestrator
+    participant MH as MCP_Host (httpx.AsyncClient)
+    participant E as MCP Server Épidémiologie (Docker :8001)
+    participant S as MCP Server Symptomatologie (Docker :8002)
+    participant L as MCP Server Laboratoire (Docker :8003)
+    participant T as MCP Server Traitement (Docker :8004)
+    participant SA as Synthesis_Agent
+    participant DB as MongoDB
 
-    Clinicien->>Orch: get_differential_diagnosis(symptoms, patient_profile, locale, region)
-    Orch->>MCP: run_diagnostic(symptoms, patient_profile, locale, region)
+    Clinicien->>API: symptoms, patient_profile, locale, region
+    API->>DO: get_differential_diagnosis()
+    DO->>MH: run_diagnostic()
 
-    note over MCP: asyncio.gather — timeout 30s par agent
-
-    par Dispatch parallèle
-        MCP->>Epi: sous-question épidémiologie\nsource_filter: document_type = epidemiology
-        MCP->>Symp: sous-question symptomatologie\nsource_filter: document_type = guideline
-        MCP->>Lab: sous-question laboratoire\nsource_filter: document_type = laboratory
-        MCP->>Treat: sous-question traitement\nsource_filter: document_type in [protocol, guideline]
+    par Requêtes HTTP parallèles (asyncio.gather, timeout 30s/agent)
+        MH->>E: GET /health
+        MH->>E: POST /rpc {tools/list} → cache
+        MH->>E: POST /rpc {tools/call query_epidemiology}
+        E-->>MH: SSE → AgentResult (chunks, confidence, partial_differential)
+    and
+        MH->>S: GET /health
+        MH->>S: POST /rpc {tools/list} → cache
+        MH->>S: POST /rpc {tools/call query_symptomatology}
+        S-->>MH: SSE → AgentResult
+    and
+        MH->>L: GET /health
+        MH->>L: POST /rpc {tools/list} → cache
+        MH->>L: POST /rpc {tools/call query_lab}
+        L-->>MH: SSE → AgentResult
+    and
+        MH->>T: GET /health
+        MH->>T: POST /rpc {tools/list} → cache
+        MH->>T: POST /rpc {tools/call query_treatment}
+        T-->>MH: SSE → AgentResult
     end
 
-    Epi-->>MCP: AgentResult (chunks, confidence_score, partial_differential)
-    Symp-->>MCP: AgentResult (chunks, confidence_score, partial_differential)
-    Lab-->>MCP: AgentResult (chunks, confidence_score, partial_differential)
-    Treat-->>MCP: AgentResult (chunks, confidence_score, partial_differential)
-
-    MCP->>Synth: merge(agent_results)
-    note over Synth: Fusionne les différentiels\nGarantit ≥ 3 diagnostics\n(confidence: low si nécessaire)
-    Synth-->>MCP: DiagnosticResult (diagnoses ≥ 3)
-
-    MCP-->>Orch: (agent_results, DiagnosticAuditData)
-
-    Orch->>Audit: insert DiagnosticAudit\n(timestamp, symptoms, patient_profile_hash,\nlocale, region, confidence_score,\ndiagnoses, fallback_used, agent_results)
-
-    Orch-->>Clinicien: DiagnosticResult
+    MH-->>DO: [AgentResult x4], DiagnosticAuditData
+    DO->>SA: synthesize(agent_results)
+    SA-->>DO: DiagnosticResult (diagnoses, citations, confidence)
+    DO->>DB: insert DiagnosticAudit
+    DO->>DB: insert Consultation (mcp_session_id, agent_contributions, evidence_citations)
+    DO-->>API: DiagnosticResult
+    API-->>Clinicien: DiagnoseResponse (session_id, diagnoses, warnings)
 ```
+
+### Serveurs MCP spécialistes
+
+Chaque serveur hérite de `BaseMCPServer` (`backend/agents/mcp_servers/base_server.py`) et expose ses primitives via `POST /rpc` (JSON-RPC 2.0) et `GET /health`.
+
+| Serveur | Port Docker | Tool | Resource URI | Prompt | Source Filter |
+|---|---|---|---|---|---|
+| Épidémiologie | `:8001` | `query_epidemiology` | `epidemiology://documents` | `epidemiology_query` | `document_type = epidemiology` |
+| Symptomatologie | `:8002` | `query_symptomatology` | `guidelines://documents` | `symptomatology_query` | `document_type = guideline` |
+| Laboratoire | `:8003` | `query_lab` | `laboratory://documents` | `lab_query` | `document_type = laboratory` |
+| Traitement | `:8004` | `query_treatment` | `protocols://documents` | `treatment_query` | `document_type in [protocol, guideline]` |
+
+### MCP_Host — Flux de communication
+
+Pour chaque agent, le MCP_Host suit cette séquence (timeout global de 30s par agent) :
+
+1. **Health check** — `GET /health` pour vérifier la disponibilité
+2. **Découverte** (si pas en cache) — `tools/list`, `resources/list`, `prompts/list` via `POST /rpc`
+3. **Invocation** — `tools/call` via `POST /rpc` avec les arguments structurés
+4. **Réception** — Parse de la réponse SSE, extraction de l'`AgentResult`
+
+Le cache des primitives est invalidé quand un serveur est injoignable. Le pool de connexions HTTP (`httpx.AsyncClient`) est maintenu entre les sessions pour réduire la latence.
+
+### Synthesis_Agent — Pipeline de fusion
+
+Le `Synthesis_Agent` fusionne les résultats des agents actifs :
+
+1. Filtrage des agents sans chunks (marqués comme dégradés)
+2. Déduplication des diagnostics par probabilité maximale (comparaison insensible à la casse)
+3. Tri par probabilité décroissante
+4. Padding à minimum 3 diagnostics si nécessaire
+5. Construction des citations de preuves (`EvidenceCitation`) par diagnostic
+6. Calcul du score de confiance pondéré : `sum(score_i × len(chunks_i)) / sum(len(chunks_i))`
+7. Construction des contributions agents (`AgentContribution`)
 
 ### Notes sur le transport MCP
 
-- Chaque agent spécialiste est un processus Python autonome (`backend/agents/{name}_agent.py`) communiquant via **MCP stdio transport**.
-- `MCP_Host` utilise `asyncio.gather` avec un timeout de **30 secondes** par agent.
-- En cas de timeout, l'agent est traité comme retournant zéro chunks ; l'omission est enregistrée dans le `DiagnosticAudit`.
+- Chaque agent spécialiste est un service Docker FastAPI autonome (`backend/agents/mcp_servers/{name}_server.py`) communiquant via **HTTP POST + SSE** (JSON-RPC 2.0).
+- `MCP_Host` utilise `asyncio.gather` avec `httpx.AsyncClient` et un timeout de **30 secondes** par agent.
+- En cas de timeout ou d'erreur HTTP, l'agent est marqué comme omis dans le `DiagnosticAudit` et un `degraded_warning` est ajouté.
 - Le `patient_profile_hash` est calculé en SHA-256 sur les champs `age`, `weight`, `sex`, `comorbidities` uniquement (sans PII).
+- Chaque session MCP génère un `mcp_session_id` (UUID) persisté dans la `Consultation` et le `DiagnosticAudit`.
 
 ---
 
@@ -233,6 +324,40 @@ Stocke les sessions de conversation des cliniciens.
 | `messages[].timestamp` | ISODate | Horodatage du message |
 | `created_at` | ISODate | Horodatage de création de la session |
 | `updated_at` | ISODate | Horodatage de la dernière mise à jour |
+
+---
+
+### `consultations`
+
+Stocke les sessions diagnostiques persistées, liées à un praticien et optionnellement à un patient.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `_id` | ObjectId | Identifiant unique de la consultation |
+| `user_id` | ObjectId | Référence vers le praticien |
+| `patient_id` | ObjectId \| null | Référence vers le patient (null si `is_one_shot`) |
+| `symptoms` | object[] | Liste des symptômes soumis |
+| `diagnoses` | object[] | Diagnostics différentiels produits |
+| `prescription` | object \| null | Prescription générée |
+| `alerts` | string[] | Alertes de sécurité |
+| `llm_used` | string \| null | Modèle LLM utilisé |
+| `is_one_shot` | boolean | `true` si consultation sans patient associé |
+| `created_at` | ISODate | Horodatage de création |
+| `mcp_session_id` | string \| null | Identifiant de session MCP (UUID) — index sparse |
+| `agent_contributions` | AgentContribution[] | Contributions des agents spécialistes MCP |
+| `agent_contributions[].agent_name` | string | Nom de l'agent (ex. `epidemiology`) |
+| `agent_contributions[].confidence_score` | float | Score de confiance de l'agent [0.0, 1.0] |
+| `agent_contributions[].partial_differential` | object[] | Diagnostics partiels de l'agent |
+| `evidence_citations` | EvidenceCitation[] | Citations de preuves documentaires |
+| `evidence_citations[].document_id` | string | ID du document source |
+| `evidence_citations[].title` | string | Titre du document |
+| `evidence_citations[].source` | string | Organisation source |
+| `evidence_citations[].excerpt` | string | Extrait du passage |
+| `evidence_citations[].page` | int \| null | Numéro de page |
+
+**Index :**
+- `mcp_session_id` (sparse)
+- `{ user_id: 1, created_at: -1 }` (historique praticien)
 
 ---
 
