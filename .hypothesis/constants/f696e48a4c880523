@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\index_manager.py
+# hypothesis_version: 6.151.9
+
+[0.0, 1.0, '$in', '$limit', '$match', '$meta', '$project', '$search', '$text', '$vectorSearch', 'ALL', '_id', 'aggregate', 'content', 'delete_many', 'document_chunks', 'document_id', 'embedding', 'filter', 'index', 'insert_many', 'limit', 'metadata', 'metadata.region', 'numCandidates', 'path', 'queryVector', 'region', 'rrf_score', 'score', 'vectorSearchScore', 'vector_index']

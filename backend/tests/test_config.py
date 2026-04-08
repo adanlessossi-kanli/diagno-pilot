@@ -67,6 +67,8 @@ def test_p1_valid_cors_in_production_does_not_raise():
         ENV="production",
         ALLOWED_ORIGINS="https://app.example.com,https://api.example.com",
         JWT_SECRET="test_secret_long_enough_for_prod_32x",
+        HIPAA_ENCRYPTION_KEY_ID="test-key-id",
+        HIPAA_PHI_STRIP_ON_FALLBACK=True,
     )
     assert s.ENV == "production"
 

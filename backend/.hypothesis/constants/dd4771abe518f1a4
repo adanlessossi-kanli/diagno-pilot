@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\agents\mcp_servers\base_server.py
+# hypothesis_version: 6.151.9
+
+[-32700, -32603, -32602, -32601, -32600, '/health', '/rpc', '0.0.0.0', '2.0', 'Invalid Request', 'Method not found', 'Parse error', 'arguments', 'code', 'content', 'contents', 'data', 'description', 'error', 'id', 'inputSchema', 'jsonrpc', 'message', 'messages', 'method', 'mimeType', 'name', 'ok', 'params', 'prompts', 'prompts/get', 'prompts/list', 'resources', 'resources/list', 'resources/read', 'result', 'role', 'server', 'status', 'text', 'tools', 'tools/call', 'tools/list', 'type', 'uri', 'user']

@@ -25,7 +25,7 @@ from hypothesis import strategies as st
 
 from backend.core.cache import CacheService
 from backend.core.config import Settings
-from backend.services.embedding_service import EmbeddingModel
+from backend.services.embedding_model import EmbeddingModel
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ async def test_cache_hit_skips_openai_api():
     mock_cache.get = AsyncMock(return_value=serialised)
     mock_cache.make_key = MagicMock(return_value="v1:embedding:abc123")
 
-    with patch("backend.services.embedding_service.cache_service", mock_cache):
+    with patch("backend.services.embedding_model.cache_service", mock_cache):
         with patch.object(model, "_call_api", new_callable=AsyncMock) as mock_api:
             result = await model.encode("some text")
 
@@ -124,7 +124,7 @@ async def test_cache_miss_calls_openai_and_stores_result():
     mock_cache.make_key = MagicMock(return_value="v1:embedding:def456")
     mock_cache.set = AsyncMock()
 
-    with patch("backend.services.embedding_service.cache_service", mock_cache):
+    with patch("backend.services.embedding_model.cache_service", mock_cache):
         with patch.object(model, "_call_api", new_callable=AsyncMock, return_value=vector):
             result = await model.encode("another text")
 
@@ -148,7 +148,7 @@ async def test_degraded_mode_calls_openai_directly():
     mock_cache.make_key = MagicMock(return_value="v1:embedding:ghi789")
     mock_cache.set = AsyncMock()
 
-    with patch("backend.services.embedding_service.cache_service", mock_cache):
+    with patch("backend.services.embedding_model.cache_service", mock_cache):
         with patch.object(model, "_call_api", new_callable=AsyncMock, return_value=vector):
             result = await model.encode("degraded text")
 

@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\medecin.py
+# hypothesis_version: 6.151.9
+
+['/medecin', '/users', '_id', 'created_at', 'email', 'find_one', 'full_name', 'insert_one', 'is_active', 'locale', 'medecin', 'password_hash', 'role', 'users']

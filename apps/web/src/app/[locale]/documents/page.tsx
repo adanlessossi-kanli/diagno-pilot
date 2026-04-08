@@ -19,7 +19,7 @@ function formatDate(iso?: string): string {
 const SOURCES = ['CHU_LOME', 'CHU_ABOMEY_CALAVI', 'OMS_AFRO', 'MSF', 'PNLP'] as const;
 type DocumentSource = (typeof SOURCES)[number];
 
-const ACCEPTED_FORMATS = '.pdf,.docx,.txt,.csv';
+const ACCEPTED_FORMATS = '.pdf,.docx,.txt,.csv,.html';
 
 // ─── Upload form state ────────────────────────────────────────────────────────
 

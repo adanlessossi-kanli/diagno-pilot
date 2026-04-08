@@ -39,6 +39,10 @@ class DiagnoseResponse(BaseModel):
     fallback_warning: str | None = None
     degraded_warning: str | None = None
     warnings_present: bool = False
+    mcp_session_id: str | None = None
+    confidence_score: float | None = None
+    agent_contributions: list[dict] = []
+    evidence_citations: list[dict] = []
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +81,7 @@ async def diagnose_symptoms(
         patient_profile=body.patient_profile,
         locale=getattr(request.state, "locale", "fr-TG"),
         region=getattr(request.state, "region", None),
+        user_id=str(current_user["_id"]),
     )
 
     session_id = body.session_id or str(uuid.uuid4())
@@ -109,6 +114,16 @@ async def diagnose_symptoms(
         fallback_warning=fallback_warning,
         degraded_warning=result.degraded_warning,
         warnings_present=warnings_present,
+        mcp_session_id=result.session_id,
+        confidence_score=result.confidence_score if result.session_id else None,
+        agent_contributions=[
+            c.model_dump() if hasattr(c, "model_dump") else c
+            for c in result.agent_contributions
+        ],
+        evidence_citations=[
+            c.model_dump() if hasattr(c, "model_dump") else c
+            for c in result.evidence_citations
+        ],
     )
 
 

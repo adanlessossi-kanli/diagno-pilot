@@ -27,6 +27,7 @@ Application web et mobile d'aide au diagnostic des maladies infectieuses et à l
 | Base de données | MongoDB Atlas (données + Vector Search) |
 | LLM principal | MedicalQwen3-Reasoning-14B |
 | LLM fallback | GPT-5 |
+| Pipeline MCP | JSON-RPC 2.0 sur HTTP+SSE (4 serveurs agents Docker) |
 | Stockage fichiers | AWS S3 (LocalStack en local) |
 | Tests backend | pytest + Hypothesis (property-based testing) |
 | Tests frontend | Vitest + React Testing Library |
@@ -46,6 +47,7 @@ diagno-pilot/
 │   ├── types/        # Types TypeScript partagés
 │   └── i18n/         # Traductions FR/EN
 ├── backend/          # FastAPI + services + modèles
+│   └── agents/mcp_servers/  # Serveurs MCP spécialistes (Épidémiologie, Symptomatologie, Laboratoire, Traitement)
 ├── scripts/          # Scripts d'initialisation (LocalStack)
 ├── docker-compose.yml
 ├── start.sh / start.bat
@@ -75,7 +77,10 @@ LLM_FALLBACK_URL=https://api.openai.com/v1  # GPT-5
 LLM_FALLBACK_API_KEY=your_openai_key
 EMBED_MODEL=text-embedding-ada-002
 JWT_SECRET=change_this_to_a_strong_secret_32chars
-MONGODB_URI=mongodb://mongo:27017/diagno_pilot
+MONGODB_URI=mongodb://diagno_dev:diagno_dev_pass@mongo:27017/diagno_pilot?authSource=admin
+MONGO_USERNAME=diagno_dev
+MONGO_PASSWORD=diagno_dev_pass
+REDIS_PASSWORD=diagno_redis_dev
 ```
 
 ### 2. Démarrer l'application
@@ -101,6 +106,8 @@ start.bat
 | MongoDB | mongodb://localhost:27017 |
 | LocalStack (S3) | http://localhost:4566 |
 
+> **Note :** Les serveurs MCP agents (Épidémiologie, Symptomatologie, Laboratoire, Traitement) communiquent uniquement via le réseau Docker interne et ne sont pas exposés sur l'hôte.
+
 ### 4. Comptes par défaut
 
 | Email | Mot de passe | Rôle |
@@ -110,7 +117,25 @@ start.bat
 
 > Le script de seed crée ces comptes automatiquement au premier démarrage. Relancer manuellement : `python scripts/seed.py`
 
-### 4. Arrêter l'application
+### 5. Exécuter la migration MCP (si mise à jour)
+
+```bash
+python -m backend.scripts.migrate_consultations_add_mcp_fields
+```
+
+> Ce script ajoute les champs MCP (`mcp_session_id`, `agent_contributions`, `evidence_citations`) aux consultations existantes et crée les index nécessaires. Idempotent — peut être relancé sans risque.
+
+### 6. Migration des volumes MongoDB existants
+
+Si vous mettez à jour depuis une version sans authentification MongoDB, supprimez le volume existant avant le premier démarrage :
+
+```bash
+docker compose down -v
+```
+
+> **Attention :** `MONGODB_INITDB_ROOT_USERNAME` n'est exécuté que sur un volume vierge. Sans cette étape, MongoDB démarrera sans authentification et les services ne pourront pas se connecter.
+
+### 7. Arrêter l'application
 
 ```bash
 ./stop.sh        # Linux/macOS
@@ -180,6 +205,7 @@ GET    /api/v1/chat/history/{session_id}
 POST   /api/v1/diagnose/symptoms
 POST   /api/v1/diagnose/prescription
 GET    /api/v1/diagnose/session/{session_id}
+GET    /api/v1/consultations/me
 
 GET    /api/v1/patients
 POST   /api/v1/patients
@@ -207,6 +233,7 @@ La documentation interactive complète est disponible sur http://localhost:8000/
 | Rôle | Accès |
 |---|---|
 | `medecin` | Mode guidé, chat, dossiers patients |
+| `infirmière` | Mode guidé, chat, historique des diagnostics |
 | `pharmacien` | Chat, consultation des prescriptions |
 | `admin` | Tout + gestion documents et utilisateurs |
 

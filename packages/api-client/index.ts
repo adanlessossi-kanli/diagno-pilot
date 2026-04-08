@@ -15,12 +15,17 @@ import type {
   Prescription,
   SafetyAlert,
   DocumentSource,
+  EvidenceCitation,
+  AgentContribution,
 } from '@diagno-pilot/types';
 import {
   AuthUserSchema,
   PatientProfileSchema,
+  ConsultationSchema,
   DifferentialDiagnosisSchema,
   DocumentSourceSchema,
+  EvidenceCitationSchema,
+  AgentContributionSchema,
 } from '@diagno-pilot/types';
 
 // ─── Response types ───────────────────────────────────────────────────────────
@@ -53,6 +58,18 @@ export interface DiagnosisResponse {
   // from the RAG chat endpoint. Kept optional so UI code can guard safely.
   llmUsed?: string;
   sources?: DocumentSource[];
+  /** Warning when fallback LLM was used */
+  fallbackWarning?: string;
+  /** Warning when one or more agents were degraded/omitted */
+  degradedWarning?: string;
+  /** True when any warning is present */
+  warningsPresent?: boolean;
+  /** Global confidence score (weighted average) */
+  confidenceScore?: number;
+  /** Contributions from each specialist agent */
+  agentContributions?: AgentContribution[];
+  /** Evidence citations backing the diagnoses */
+  evidenceCitations?: EvidenceCitation[];
 }
 
 export interface PrescriptionResponse {
@@ -133,16 +150,29 @@ const DiagnosisResponseSchema = z.object({
   diagnoses: z.array(z.object({
     condition: z.string(),
     probability: z.number().min(0).max(1),
-    icdCode: z.string().optional().nullable(),
+    icdCode: z.string().nullish().transform((v) => v ?? undefined),
     matchingSymptoms: z.array(z.string()).optional().default([]),
     concordantSymptoms: z.array(z.string()).optional().default([]),
   })),
   llmUsed: z.string().optional(),
   sources: z.array(DocumentSourceSchema).optional(),
+  fallbackWarning: z.string().optional(),
+  degradedWarning: z.string().optional(),
+  warningsPresent: z.boolean().optional(),
+  confidenceScore: z.number().optional(),
+  agentContributions: z.array(AgentContributionSchema).optional().default([]),
+  evidenceCitations: z.array(EvidenceCitationSchema).optional().default([]),
 });
 
 const PaginatedPatientResponseSchema = z.object({
   items: z.array(PatientProfileSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
+const PaginatedConsultationResponseSchema = z.object({
+  items: z.array(ConsultationSchema),
   total: z.number(),
   page: z.number(),
   pageSize: z.number(),
@@ -411,7 +441,7 @@ export function createApiClient(
           patient_profile: serializePatientProfile(patientProfile),
         }),
         signal,
-      }).then((res) => parseResponse(res, DiagnosisResponseSchema));
+      }).then((res) => parseResponse<DiagnosisResponse>(res, DiagnosisResponseSchema as ZodSchema<DiagnosisResponse>));
     },
 
     /** REQ-03 — Request an antibiotic prescription for a given diagnosis */
@@ -434,6 +464,20 @@ export function createApiClient(
     /** REQ-02, REQ-03 — Retrieve a full diagnose session by ID */
     getSession(sessionId: string, signal?: AbortSignal): Promise<DiagnoseSession> {
       return get<DiagnoseSession>(`/api/v1/diagnose/session/${encodeURIComponent(sessionId)}`, signal);
+    },
+
+    /** REQ-16.8 — List the authenticated practitioner's consultation history (paginated) */
+    listMyConsultations(
+      page = 1,
+      pageSize = 20,
+      signal?: AbortSignal,
+    ): Promise<PaginatedResponse<Consultation>> {
+      return fetch(`${base}/api/v1/consultations/me?page=${page}&page_size=${pageSize}`, {
+        method: 'GET',
+        headers: headers(),
+        credentials: 'include',
+        signal,
+      }).then((res) => parseResponse(res, PaginatedConsultationResponseSchema)) as Promise<PaginatedResponse<Consultation>>;
     },
   };
 

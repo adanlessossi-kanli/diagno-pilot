@@ -6,6 +6,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useTranslations } from 'next-intl';
 import Image from 'next/image';
+import Link from 'next/link';
+import { useLocale } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { DiagnosisResponse, PrescriptionResponse } from '@diagno-pilot/api-client';
 import type { PatientProfile, Symptom } from '@diagno-pilot/types';
@@ -39,6 +41,7 @@ export default function DiagnosePage() {
   const t = useTranslations('diagnose');
   const tCommon = useTranslations('common');
   const { user } = useAuth();
+  const locale = useLocale();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -223,6 +226,7 @@ export default function DiagnosePage() {
           src={IMAGES.diagnoseHeader.src}
           alt={IMAGES.diagnoseHeader.alt}
           fill
+          priority
           className="object-cover"
           sizes="(max-width: 768px) 100vw, 768px"
         />
@@ -470,6 +474,30 @@ export default function DiagnosePage() {
           <section className="space-y-4">
             <h2 className="text-xl font-bold">{t('resultsTitle')}</h2>
 
+            {/* Warning banners */}
+            {results.warningsPresent && (
+              <div className="space-y-2" data-testid="warnings-section">
+                {results.fallbackWarning && (
+                  <div role="alert" className="bg-orange-50 border-l-4 border-orange-400 p-3 text-sm text-orange-800">
+                    ⚠️ {results.fallbackWarning}
+                  </div>
+                )}
+                {results.degradedWarning && (
+                  <div role="alert" className="bg-yellow-50 border-l-4 border-yellow-400 p-3 text-sm text-yellow-800">
+                    ℹ️ {results.degradedWarning}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Global confidence score */}
+            {results.confidenceScore != null && (
+              <div className="flex items-center gap-2" data-testid="confidence-score">
+                <span className="text-sm font-medium text-gray-600">{t('confidenceScore')}:</span>
+                <span className="text-lg font-bold">{Math.round(results.confidenceScore * 100)}%</span>
+              </div>
+            )}
+
             {results.llmUsed && (
               <p className="text-xs text-gray-500">{t('llmUsed')}: {results.llmUsed}</p>
             )}
@@ -530,6 +558,38 @@ export default function DiagnosePage() {
               })}
             </div>
 
+            {/* Evidence citations */}
+            {results.evidenceCitations && results.evidenceCitations.length > 0 && (
+              <div className="mt-4" data-testid="evidence-citations">
+                <h3 className="text-sm font-semibold text-gray-600 mb-2">{t('evidenceCitations')}</h3>
+                <ul className="space-y-2">
+                  {results.evidenceCitations.map((citation, j) => (
+                    <li key={`citation-${j}`} className="text-xs bg-gray-50 rounded px-3 py-2">
+                      <span className="font-medium">{citation.title}</span>
+                      <span className="text-gray-400"> — {citation.source}</span>
+                      {citation.page != null && <span className="text-gray-400"> (p. {citation.page})</span>}
+                      {citation.excerpt && <p className="text-gray-500 mt-1 italic">« {citation.excerpt} »</p>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Agent contributions */}
+            {results.agentContributions && results.agentContributions.length > 0 && (
+              <div className="mt-4" data-testid="agent-contributions">
+                <h3 className="text-sm font-semibold text-gray-600 mb-2">{t('agentContributions')}</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {results.agentContributions.map((agent, i) => (
+                    <div key={`agent-${i}`} className="bg-gray-50 rounded px-3 py-2 text-sm">
+                      <span className="font-medium">{agent.agentName}</span>
+                      <span className="text-gray-500 ml-2">{Math.round(agent.confidenceScore * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Sources */}
             {results.sources && results.sources.length > 0 && (
               <div className="mt-4">
@@ -556,6 +616,17 @@ export default function DiagnosePage() {
           )}
         </div>
       )}
+
+      {/* History link */}
+      <div className="mt-8">
+        <Link
+          href={`/${locale}/diagnose/history`}
+          className="text-blue-600 hover:underline text-sm font-medium"
+          data-testid="history-link"
+        >
+          {t('viewHistory')} →
+        </Link>
+      </div>
     </main>
   );
 }

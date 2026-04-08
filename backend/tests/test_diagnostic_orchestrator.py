@@ -10,7 +10,7 @@ from backend.models.consultation import DifferentialDiagnosis, Symptom
 from backend.models.document import RAGResponse
 from backend.models.patient import PatientProfile
 from backend.services.diagnostic_parser import DiagnosticParser
-from backend.services.diagnostic_service import DiagnosticOrchestrator, DiagnosticService
+from backend.services.diagnostic_service import DiagnosticOrchestrator, DiagnosticService, DIAGNOSIS_SYSTEM_PROMPT
 from backend.services.prompt_builder import PromptBuilder
 
 
@@ -93,6 +93,7 @@ def test_delegation_calls_rag_with_prompt_from_builder():
         context=None,
         top_k=5,
         region=None,
+        system_prompt=DIAGNOSIS_SYSTEM_PROMPT,
     )
 
 
@@ -197,12 +198,10 @@ def test_custom_collaborators_are_used_when_provided():
 # Property-based tests — diagno-pilot-improvements
 # ---------------------------------------------------------------------------
 
-import pytest
-import json
-from hypothesis import given, settings, HealthCheck
-from hypothesis import strategies as st
+import pytest  # noqa: E402
+from hypothesis import given, settings, HealthCheck  # noqa: E402
+from hypothesis import strategies as st  # noqa: E402
 
-from backend.models.consultation import Symptom
 
 
 def _make_orchestrator_with_mock_db():

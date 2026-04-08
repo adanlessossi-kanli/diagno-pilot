@@ -40,6 +40,20 @@ class LocalisedPrescription(Prescription):
     region: str = "ALL"
 
 
+class EvidenceCitation(BaseModel):
+    document_id: str
+    title: str
+    source: str
+    excerpt: str
+    page: int | None = None
+
+
+class AgentContribution(BaseModel):
+    agent_name: str
+    confidence_score: float = Field(ge=0, le=1)
+    partial_differential: list[dict] = []
+
+
 class Consultation(BaseModel):
     id: str | None = None
     patient_id: str | None = None
@@ -51,6 +65,9 @@ class Consultation(BaseModel):
     llm_used: str | None = None
     is_one_shot: bool = False
     created_at: datetime | None = None
+    mcp_session_id: str | None = None
+    agent_contributions: list[AgentContribution] = []
+    evidence_citations: list[EvidenceCitation] = []
 
 
 class ConsultationCreate(BaseModel):

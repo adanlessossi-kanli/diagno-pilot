@@ -4,14 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.core.auth import require_role
-from backend.core.database import db
 from backend.core.rate_limit import limiter
 from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
-from backend.services.embedding_service import EmbeddingModel
-from backend.services.llm_router import LLMRouter
-from backend.services.rag_service import RAGService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -50,18 +46,9 @@ class ChatHistoryResponse(BaseModel):
 # Dependency: ChatService
 # ---------------------------------------------------------------------------
 
-def get_chat_service() -> ChatService:
-    database = db.get_db()
-    mongo_client = database.client
-    llm_router = LLMRouter()
-    embedder = EmbeddingModel()
-    rag = RAGService(
-        mongo_client=mongo_client,
-        llm_router=llm_router,
-        embedder=embedder,
-        db_name=database.name,
-    )
-    return ChatService(db=database, rag_service=rag)
+def get_chat_service(request: Request) -> ChatService:
+    """Return the ChatService singleton stored in app.state."""
+    return request.app.state.chat_service
 
 
 # ---------------------------------------------------------------------------

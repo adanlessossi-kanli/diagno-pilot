@@ -112,6 +112,29 @@ export const PatientProfileSchema = z.object({
 });
 export type PatientProfile = z.infer<typeof PatientProfileSchema>;
 
+/** Citation of evidence linking a diagnosis to a source document (REQ-16.7) */
+export const EvidenceCitationSchema = z.object({
+  documentId: z.string(),
+  title: z.string(),
+  source: z.string(),
+  excerpt: z.string(),
+  page: z.number().nullable().optional(),
+});
+export type EvidenceCitation = z.infer<typeof EvidenceCitationSchema>;
+
+/** Contribution of a specialist agent to a diagnostic session (REQ-16.7) */
+export const AgentContributionSchema = z.object({
+  agentName: z.string(),
+  confidenceScore: z.number().min(0).max(1),
+  partialDifferential: z.array(z.object({
+    condition: z.string(),
+    probability: z.number().min(0).max(1),
+    icdCode: z.string().nullable().optional(),
+    matchingSymptoms: z.array(z.string()).optional().default([]),
+  })),
+});
+export type AgentContribution = z.infer<typeof AgentContributionSchema>;
+
 /** A single consultation (guided mode) linking symptoms, diagnoses and prescription (REQ-02, REQ-03) */
 export const ConsultationSchema = z.object({
   id: z.string(),
@@ -127,6 +150,12 @@ export const ConsultationSchema = z.object({
   createdAt: z.string(),
   /** True when the consultation was performed without a patient record */
   isOneShot: z.boolean(),
+  /** MCP session identifier linking to agent results */
+  mcpSessionId: z.string().optional(),
+  /** Contributions from each specialist agent */
+  agentContributions: z.array(AgentContributionSchema).optional().default([]),
+  /** Evidence citations used to produce the diagnosis */
+  evidenceCitations: z.array(EvidenceCitationSchema).optional().default([]),
 });
 export type Consultation = z.infer<typeof ConsultationSchema>;
 

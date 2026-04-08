@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\phi_classifier.py
+# hypothesis_version: 6.151.9
+
+['age_group', 'allergies', 'comorbidities', 'confidence_score', 'consultation_notes', 'created_at', 'created_by', 'current_medications', 'date_of_birth', 'diagnoses', 'disease_tags', 'document_type', 'evidence_level', 'fallback_used', 'full_name', 'locale', 'partial_differential', 'prescriptions', 'region', 'source', 'updated_at', 'weight_kg']

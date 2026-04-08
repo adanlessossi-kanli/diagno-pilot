@@ -22,6 +22,7 @@ const connectSrc = "'self'";
 const backendInternalUrl = process.env.BACKEND_INTERNAL_URL ?? 'http://localhost:8000';
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   // Increase proxy timeout for long-running requests (document upload + embedding)
   experimental: {

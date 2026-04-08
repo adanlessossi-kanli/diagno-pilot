@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\scripts\migrate_consultations_add_mcp_fields.py
+# hypothesis_version: 6.151.9
+
+[5000, '$exists', '$set', '$unset', '--rollback', '/', '?', 'MONGODB_URI', '__main__', 'agent_contributions', 'consultations', 'created_at', 'diagno_pilot', 'diagnostic_audit', 'evidence_citations', 'mcp_session_id', 'mcp_session_id_1', 'patient_id', 'store_true', 'user_id']

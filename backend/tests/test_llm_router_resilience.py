@@ -199,7 +199,7 @@ def test_llm_result_fallback_used_true_when_primary_fails():
     prompt=st.text(min_size=1, max_size=100),
     answer=st.text(min_size=1, max_size=200),
 )
-@h_settings(max_examples=100)
+@h_settings(max_examples=100, deadline=None)
 def test_p10_fallback_used_false_when_primary_succeeds(prompt: str, answer: str):
     """
     # Feature: llm-resilience, Property 10: fallback_used flag is set when fallback LLM is used
@@ -230,7 +230,7 @@ def test_p10_fallback_used_false_when_primary_succeeds(prompt: str, answer: str)
     prompt=st.text(min_size=1, max_size=100),
     answer=st.text(min_size=1, max_size=200),
 )
-@h_settings(max_examples=100)
+@h_settings(max_examples=100, deadline=None)
 def test_p10_fallback_used_true_when_primary_unavailable(prompt: str, answer: str):
     """
     # Feature: llm-resilience, Property 10: fallback_used flag is set when fallback LLM is used

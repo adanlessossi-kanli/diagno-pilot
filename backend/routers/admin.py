@@ -513,7 +513,7 @@ async def upload_admin_document(
     Requirements: 8.4
     """
     from backend.services.document_service import SUPPORTED_FORMATS, DocumentService
-    from backend.services.embedding_service import EmbeddingModel
+    from backend.services.embedding_model import EmbeddingModel
     from backend.services.s3_service import s3_service
     from backend.core.cache import cache_service
 
@@ -1093,7 +1093,7 @@ async def get_audit_log(
 # Data Integrity & Migration endpoints (REQ 6.2, 6.3, 6.4, 6.5)
 # ---------------------------------------------------------------------------
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks  # noqa: E402
 
 
 class MigrateChunksResponse(BaseModel):
@@ -1194,6 +1194,131 @@ async def migrate_chunks(
     )
 
 
+# ---------------------------------------------------------------------------
+# Full LlamaIndex re-indexing migration (Requirements 14.1–14.7)
+# ---------------------------------------------------------------------------
+
+
+class FullMigrationResponse(BaseModel):
+    status: str
+    total: int
+    succeeded: int
+    failed: int
+    results: list[dict[str, Any]]
+
+
+class SingleMigrationResponse(BaseModel):
+    status: str
+    document_id: str
+    old_chunk_count: int
+    new_chunk_count: int
+    error: str | None = None
+
+
+@router.post(
+    "/migrate-reindex",
+    response_model=FullMigrationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Re-index all documents via LlamaIndex pipeline (admin)",
+)
+async def migrate_reindex_all(
+    current_user: dict = Depends(require_role(["admin"])),
+) -> FullMigrationResponse:
+    """POST /api/v1/admin/migrate-reindex — re-index ALL documents using the LlamaIndex pipeline.
+
+    Iterates medical_documents → fetches from S3 → loads via SourceLoaderService →
+    chunks via SemanticChunkerService → embeds → inserts via IndexManager → deletes
+    old chunks → updates chunk_count.
+
+    Continues on per-document failure. Returns a full report.
+
+    Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7
+    """
+    from backend.services.migration_service import ChunkMigrationService
+    from backend.services.s3_service import s3_service
+
+    database = db.get_db()
+    service = ChunkMigrationService(db=database, s3=s3_service)
+    report = await service.migrate_all()
+
+    await audit_service.log_action(
+        user_id=str(current_user["_id"]),
+        action="migrate_reindex_all",
+        resource="medical_documents",
+        details={
+            "total": report.total,
+            "succeeded": report.succeeded,
+            "failed": report.failed,
+        },
+    )
+
+    return FullMigrationResponse(
+        status="completed",
+        total=report.total,
+        succeeded=report.succeeded,
+        failed=report.failed,
+        results=[
+            {
+                "document_id": r.document_id,
+                "title": r.title,
+                "success": r.success,
+                "old_chunk_count": r.old_chunk_count,
+                "new_chunk_count": r.new_chunk_count,
+                "error": r.error,
+            }
+            for r in report.results
+        ],
+    )
+
+
+@router.post(
+    "/migrate-reindex/{document_id}",
+    response_model=SingleMigrationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Re-index a single document via LlamaIndex pipeline (admin)",
+)
+async def migrate_reindex_document(
+    document_id: str,
+    current_user: dict = Depends(require_role(["admin"])),
+) -> SingleMigrationResponse:
+    """POST /api/v1/admin/migrate-reindex/{id} — re-index a single document.
+
+    Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6
+    """
+    from backend.services.migration_service import ChunkMigrationService
+    from backend.services.s3_service import s3_service
+
+    database = db.get_db()
+    service = ChunkMigrationService(db=database, s3=s3_service)
+    result = await service.migrate_document(document_id)
+
+    await audit_service.log_action(
+        user_id=str(current_user["_id"]),
+        action="migrate_reindex_document",
+        resource="medical_documents",
+        resource_id=document_id,
+        details={
+            "success": result.success,
+            "old_chunk_count": result.old_chunk_count,
+            "new_chunk_count": result.new_chunk_count,
+            "error": result.error,
+        },
+    )
+
+    if not result.success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.error or "Migration failed",
+        )
+
+    return SingleMigrationResponse(
+        status="reindexed",
+        document_id=result.document_id,
+        old_chunk_count=result.old_chunk_count,
+        new_chunk_count=result.new_chunk_count,
+    )
+
+
 @router.post(
     "/reindex-document/{document_id}",
     response_model=ReindexDocumentResponse,
@@ -1218,16 +1343,16 @@ async def reindex_document(
     """
     from bson.errors import InvalidId
 
-    from backend.services.chunker import Chunker
+    from backend.services.semantic_chunker import SemanticChunkerService
+    from backend.services.source_loaders import SourceLoaderService
     from backend.services.document_service import (
         PdfPageData,
         _extract_pdf_pages_with_bbox,
         extract_text,
         infer_document_type,
         DISEASE_KEYWORDS,
-        _compute_chunk_bbox,
     )
-    from backend.services.embedding_service import EmbeddingModel
+    from backend.services.embedding_model import EmbeddingModel
     from backend.services.s3_service import s3_service
 
     database = db.get_db()
@@ -1273,43 +1398,39 @@ async def reindex_document(
     pdf_pages: list[PdfPageData] | None = None
     if ext == "pdf":
         pdf_pages = _extract_pdf_pages_with_bbox(content)
-        text = "\n".join(p.text for p in pdf_pages)
+        "\n".join(p.text for p in pdf_pages)
     else:
-        text = extract_text(content, ext)
+        extract_text(content, ext)
 
-    # Chunk with the new semantic Chunker
-    chunker = Chunker()
-    chunk_results = chunker.chunk(text)
+    # Chunk with the new SemanticChunkerService
+    embedder = EmbeddingModel()
+    semantic_chunker = SemanticChunkerService(embed_model=embedder)
 
-    source: str = doc.get("source", "")
-    region: str = doc.get("region", "ALL")
-    document_type = infer_document_type(source)
+    # Load document via SourceLoaderService for proper format handling
+    source_loader = SourceLoaderService()
+    documents = source_loader.load(content, filename, source=doc.get("source", ""), region=doc.get("region", "ALL"))
+    nodes = semantic_chunker.chunk(documents)
+
+    source_str: str = doc.get("source", "")
+    region_str: str = doc.get("region", "ALL")
+    document_type = infer_document_type(source_str)
     evidence_level = document_type
 
-    # Build page cumulative lengths for PDF bbox mapping
-    page_cumulative_lengths: list[int] | None = None
-    if pdf_pages is not None:
-        page_cumulative_lengths = []
-        cumulative = 0
-        for p in pdf_pages:
-            page_cumulative_lengths.append(cumulative)
-            cumulative += len(p.text) + 1  # +1 for "\n" separator
-
-    # Embed chunks and build records
-    embedder = EmbeddingModel()
+    # Embed nodes and build records
     records = []
-    global_char_offset = 0
 
-    for chunk in chunk_results:
-        embedding = await embedder.encode(chunk.content)
-        content_lower = chunk.content.lower()
+    for node in nodes:
+        node_content = node.get_content() if hasattr(node, 'get_content') else str(node)
+        embedding = await embedder.encode(node_content)
+        content_lower = node_content.lower()
         disease_tags = [kw for kw in DISEASE_KEYWORDS if kw in content_lower]
 
+        node_metadata = node.metadata if hasattr(node, 'metadata') else {}
         metadata: dict = {
-            "source": source,
-            "page": None,
-            "section": chunk.section,
-            "region": region,
+            "source": source_str,
+            "page": node_metadata.get("page"),
+            "section": node_metadata.get("section"),
+            "region": region_str,
             "disease_tags": disease_tags,
             "document_type": document_type,
             "evidence_level": evidence_level,
@@ -1318,42 +1439,10 @@ async def reindex_document(
             "page_char_end": None,
         }
 
-        # PDF-specific: extract bbox and character offsets (REQ 6.4)
-        if pdf_pages is not None and page_cumulative_lengths is not None:
-            chunk_len = len(chunk.content)
-            chunk_global_start = global_char_offset
-            chunk_global_end = global_char_offset + chunk_len
-
-            page_idx = 0
-            for i, cum in enumerate(page_cumulative_lengths):
-                if cum <= chunk_global_start:
-                    page_idx = i
-                else:
-                    break
-
-            if page_idx < len(pdf_pages):
-                page = pdf_pages[page_idx]
-                page_start_global = page_cumulative_lengths[page_idx]
-                page_char_start = chunk_global_start - page_start_global
-                page_char_end = min(
-                    chunk_global_end - page_start_global,
-                    len(page.text),
-                )
-                bbox = _compute_chunk_bbox(page, page_char_start, page_char_end)
-
-                metadata["page"] = page_idx
-                metadata["page_char_start"] = page_char_start
-                metadata["page_char_end"] = page_char_end
-                metadata["bbox"] = bbox if bbox is not None else [0.0, 0.0, 0.0, 0.0]
-
-            global_char_offset += chunk_len + 1
-        else:
-            global_char_offset += len(chunk.content) + 1
-
         records.append({
             "_id": ObjectId(),
             "document_id": oid,
-            "content": chunk.content,
+            "content": node_content,
             "embedding": embedding,
             "metadata": metadata,
         })

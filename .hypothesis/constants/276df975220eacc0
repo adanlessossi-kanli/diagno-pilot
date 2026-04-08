@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\security_headers.py
+# hypothesis_version: 6.151.9
+
+['DENY', 'Permissions-Policy', 'Referrer-Policy', 'X-Frame-Options', 'nosniff', 'production']

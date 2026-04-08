@@ -47,10 +47,13 @@ beforeEach(() => {
   mockMe.mockRejectedValue(Object.assign(new Error('Unauthorized'), { status: 401 }));
   // Default: refresh fails so mount's tryRefresh doesn't consume extra mockMe values
   global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) });
+  // Clear cookies between tests
+  document.cookie = 'access_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT';
 });
 
 describe('AuthContext — initial state', () => {
   it('isLoading is true until auth/me resolves', async () => {
+    document.cookie = 'access_token=fake-token';
     let resolveMe!: (v: typeof fakeUser) => void;
     mockMe.mockReturnValue(new Promise<typeof fakeUser>((res) => { resolveMe = res; }));
 
@@ -68,6 +71,7 @@ describe('AuthContext — initial state', () => {
   });
 
   it('user is populated when auth/me succeeds on mount', async () => {
+    document.cookie = 'access_token=fake-token';
     mockMe.mockResolvedValue(fakeUser);
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -85,8 +89,7 @@ describe('AuthContext — login', () => {
   it('calls POST /api/v1/auth/login then GET /auth/me to populate user (REQ 3.1, 3.3)', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
-      .mockResolvedValueOnce(fakeUser); // after login
+      .mockResolvedValueOnce(fakeUser); // after login (mount skips me() — no cookie)
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -94,15 +97,14 @@ describe('AuthContext — login', () => {
     await act(async () => { await result.current.login('doc@example.com', 'password'); });
 
     expect(mockLogin).toHaveBeenCalledWith('doc@example.com', 'password');
-    expect(mockMe).toHaveBeenCalledTimes(2); // once on mount (fails), once after login
+    expect(mockMe).toHaveBeenCalledTimes(1); // once after login (mount skipped — no cookie)
     expect(result.current.user).toMatchObject({ id: 'u1', role: 'medecin' });
   });
 
   it('does NOT call /api/auth/set-cookie BFF route (REQ 3.1)', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
-      .mockResolvedValueOnce(fakeUser);
+      .mockResolvedValueOnce(fakeUser); // after login (mount skips — no cookie)
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -117,8 +119,7 @@ describe('AuthContext — login', () => {
   it('redirects admin to locale root after login', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
-      .mockResolvedValueOnce({ ...fakeUser, role: 'admin' });
+      .mockResolvedValueOnce({ ...fakeUser, role: 'admin' }); // after login (mount skips — no cookie)
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -130,8 +131,7 @@ describe('AuthContext — login', () => {
   it('redirects non-admin to locale root after login', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
-      .mockResolvedValueOnce(fakeUser);
+      .mockResolvedValueOnce(fakeUser); // after login (mount skips — no cookie)
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -146,8 +146,7 @@ describe('AuthContext — logout', () => {
     mockLogout.mockResolvedValue(undefined);
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 }))
-      .mockResolvedValueOnce(fakeUser);
+      .mockResolvedValueOnce(fakeUser); // after login (mount skips — no cookie)
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));

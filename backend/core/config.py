@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     MONGODB_URI: str = "mongodb://localhost:27017/diagno_pilot"
     JWT_SECRET: str = "change_me_in_production_use_a_long_secret_key"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 15
+    JWT_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_EXPIRE_DAYS: int = 7
 
     AWS_ENDPOINT_URL: str | None = None
@@ -27,14 +27,38 @@ class Settings(BaseSettings):
     LLM_RETRY_BASE_DELAY: float = 1.0
     LLM_RETRY_MAX_DELAY: float = 30.0
 
-    ALLOWED_ORIGINS: str = "*"
+    # Model_Container (local llama.cpp server)
+    MODEL_CONTAINER_URL: str = "http://model:8080/v1"
+    MODEL_CONTAINER_API_KEY: str = ""
+    MODEL_GPU_LAYERS: int = 99
+    MODEL_CONTEXT_SIZE: int = 4096
+    MODEL_THREADS: int = 4
+
+    # LlamaIndex pipeline
+    LLAMAINDEX_CHUNK_SIZE: int = 512
+    LLAMAINDEX_CHUNK_OVERLAP_TOKENS: int = 50
+    LLAMAINDEX_SIMILARITY_THRESHOLD: float = 0.75
+
+    # MCP Agent URLs
+    AGENT_EPIDEMIOLOGY_URL: str = "http://agent-epidemiology:8001"
+    AGENT_SYMPTOMATOLOGY_URL: str = "http://agent-symptomatology:8002"
+    AGENT_LAB_URL: str = "http://agent-lab:8003"
+    AGENT_TREATMENT_URL: str = "http://agent-treatment:8004"
+
+    # HIPAA compliance
+    HIPAA_ENCRYPTION_KEY_ID: str = ""
+    HIPAA_AUDIT_HASH_CHAIN_ENABLED: bool = True
+    HIPAA_PHI_STRIP_ON_FALLBACK: bool = True
+
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+    CSP_POLICY: str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'"
     RATE_LIMIT_STORAGE_URI: str = "memory://"
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # "json" | "text"
     METRICS_AUTH: str = ""  # "user:password" for /metrics Basic Auth
 
     # Cache / Redis settings
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://:diagno_redis_dev@localhost:6379/0"
     CACHE_TTL_PROTOCOLS: int = 3600
     CACHE_TTL_INTERACTIONS: int = 3600
     CACHE_TTL_EMBEDDINGS: int = 86400
@@ -75,6 +99,14 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "ALLOWED_ORIGINS must be an explicit list in production (ENV=production). "
                     "Set ALLOWED_ORIGINS=https://app.example.com,https://api.example.com"
+                )
+            if not self.HIPAA_ENCRYPTION_KEY_ID:
+                raise ValueError(
+                    "HIPAA_ENCRYPTION_KEY_ID must be set in production (ENV=production)."
+                )
+            if not self.HIPAA_PHI_STRIP_ON_FALLBACK:
+                raise ValueError(
+                    "HIPAA_PHI_STRIP_ON_FALLBACK must be enabled in production (ENV=production)."
                 )
 
         # Warn early when the URI looks like a Docker service name but we're

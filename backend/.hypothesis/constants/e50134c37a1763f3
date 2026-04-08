@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\baa_controller.py
+# hypothesis_version: 6.151.9
+
+['[ALLERGIES]', '[COMORBIDITIES]', '[DIAGNOSES]', '[DIFFERENTIAL]', '[DOB]', '[MEDICATIONS]', '[MRN]', '[NOTES]', '[PATIENT_NAME]', '[PRESCRIPTIONS]', '[REDACTED]', '[WEIGHT]', 'allergies', 'comorbidities', 'consultation_notes', 'content', 'current_medications', 'date_of_birth', 'diagnoses', 'field_types', 'full_name', 'llm_fallback', 'partial_differential', 'phi_strip', 'phi_strip_failure', 'prescriptions', 'role', 'system', 'weight_kg']

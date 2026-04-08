@@ -319,7 +319,7 @@ async def test_ping_returns_false_when_client_is_none():
 # ---------------------------------------------------------------------------
 
 from prometheus_client import CollectorRegistry, Counter as PrometheusCounter  # noqa: E402
-from backend.services.embedding_service import EmbeddingModel  # noqa: E402
+from backend.services.embedding_model import EmbeddingModel  # noqa: E402
 
 
 def _get_sample_value(registry: CollectorRegistry, metric_name: str, cache_label: str) -> float:
@@ -357,9 +357,9 @@ async def test_p10_embedding_miss_then_hit_increments_counters(texts: list[str])
 
     with patch("backend.core.metrics.cache_hits_total", fresh_hits), \
          patch("backend.core.metrics.cache_misses_total", fresh_misses), \
-         patch("backend.services.embedding_service.cache_service", svc), \
-         patch("backend.services.embedding_service.cache_hits_total", fresh_hits), \
-         patch("backend.services.embedding_service.cache_misses_total", fresh_misses), \
+         patch("backend.services.embedding_model.cache_service", svc), \
+         patch("backend.services.embedding_model.cache_hits_total", fresh_hits), \
+         patch("backend.services.embedding_model.cache_misses_total", fresh_misses), \
          patch.object(embedder, "_call_api", AsyncMock(return_value=mock_vector)):
 
         for text in unique_texts:

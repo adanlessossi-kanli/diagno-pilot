@@ -37,6 +37,10 @@ vi.mock('../../../../contexts/AuthContext', () => ({
   }),
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
+}));
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {

@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\agents\mcp_servers\symptomatology_server.py
+# hypothesis_version: 6.151.9
+
+[0.0, ', ', '8002', 'Clinical Guidelines', 'SERVER_PORT', '__main__', 'agent_name', 'application/json', 'array', 'chunks', 'condition', 'confidence_score', 'description', 'document_id', 'duration_days', 'excerpt', 'fallback_used', 'fr-TG', 'guideline', 'icd_code', 'integer', 'items', 'locale', 'matching_symptoms', 'name', 'nullable', 'object', 'page', 'partial_differential', 'patient_profile', 'probability', 'properties', 'query_symptomatology', 'region', 'required', 'severity', 'source', 'string', 'sub_question', 'symptomatology', 'symptomatology_query', 'symptoms', 'text', 'title', 'type']

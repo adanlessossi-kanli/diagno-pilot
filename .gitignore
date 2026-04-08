@@ -60,3 +60,6 @@ htmlcov/
 *.mobileprovision
 *.orig.*
 web-build/
+
+# model
+model/

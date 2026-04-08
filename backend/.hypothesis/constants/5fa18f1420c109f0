@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\diagnostic_service.py
+# hypothesis_version: 6.151.9
+
+[0.0, 'AgentPipeline | None', 'AuditLogger | None', 'MCP_Host | None', 'agent_count', 'agent_pipeline', 'diagnosis_count', 'diagnostic_audit', 'diagnostic_session', 'en', 'fallback_used', 'fr', 'fr-BJ', 'fr-TG', 'locale', 'region', 'system']
