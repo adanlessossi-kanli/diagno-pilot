@@ -40,8 +40,8 @@ class DiagnosticParser:
     the caller.
     """
 
-    def parse(self, llm_answer: str) -> list[DifferentialDiagnosis]:
-        """Parse *llm_answer* and return a list of at least 3 DifferentialDiagnosis objects.
+    def parse(self, llm_answer: str, locale: str = "en") -> tuple[list[DifferentialDiagnosis], bool]:
+        """Parse *llm_answer* and return a tuple of (diagnoses, parse_failed).
 
         Pipeline:
 
@@ -50,17 +50,22 @@ class DiagnosticParser:
         3. For each entry: clamp ``probability`` to ``[0.0, 1.0]`` (log warning
            if clamped); nullify ``icd_code`` if it does not match
            ``_ICD_CODE_RE`` (log warning if nullified).
-        4. If ≥ 3 valid entries: sort by descending probability and return.
-        5. Otherwise: log a warning and return 3 placeholder objects with
-           ``probability=0.0`` and ``icd_code=None``.
+        4. If ≥ 3 valid entries: sort by descending probability and return
+           ``(diagnoses, False)``.
+        5. Otherwise: log a warning and return 3 locale-aware placeholder
+           objects with ``probability=0.0`` and ``icd_code=None``, plus
+           ``parse_failed=True``.
 
         Args:
             llm_answer: Raw string returned by the LLM / RAGService.
+            locale: Locale string used for placeholder text (e.g. "fr-TG", "en").
 
         Returns:
-            A list of at least 3 :class:`~backend.models.consultation.DifferentialDiagnosis`
+            A tuple of (diagnoses, parse_failed) where diagnoses is a list of
+            at least 3 :class:`~backend.models.consultation.DifferentialDiagnosis`
             objects sorted by descending probability (or 3 placeholders on
-            failure).
+            failure), and parse_failed is True when <3 valid diagnoses were
+            extracted.
         """
         json_match = re.search(r"\[.*\]", llm_answer, re.DOTALL)
         if json_match:
@@ -100,7 +105,7 @@ class DiagnosticParser:
                     )
 
                 if len(diagnoses) >= 3:
-                    return sorted(diagnoses, key=lambda d: d.probability, reverse=True)
+                    return sorted(diagnoses, key=lambda d: d.probability, reverse=True), False
 
             except (json.JSONDecodeError, ValueError, TypeError) as exc:
                 logger.warning("Failed to parse JSON diagnoses: %s", exc)
@@ -108,8 +113,9 @@ class DiagnosticParser:
         logger.warning(
             "Could not parse ≥3 diagnoses from LLM response; returning fallback placeholders."
         )
+        placeholder_text = "Diagnostic indisponible" if locale.startswith("fr") else "Diagnosis unavailable"
         return [
-            DifferentialDiagnosis(condition="Diagnosis unavailable", probability=0.0, icd_code=None),
-            DifferentialDiagnosis(condition="Diagnosis unavailable", probability=0.0, icd_code=None),
-            DifferentialDiagnosis(condition="Diagnosis unavailable", probability=0.0, icd_code=None),
-        ]
+            DifferentialDiagnosis(condition=placeholder_text, probability=0.0, icd_code=None),
+            DifferentialDiagnosis(condition=placeholder_text, probability=0.0, icd_code=None),
+            DifferentialDiagnosis(condition=placeholder_text, probability=0.0, icd_code=None),
+        ], True

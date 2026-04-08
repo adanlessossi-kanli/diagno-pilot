@@ -27,6 +27,7 @@ class AntibioticProtocol:
     region: str = "ALL"
     available_regions: list = field(default_factory=lambda: ["TG", "BJ"])
     atc_class: str = ""
+    min_dose_floor_pct: int = 10
     first_line: bool = True
     names: dict = field(default_factory=dict)
     version: str = ""
@@ -114,6 +115,7 @@ def _doc_to_protocol(doc):
         region=doc.get("region", "ALL"),
         available_regions=doc.get("available_regions", ["TG", "BJ"]),
         atc_class=doc.get("atc_class", ""),
+        min_dose_floor_pct=int(doc.get("min_dose_floor_pct", 10)),
         first_line=bool(doc.get("first_line", True)),
         names=doc.get("names", {}),
         version=doc.get("version", ""),
@@ -262,10 +264,20 @@ class PrescriptionService:
             dose_mg = protocol.adult_max_dose_mg
         renal_failure = patient.comorbidities.renal_failure if patient.comorbidities else False
         hepatic_failure = patient.comorbidities.hepatic_failure if patient.comorbidities else False
+        pre_adjustment_dose = dose_mg
         if renal_failure:
             dose_mg *= protocol.renal_adjustment_factor
         if hepatic_failure:
             dose_mg *= protocol.hepatic_adjustment_factor
+        if renal_failure and hepatic_failure:
+            floor_pct = protocol.min_dose_floor_pct / 100.0
+            min_dose = pre_adjustment_dose * floor_pct
+            if dose_mg < min_dose:
+                logger.warning(
+                    "Dose clamped for %s: %.2f mg → %.2f mg (floor=%d%%)",
+                    protocol.name, dose_mg, min_dose, protocol.min_dose_floor_pct,
+                )
+                dose_mg = min_dose
         dose_mg = max(dose_mg, 0.0)
         display_name = _resolve_display_name(protocol, locale)
         trade_name = None

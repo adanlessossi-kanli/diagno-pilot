@@ -16,7 +16,7 @@ from backend.models.patient import PatientProfile
 from backend.services.alert_service import alert_service
 from backend.services.diagnostic_service import DiagnosticService
 from backend.services.prescription_service import prescription_service
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 FALLBACK_WARNING = "Réponse générée par le modèle de secours (GPT-5) — vérification clinique recommandée"
 
@@ -28,9 +28,10 @@ router = APIRouter(prefix="/diagnose", tags=["diagnose"])
 # ---------------------------------------------------------------------------
 
 class DiagnoseRequest(BaseModel):
-    symptoms: list[Symptom]
+    symptoms: list[Symptom] = Field(min_length=1, max_length=30)
     patient_profile: PatientProfile | None = None
     session_id: str | None = None
+    idempotency_key: str | None = None
 
 
 class DiagnoseResponse(BaseModel):
@@ -43,6 +44,7 @@ class DiagnoseResponse(BaseModel):
     confidence_score: float | None = None
     agent_contributions: list[dict] = []
     evidence_citations: list[dict] = []
+    parse_failed: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -76,55 +78,113 @@ async def diagnose_symptoms(
     DiagnosticService to generate differential diagnoses, persists the session
     in MongoDB, and returns the session_id together with the diagnoses.
     """
-    result = await diagnostic_service.get_differential_diagnosis(
-        symptoms=body.symptoms,
-        patient_profile=body.patient_profile,
-        locale=getattr(request.state, "locale", "fr-TG"),
-        region=getattr(request.state, "region", None),
-        user_id=str(current_user["_id"]),
-    )
-
-    session_id = body.session_id or str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
-
-    doc: dict = {
-        "_id": ObjectId(),
-        "session_id": session_id,
-        "patient_id": None,
-        "user_id": ObjectId(str(current_user["_id"])),
-        "symptoms": [s.model_dump() for s in body.symptoms],
-        "diagnoses": [d.model_dump() for d in result.diagnoses],
-        "prescription": None,
-        "alerts": [],
-        "llm_used": None,
-        "is_one_shot": True,
-        "created_at": now,
-    }
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
 
     database = db.get_db()
-    async with timed_db_op("consultations", "insert_one"):
-        await database["consultations"].insert_one(doc)
 
-    fallback_warning = FALLBACK_WARNING if result.fallback_used else None
-    warnings_present = bool(fallback_warning or result.degraded_warning)
+    try:
+        # --- Idempotency check (Req 20) ---
+        if body.idempotency_key:
+            async with timed_db_op("consultations", "find_one"):
+                existing = await database["consultations"].find_one(
+                    {"idempotency_key": body.idempotency_key}
+                )
+            if existing:
+                return DiagnoseResponse(
+                    session_id=existing["session_id"],
+                    diagnoses=[
+                        DifferentialDiagnosis(**d) if isinstance(d, dict) else d
+                        for d in existing.get("diagnoses", [])
+                    ],
+                    fallback_warning=existing.get("fallback_warning"),
+                    degraded_warning=existing.get("degraded_warning"),
+                    warnings_present=existing.get("warnings_present", False),
+                    mcp_session_id=existing.get("mcp_session_id"),
+                    confidence_score=existing.get("confidence_score"),
+                    agent_contributions=existing.get("agent_contributions", []),
+                    evidence_citations=existing.get("evidence_citations", []),
+                    parse_failed=existing.get("parse_failed", False),
+                )
 
-    return DiagnoseResponse(
-        session_id=session_id,
-        diagnoses=result.diagnoses,
-        fallback_warning=fallback_warning,
-        degraded_warning=result.degraded_warning,
-        warnings_present=warnings_present,
-        mcp_session_id=result.session_id,
-        confidence_score=result.confidence_score if result.session_id else None,
-        agent_contributions=[
-            c.model_dump() if hasattr(c, "model_dump") else c
-            for c in result.agent_contributions
-        ],
-        evidence_citations=[
-            c.model_dump() if hasattr(c, "model_dump") else c
-            for c in result.evidence_citations
-        ],
-    )
+        result = await diagnostic_service.get_differential_diagnosis(
+            symptoms=body.symptoms,
+            patient_profile=body.patient_profile,
+            locale=getattr(request.state, "locale", "fr-TG"),
+            region=getattr(request.state, "region", None),
+            user_id=str(current_user["_id"]),
+        )
+
+        session_id = body.session_id or str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+
+        fallback_warning = FALLBACK_WARNING if result.fallback_used else None
+        warnings_present = bool(fallback_warning or result.degraded_warning)
+
+        doc: dict = {
+            "_id": ObjectId(),
+            "session_id": session_id,
+            "patient_id": None,
+            "user_id": ObjectId(str(current_user["_id"])),
+            "symptoms": [s.model_dump() for s in body.symptoms],
+            "diagnoses": [d.model_dump() for d in result.diagnoses],
+            "prescription": None,
+            "alerts": [],
+            "llm_used": None,
+            "is_one_shot": True,
+            "created_at": now,
+            "fallback_warning": fallback_warning,
+            "degraded_warning": result.degraded_warning,
+            "warnings_present": warnings_present,
+            "mcp_session_id": result.session_id,
+            "confidence_score": result.confidence_score if result.session_id else None,
+            "agent_contributions": [
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in result.agent_contributions
+            ],
+            "evidence_citations": [
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in result.evidence_citations
+            ],
+            "parse_failed": result.parse_failed,
+        }
+
+        if body.idempotency_key:
+            doc["idempotency_key"] = body.idempotency_key
+
+        # --- Duplicate write prevention (Req 11) ---
+        if result.session_id is not None:
+            # MCP path already persisted — skip router insert
+            pass
+        else:
+            # RAG/AgentPipeline path — router performs insert
+            async with timed_db_op("consultations", "insert_one"):
+                await database["consultations"].insert_one(doc)
+
+        return DiagnoseResponse(
+            session_id=session_id,
+            diagnoses=result.diagnoses,
+            fallback_warning=fallback_warning,
+            degraded_warning=result.degraded_warning,
+            warnings_present=warnings_present,
+            mcp_session_id=result.session_id,
+            confidence_score=result.confidence_score if result.session_id else None,
+            agent_contributions=[
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in result.agent_contributions
+            ],
+            evidence_citations=[
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in result.evidence_citations
+            ],
+            parse_failed=result.parse_failed,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _logger.exception("diagnose_symptoms failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Internal error: {exc}") from exc
 
 
 @router.get(
@@ -141,8 +201,11 @@ async def get_diagnosis_session(
     Retrieves a stored diagnosis session from MongoDB by session_id.
     """
     database = db.get_db()
+    query: dict = {"session_id": session_id}
+    if current_user.get("role") != "admin":
+        query["user_id"] = ObjectId(str(current_user["_id"]))
     async with timed_db_op("consultations", "find_one"):
-        doc = await database["consultations"].find_one({"session_id": session_id})
+        doc = await database["consultations"].find_one(query)
 
     if doc is None:
         raise HTTPException(
@@ -171,6 +234,7 @@ async def get_diagnosis_session(
 class PrescriptionRequest(BaseModel):
     antibiotic: str
     patient_profile: PatientProfile
+    session_id: str | None = None
 
 
 class PrescriptionResponse(BaseModel):
@@ -228,5 +292,20 @@ async def create_prescription(
         prescription=rx,
         patient=body.patient_profile,
     )
+
+    # --- Prescription linking (Req 12) ---
+    if body.session_id:
+        database = db.get_db()
+        query: dict = {"session_id": body.session_id}
+        if current_user.get("role") != "admin":
+            query["user_id"] = ObjectId(str(current_user["_id"]))
+        async with timed_db_op("consultations", "update_one"):
+            await database["consultations"].update_one(
+                query,
+                {"$set": {
+                    "prescription": rx.model_dump(),
+                    "alerts": [a.model_dump() for a in alerts],
+                }},
+            )
 
     return PrescriptionResponse(prescription=rx, alerts=alerts)

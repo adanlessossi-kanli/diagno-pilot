@@ -218,12 +218,16 @@ def integration_app(mongo_uri, real_s3: boto3.client):
         patch("backend.services.patient_service.db", mock_db_singleton),
         patch("backend.routers.diagnose.db", mock_db_singleton),
         patch("backend.routers.files.db", mock_db_singleton),
-        patch("backend.routers.chat.db", mock_db_singleton),
         patch("backend.routers.documents.db", mock_db_singleton),
     ]
 
     for p in db_patches:
         p.start()
+
+    # ChatService uses constructor-injected db via app.state.chat_service.
+    # Override its _db attribute so it uses the test database.
+    if hasattr(app.state, "chat_service"):
+        app.state.chat_service._db = _get_db_factory()
 
     yield app
 

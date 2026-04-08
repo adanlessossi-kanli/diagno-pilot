@@ -6,7 +6,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -195,12 +195,13 @@ def test_llm_result_fallback_used_true_when_primary_fails():
 # Feature: llm-resilience, Property 10: fallback_used flag is set when fallback LLM is used
 # ---------------------------------------------------------------------------
 
+@patch("httpx.AsyncClient", autospec=True)
 @given(
     prompt=st.text(min_size=1, max_size=100),
     answer=st.text(min_size=1, max_size=200),
 )
 @h_settings(max_examples=100, deadline=None)
-def test_p10_fallback_used_false_when_primary_succeeds(prompt: str, answer: str):
+def test_p10_fallback_used_false_when_primary_succeeds(_mock_client, prompt: str, answer: str):
     """
     # Feature: llm-resilience, Property 10: fallback_used flag is set when fallback LLM is used
 
@@ -226,12 +227,13 @@ def test_p10_fallback_used_false_when_primary_succeeds(prompt: str, answer: str)
     asyncio.get_event_loop_policy().new_event_loop().run_until_complete(_test())
 
 
+@patch("httpx.AsyncClient", autospec=True)
 @given(
     prompt=st.text(min_size=1, max_size=100),
     answer=st.text(min_size=1, max_size=200),
 )
 @h_settings(max_examples=100, deadline=None)
-def test_p10_fallback_used_true_when_primary_unavailable(prompt: str, answer: str):
+def test_p10_fallback_used_true_when_primary_unavailable(_mock_client, prompt: str, answer: str):
     """
     # Feature: llm-resilience, Property 10: fallback_used flag is set when fallback LLM is used
 

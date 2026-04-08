@@ -71,33 +71,35 @@ class PromptBuilder:
         # ------------------------------------------------------------------
         language = _LOCALE_LANGUAGE.get(locale, "French")
         guidelines = _LOCALE_GUIDELINES.get(locale, "CHU Lomé (TG)")
-        region_label = region if region else "(none)"
+        region_label = region if region else "(aucune)" if locale.startswith("fr") else "(none)"
+        is_fr = locale.startswith("fr")
 
-        lines.append("## Language and guidelines")
-        lines.append(f"- Respond in: {language}")
-        lines.append(f"- Prioritise guidelines from: {guidelines}")
-        lines.append(f"- Region: {region_label}")
+        lines.append("## Langue et directives" if is_fr else "## Language and guidelines")
+        lines.append(f"- {'Répondre en' if is_fr else 'Respond in'}: {language}")
+        lines.append(f"- {'Directives prioritaires' if is_fr else 'Prioritise guidelines from'}: {guidelines}")
+        lines.append(f"- {'Région' if is_fr else 'Region'}: {region_label}")
         lines.append("")
 
         if patient_profile is not None:
-            lines.append("## Patient profile")
+            lines.append("## Profil patient" if is_fr else "## Patient profile")
             if patient_profile.age_group:
-                lines.append(f"- Age group: {patient_profile.age_group.value}")
+                age_label = "Groupe d'âge" if is_fr else "Age group"
+                lines.append(f"- {age_label}: {patient_profile.age_group.value}")
             if patient_profile.weight_kg is not None:
-                lines.append(f"- Weight: {patient_profile.weight_kg} kg")
+                lines.append(f"- {'Poids' if is_fr else 'Weight'}: {patient_profile.weight_kg} kg")
             if patient_profile.comorbidities:
                 comorbidities: list[str] = []
                 if patient_profile.comorbidities.renal_failure:
-                    comorbidities.append("renal failure")
+                    comorbidities.append("insuffisance rénale" if is_fr else "renal failure")
                 if patient_profile.comorbidities.hepatic_failure:
-                    comorbidities.append("hepatic failure")
+                    comorbidities.append("insuffisance hépatique" if is_fr else "hepatic failure")
                 if comorbidities:
-                    lines.append(f"- Comorbidities: {', '.join(comorbidities)}")
+                    lines.append(f"- {'Comorbidités' if is_fr else 'Comorbidities'}: {', '.join(comorbidities)}")
             if patient_profile.allergies:
-                lines.append(f"- Known allergies: {', '.join(patient_profile.allergies)}")
+                lines.append(f"- {'Allergies connues' if is_fr else 'Known allergies'}: {', '.join(patient_profile.allergies)}")
             lines.append("")
 
-        lines.append("## Symptoms")
+        lines.append("## Symptômes" if is_fr else "## Symptoms")
         for s in symptoms:
             parts = [s.name]
             if s.severity:
@@ -107,14 +109,27 @@ class PromptBuilder:
             lines.append(f"- {', '.join(parts)}")
 
         lines.append("")
-        lines.append(
-            "Based on the patient profile and symptoms above, provide a differential diagnosis. "
-            "Return AT LEAST 3 diagnoses as a JSON array with the following structure:\n"
-            "[\n"
-            '  {"condition": "<diagnosis name>", "probability": <0.0-1.0>, "icd_code": "<ICD-10 code>"},\n'
-            "  ...\n"
-            "]\n"
-            "Order by descending probability. Include only the JSON array in your response."
-        )
+        if locale.startswith("fr"):
+            lines.append(
+                "En vous basant sur le profil patient et les symptômes ci-dessus, fournissez un "
+                "diagnostic différentiel. Retournez AU MOINS 3 diagnostics sous forme de tableau JSON :\n"
+                "[\n"
+                '  {"condition": "<nom>", "probability": <0.0-1.0>, "icd_code": "<CIM-10>", '
+                '"matching_symptoms": ["<symptôme>"]},\n'
+                "  ...\n"
+                "]\n"
+                "Ordonnez par probabilité décroissante. Incluez uniquement le tableau JSON."
+            )
+        else:
+            lines.append(
+                "Based on the patient profile and symptoms above, provide a differential diagnosis. "
+                "Return AT LEAST 3 diagnoses as a JSON array with the following structure:\n"
+                "[\n"
+                '  {"condition": "<diagnosis name>", "probability": <0.0-1.0>, "icd_code": "<ICD-10 code>", '
+                '"matching_symptoms": ["<symptom>"]},\n'
+                "  ...\n"
+                "]\n"
+                "Order by descending probability. Include only the JSON array in your response."
+            )
 
         return "\n".join(lines)

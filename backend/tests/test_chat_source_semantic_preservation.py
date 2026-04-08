@@ -11,7 +11,6 @@ Property 2: Preservation — Fallback and Non-Reranked Paths Unchanged
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 

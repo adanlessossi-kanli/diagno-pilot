@@ -292,7 +292,9 @@ def test_invalid_ciphertext_raises_error(garbage: str):
         svc.decrypt_field(garbage)
 
 
-@given(plaintext=plaintext_strategy.filter(lambda s: len(s) > 3))
+@given(plaintext=plaintext_strategy.filter(lambda s: len(s) > 3).filter(
+    lambda s: s not in "Decryption failed"
+))
 @h_settings(max_examples=100)
 def test_error_does_not_expose_plaintext(plaintext: str):
     """Error message must not contain the original plaintext."""

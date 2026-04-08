@@ -65,21 +65,34 @@ class DiagnosticResponse:
 
 _SUB_QUESTIONS: dict[str, str] = {
     "symptomatology": (
-        "Quels diagnostics différentiels correspondent aux symptômes suivants : {symptoms}? "
-        "Considérer le profil patient si disponible."
+        "En contexte de médecine tropicale ouest-africaine (paludisme, fièvre typhoïde, dengue, "
+        "méningite, schistosomiase), quels diagnostics différentiels correspondent aux symptômes "
+        "suivants : {symptoms}? Considérer la sévérité et la durée des symptômes pour prioriser "
+        "les pathologies endémiques de la région {region}. {patient_context}"
     ),
     "epidemiology": (
-        "Quelles pathologies épidémiologiques sont compatibles avec les symptômes : {symptoms}? "
-        "Tenir compte de la région {region}."
+        "Quelles pathologies endémiques d'Afrique de l'Ouest sont compatibles avec les symptômes : "
+        "{symptoms}? Considérer la prévalence régionale, les patterns saisonniers (saison des pluies/"
+        "saison sèche), les données d'épidémies récentes spécifiques à la région {region}, "
+        "et les guidelines du {guidelines_ref}. {patient_context}"
     ),
     "lab": (
-        "Quels examens de laboratoire et résultats attendus pour les symptômes : {symptoms}?"
-    ),
-    "synthesis": (
-        "Synthétiser les diagnostics différentiels pour les symptômes : {symptoms}."
+        "Quels examens de laboratoire disponibles en milieu clinique ouest-africain (goutte épaisse/"
+        "frottis mince, test de Widal, TDR paludisme, NFS) sont indiqués pour les symptômes : "
+        "{symptoms}? Prioriser les tests qui affinent le diagnostic différentiel tropical. "
+        "{patient_context}"
     ),
     "treatment": (
-        "Quels protocoles de traitement sont recommandés pour les symptômes : {symptoms}?"
+        "Quels protocoles de traitement alignés sur les formulaires nationaux ouest-africains et "
+        "les guidelines OMS AFRO sont recommandés pour les symptômes : {symptoms}? Tenir compte "
+        "des allergies, comorbidités, groupe d'âge et disponibilité régionale des médicaments "
+        "dans la région {region}. {patient_context}"
+    ),
+    "synthesis": (
+        "Synthétiser les diagnostics différentiels pour les symptômes : {symptoms} en contexte "
+        "ouest-africain. Réconcilier les diagnostics conflictuels entre agents, pondérer les "
+        "preuves par qualité de source, et prioriser les conditions à haute morbidité/mortalité "
+        "dans le contexte tropical. {patient_context}"
     ),
 }
 
@@ -154,26 +167,65 @@ class AgentPipeline:
             confidence score (arithmetic mean of agent scores).
         """
         symptom_text = ", ".join(
-            s.get("name", str(s)) if isinstance(s, dict) else str(s)
+            f"{s.get('name', str(s))} (sévérité={s.get('severity', '?')}, durée={s.get('duration_days', '?')}j)"
+            if isinstance(s, dict) else str(s)
             for s in symptoms
         )
 
+        # Build patient_context string from profile (Req 22.2)
+        patient_context = ""
+        if patient_profile:
+            parts: list[str] = []
+            if patient_profile.age_group:
+                parts.append(f"groupe d'âge: {patient_profile.age_group.value}")
+            if patient_profile.weight_kg:
+                parts.append(f"poids: {patient_profile.weight_kg} kg")
+            if patient_profile.allergies:
+                parts.append(f"allergies: {', '.join(patient_profile.allergies)}")
+            if patient_profile.comorbidities:
+                comorbidities: list[str] = []
+                if patient_profile.comorbidities.renal_failure:
+                    comorbidities.append("insuffisance rénale")
+                if patient_profile.comorbidities.hepatic_failure:
+                    comorbidities.append("insuffisance hépatique")
+                if comorbidities:
+                    parts.append(f"comorbidités: {', '.join(comorbidities)}")
+            if parts:
+                patient_context = f"Profil patient : {'; '.join(parts)}."
+
+        # Map region to guidelines reference (Req 22.4)
+        guidelines_map = {"TG": "CHU Lomé", "BJ": "CHU Abomey-Calavi"}
+        guidelines_ref = guidelines_map.get(region, "OMS AFRO / MSF") if region else "OMS AFRO / MSF"
+
+        agent_names = list(self.AGENTS.keys())
         tasks = [
             self._run_agent(
                 agent_name=name,
                 sub_question=_SUB_QUESTIONS.get(name, "{symptoms}").format(
                     symptoms=symptom_text,
                     region=region or "ALL",
+                    patient_context=patient_context,
+                    guidelines_ref=guidelines_ref,
                 ),
                 patient_profile=patient_profile,
                 region=region,
             )
-            for name in self.AGENTS
+            for name in agent_names
         ]
 
-        results: list[AgentResult] = await asyncio.gather(
-            *tasks, return_exceptions=False
-        )
+        results_raw = await asyncio.gather(*tasks, return_exceptions=True)  # Req 21.1
+
+        # Convert exceptions to AgentResult with correct agent name (Req 21.2)
+        results: list[AgentResult] = []
+        for i, r in enumerate(results_raw):
+            if isinstance(r, BaseException):
+                results.append(AgentResult(
+                    agent_name=agent_names[i],
+                    sub_question="",
+                    error=str(r),
+                ))
+            else:
+                results.append(r)
 
         return self._aggregate(results)
 
@@ -210,6 +262,19 @@ class AgentPipeline:
                 region=region,
                 source_filter=source_filter,
             )
+
+            # Fallback: retry without source_filter when filtered retrieval yields no sources
+            if not rag_response.sources and source_filter:
+                logger.info(
+                    "Agent %r: filtered retrieval empty, retrying without source_filter",
+                    agent_name,
+                )
+                rag_response = await self._pipeline.query(
+                    question=sub_question,
+                    context=patient_profile,
+                    region=region,
+                    source_filter=None,
+                )
 
             endpoint_used = self._llm_router.last_used
             duration = time.perf_counter() - t0

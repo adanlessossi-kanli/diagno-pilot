@@ -119,7 +119,7 @@ def test_parser_clamps_probability(answer: str) -> None:
 
     **Validates: Requirements 2.1, 2.4**
     """
-    results = DiagnosticParser().parse(answer)
+    results, _pf = DiagnosticParser().parse(answer)
     for d in results:
         assert 0.0 <= d.probability <= 1.0, (
             f"probability {d.probability!r} is outside [0.0, 1.0] for condition {d.condition!r}"
@@ -141,7 +141,7 @@ def test_parser_nullifies_invalid_icd(answer: str) -> None:
 
     **Validates: Requirements 2.5**
     """
-    results = DiagnosticParser().parse(answer)
+    results, _pf = DiagnosticParser().parse(answer)
     for d in results:
         if d.icd_code is not None:
             assert _ICD_CODE_RE.match(d.icd_code), (
@@ -164,7 +164,7 @@ def test_parser_always_returns_at_least_3(answer: str) -> None:
 
     **Validates: Requirements 2.2, 2.3, 2.6**
     """
-    results = DiagnosticParser().parse(answer)
+    results, _pf = DiagnosticParser().parse(answer)
     assert len(results) >= 3, (
         f"Expected at least 3 results, got {len(results)} for input {answer!r}"
     )
@@ -193,7 +193,7 @@ def test_parser_round_trip(diagnosis: DifferentialDiagnosis) -> None:
         "icd_code": diagnosis.icd_code,
     }
     serialized = json.dumps([entry, entry, entry])
-    results = DiagnosticParser().parse(serialized)
+    results, _pf = DiagnosticParser().parse(serialized)
 
     # The highest-probability entry should match (all three are identical, so first is fine)
     assert results[0].condition == diagnosis.condition
@@ -217,8 +217,9 @@ def test_parser_pure(answer: str) -> None:
     **Validates: Requirements 2.8**
     """
     p = DiagnosticParser()
-    r1 = p.parse(answer)
-    r2 = p.parse(answer)
+    r1, pf1 = p.parse(answer)
+    r2, pf2 = p.parse(answer)
+    assert pf1 == pf2, "parse_failed flag must be deterministic"
     assert [(d.condition, d.probability, d.icd_code) for d in r1] == \
            [(d.condition, d.probability, d.icd_code) for d in r2], (
         "DiagnosticParser.parse() returned different results for the same input — "
@@ -242,8 +243,9 @@ def test_parse_well_formed_3_entries_sorted_descending() -> None:
         {"condition": "Typhoid", "probability": 0.7, "icd_code": "A01.0"},
         {"condition": "Dengue", "probability": 0.5, "icd_code": "A90"},
     ]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, parse_failed = DiagnosticParser().parse(_make_json_array(entries))
 
+    assert not parse_failed
     assert len(results) >= 3
     assert results[0].condition == "Typhoid"
     assert results[0].probability == 0.7
@@ -262,8 +264,9 @@ def test_parse_more_than_3_entries_sorted() -> None:
         {"condition": "D", "probability": 0.3, "icd_code": None},
         {"condition": "E", "probability": 0.7, "icd_code": None},
     ]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, parse_failed = DiagnosticParser().parse(_make_json_array(entries))
 
+    assert not parse_failed
     assert len(results) == 5
     probs = [d.probability for d in results]
     assert probs == sorted(probs, reverse=True)
@@ -271,8 +274,9 @@ def test_parse_more_than_3_entries_sorted() -> None:
 
 def test_parse_0_entries_returns_3_placeholders() -> None:
     """Empty JSON array must return 3 placeholder DifferentialDiagnosis objects."""
-    results = DiagnosticParser().parse("[]")
+    results, parse_failed = DiagnosticParser().parse("[]")
 
+    assert parse_failed
     assert len(results) == 3
     for d in results:
         assert d.probability == 0.0
@@ -282,8 +286,9 @@ def test_parse_0_entries_returns_3_placeholders() -> None:
 def test_parse_1_entry_returns_3_placeholders() -> None:
     """JSON array with 1 entry must return 3 placeholder objects."""
     entries = [{"condition": "Malaria", "probability": 0.8, "icd_code": "B54"}]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, parse_failed = DiagnosticParser().parse(_make_json_array(entries))
 
+    assert parse_failed
     assert len(results) == 3
     for d in results:
         assert d.probability == 0.0
@@ -296,8 +301,9 @@ def test_parse_2_entries_returns_3_placeholders() -> None:
         {"condition": "Malaria", "probability": 0.8, "icd_code": "B54"},
         {"condition": "Typhoid", "probability": 0.6, "icd_code": "A01.0"},
     ]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, parse_failed = DiagnosticParser().parse(_make_json_array(entries))
 
+    assert parse_failed
     assert len(results) == 3
     for d in results:
         assert d.probability == 0.0
@@ -306,8 +312,9 @@ def test_parse_2_entries_returns_3_placeholders() -> None:
 
 def test_parse_non_json_returns_3_placeholders() -> None:
     """Non-JSON input must return 3 placeholder objects."""
-    results = DiagnosticParser().parse("This is not JSON at all.")
+    results, parse_failed = DiagnosticParser().parse("This is not JSON at all.")
 
+    assert parse_failed
     assert len(results) == 3
     for d in results:
         assert d.probability == 0.0
@@ -316,8 +323,9 @@ def test_parse_non_json_returns_3_placeholders() -> None:
 
 def test_parse_empty_string_returns_3_placeholders() -> None:
     """Empty string must return 3 placeholder objects."""
-    results = DiagnosticParser().parse("")
+    results, parse_failed = DiagnosticParser().parse("")
 
+    assert parse_failed
     assert len(results) == 3
     for d in results:
         assert d.probability == 0.0
@@ -331,8 +339,9 @@ def test_parse_clamps_probability_above_1() -> None:
         {"condition": "B", "probability": 0.5, "icd_code": None},
         {"condition": "C", "probability": 0.3, "icd_code": None},
     ]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, parse_failed = DiagnosticParser().parse(_make_json_array(entries))
 
+    assert not parse_failed
     assert all(0.0 <= d.probability <= 1.0 for d in results)
     # The clamped entry should be 1.0
     assert results[0].probability == 1.0
@@ -345,7 +354,7 @@ def test_parse_clamps_probability_below_0() -> None:
         {"condition": "B", "probability": 0.5, "icd_code": None},
         {"condition": "C", "probability": 0.3, "icd_code": None},
     ]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, _pf = DiagnosticParser().parse(_make_json_array(entries))
 
     assert all(0.0 <= d.probability <= 1.0 for d in results)
 
@@ -357,7 +366,7 @@ def test_parse_nullifies_invalid_icd_code() -> None:
         {"condition": "B", "probability": 0.5, "icd_code": "B54"},
         {"condition": "C", "probability": 0.3, "icd_code": "123"},
     ]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, _pf = DiagnosticParser().parse(_make_json_array(entries))
 
     # "not-valid" and "123" are invalid; "B54" is valid
     conditions_map = {d.condition: d for d in results}
@@ -373,9 +382,93 @@ def test_parse_valid_icd_codes_preserved() -> None:
         {"condition": "B", "probability": 0.5, "icd_code": "A01.0"},
         {"condition": "C", "probability": 0.3, "icd_code": "Z99.1234"},
     ]
-    results = DiagnosticParser().parse(_make_json_array(entries))
+    results, _pf = DiagnosticParser().parse(_make_json_array(entries))
 
     conditions_map = {d.condition: d for d in results}
     assert conditions_map["A"].icd_code == "B54"
     assert conditions_map["B"].icd_code == "A01.0"
     assert conditions_map["C"].icd_code == "Z99.1234"
+
+
+# ---------------------------------------------------------------------------
+# Property 8: Diagnostic parser failure signaling
+# Feature: chat-diagnosis-improvements
+# **Validates: Requirements 14.1, 14.4**
+# ---------------------------------------------------------------------------
+
+_locale_st = st.sampled_from(["fr-TG", "fr-BJ", "fr", "en"])
+
+# Strategy: LLM answer with ≥3 valid entries (parse should succeed)
+_success_answer_st = st.builds(
+    lambda conditions, probs: _json_array(
+        _make_entry(conditions[0], probs[0], None),
+        _make_entry(conditions[1], probs[1], None),
+        _make_entry(conditions[2], probs[2], None),
+    ),
+    conditions=st.lists(_condition_st, min_size=3, max_size=3),
+    probs=st.lists(_valid_prob_st, min_size=3, max_size=3),
+)
+
+# Strategy: LLM answer with <3 valid entries (parse should fail)
+_failure_answer_st = st.one_of(
+    # Empty array
+    st.just("[]"),
+    # 1 entry
+    st.builds(
+        lambda c, p: _json_array(_make_entry(c, p, None)),
+        c=_condition_st,
+        p=_valid_prob_st,
+    ),
+    # 2 entries
+    st.builds(
+        lambda cs, ps: _json_array(
+            _make_entry(cs[0], ps[0], None),
+            _make_entry(cs[1], ps[1], None),
+        ),
+        cs=st.lists(_condition_st, min_size=2, max_size=2),
+        ps=st.lists(_valid_prob_st, min_size=2, max_size=2),
+    ),
+    # Non-JSON
+    st.text(min_size=0, max_size=100).filter(lambda s: "[" not in s),
+)
+
+
+@given(answer=_success_answer_st, locale=_locale_st)
+@h_settings(max_examples=100)
+def test_parser_failure_signaling_success(answer: str, locale: str) -> None:
+    """Feature: chat-diagnosis-improvements, Property 8: Diagnostic parser failure signaling.
+
+    When ≥3 valid diagnoses are extracted, parse_failed SHALL be False.
+
+    **Validates: Requirements 14.1, 14.4**
+    """
+    results, parse_failed = DiagnosticParser().parse(answer, locale=locale)
+    assert not parse_failed, (
+        f"parse_failed should be False when ≥3 diagnoses extracted, got True for locale={locale!r}"
+    )
+    assert len(results) >= 3
+
+
+@given(answer=_failure_answer_st, locale=_locale_st)
+@h_settings(max_examples=100)
+def test_parser_failure_signaling_failure(answer: str, locale: str) -> None:
+    """Feature: chat-diagnosis-improvements, Property 8: Diagnostic parser failure signaling.
+
+    When <3 valid diagnoses are extracted, parse_failed SHALL be True and
+    placeholders SHALL use locale-appropriate text.
+
+    **Validates: Requirements 14.1, 14.4**
+    """
+    results, parse_failed = DiagnosticParser().parse(answer, locale=locale)
+    assert parse_failed, (
+        f"parse_failed should be True when <3 diagnoses extracted, got False for input={answer!r}"
+    )
+    assert len(results) == 3
+
+    expected_text = "Diagnostic indisponible" if locale.startswith("fr") else "Diagnosis unavailable"
+    for d in results:
+        assert d.condition == expected_text, (
+            f"Expected placeholder text {expected_text!r} for locale={locale!r}, got {d.condition!r}"
+        )
+        assert d.probability == 0.0
+        assert d.icd_code is None

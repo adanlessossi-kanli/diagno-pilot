@@ -11,10 +11,37 @@ import { CitationChip } from '../../../components/CitationChip';
 
 type PatientMode = 'none' | 'select' | 'oneshot';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SESSION_STORAGE_KEY = 'diagno-pilot-chat-session';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function getStoredSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(SESSION_STORAGE_KEY);
+}
+
+function storeSessionId(id: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SESSION_STORAGE_KEY, id);
+}
+
+function clearStoredSessionId(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+function isRetryableError(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (status === 500) return true;
+  if (err instanceof Error && err.name === 'AbortError') return true;
+  if (err instanceof TypeError && String(err.message).toLowerCase().includes('fetch')) return true;
+  return false;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -234,14 +261,21 @@ export default function ChatPage() {
     return createApiClient(baseUrl);
   }, []);
 
-  // Session
-  const [sessionId, setSessionId] = useState<string>(() => generateSessionId());
+  // Session — restore from localStorage or generate new
+  const [sessionId, setSessionId] = useState<string>(() => {
+    const stored = getStoredSessionId();
+    return stored ?? generateSessionId();
+  });
 
   // Messages
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Retry state: stores the failed message content for retry capability
+  const [failedMessage, setFailedMessage] = useState<string | null>(null);
 
   // Patient context
   const [patientMode, setPatientMode] = useState<PatientMode>('none');
@@ -258,6 +292,32 @@ export default function ChatPage() {
 
   // Auto-scroll ref
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load message history when restoring a session from localStorage (Req 8.4)
+  useEffect(() => {
+    const stored = getStoredSessionId();
+    if (!stored) return;
+    let cancelled = false;
+    setLoadingHistory(true);
+    apiClient.chat.getHistory(stored)
+      .then((session) => {
+        if (!cancelled && session?.messages) {
+          setMessages(session.messages);
+        }
+      })
+      .catch(() => {
+        // Session may have expired or been deleted — start fresh
+        if (!cancelled) {
+          clearStoredSessionId();
+          setSessionId(generateSessionId());
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHistory(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Scroll to bottom whenever messages change
   useEffect(() => {
@@ -319,12 +379,16 @@ export default function ChatPage() {
   })();
 
   // Send message
-  async function handleSend() {
-    const content = input.trim();
+  async function handleSend(retryContent?: string) {
+    const content = retryContent ?? input.trim();
     if (!content || loading) return;
 
     setError('');
-    setInput('');
+    setFailedMessage(null);
+    if (!retryContent) setInput('');
+
+    // Persist sessionId to localStorage on first message (Req 8.1)
+    storeSessionId(sessionId);
 
     // Optimistically add user message
     const userMsg: ChatMessage = {
@@ -346,13 +410,31 @@ export default function ChatPage() {
         window.location.href = `/${locale}/login`;
         return;
       }
-      setError(t('errorSend'));
-      // Remove the optimistic user message on failure
+      // Remove the optimistic user message on failure (Req 9.1)
       setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+      // Restore input text (Req 9.2)
       setInput(content);
+
+      // Show retry-capable error for HTTP 500 or timeout (Req 9.3)
+      if (isRetryableError(err)) {
+        setFailedMessage(content);
+        setError(t('errorSendRetry'));
+      } else {
+        setError(t('errorSend'));
+      }
     } finally {
       setLoading(false);
     }
+  }
+
+  // Retry handler (Req 9.4)
+  function handleRetry() {
+    if (!failedMessage) return;
+    const content = failedMessage;
+    setFailedMessage(null);
+    setError('');
+    setInput('');
+    void handleSend(content);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -363,9 +445,12 @@ export default function ChatPage() {
   }
 
   function handleNewSession() {
-    setSessionId(generateSessionId());
+    clearStoredSessionId();
+    const newId = generateSessionId();
+    setSessionId(newId);
     setMessages([]);
     setError('');
+    setFailedMessage(null);
     setInput('');
   }
 
@@ -401,6 +486,11 @@ export default function ChatPage() {
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {loadingHistory && (
+          <div className="flex justify-center py-4">
+            <p className="text-xs text-gray-500 italic">{t('loadingHistory')}</p>
+          </div>
+        )}
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
@@ -408,12 +498,21 @@ export default function ChatPage() {
         <div key="scroll-anchor" ref={bottomRef} />
       </div>
 
-      {/* Error */}
+      {/* Error with optional Retry button */}
       {error && (
         <div className="px-4 pb-2 shrink-0">
-          <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
-            {error}
-          </p>
+          <div role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center justify-between gap-2">
+            <span>{error}</span>
+            {failedMessage && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 border border-red-300 rounded px-2 py-0.5 shrink-0 transition-colors"
+              >
+                {t('retry')}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

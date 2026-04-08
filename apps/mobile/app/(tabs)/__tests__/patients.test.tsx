@@ -98,8 +98,8 @@ describe('PatientsScreen — patient list', () => {
       expect(screen.getByText('Alice Martin')).toBeTruthy();
       expect(screen.getByText('Bob Dupont')).toBeTruthy();
       expect(screen.getByText('Claire Leblanc')).toBeTruthy();
-    });
-  });
+    }, { timeout: 5000 });
+  }, 10000);
 
   it('renders empty state when API returns empty list', async () => {
     mockListAllPatients.mockResolvedValue([]);

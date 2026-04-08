@@ -123,6 +123,7 @@
     "sources": "Sources",
     "fallbackWarning": "Some results were produced by the fallback model. Clinical verification recommended.",
     "degradedWarning": "Degraded mode: some agents could not contribute.",
+    "parseFailedWarning": "Diagnostic results may be incomplete or unreliable. Please exercise clinical judgment.",
     "confidenceScore": "Confidence score",
     "agentContributions": "Agent contributions",
     "agentName": "Agent",
@@ -150,6 +151,8 @@
       "title": "Antibiotic Prescription",
       "getPrescription": "Get prescription",
       "selectAntibiotic": "Select antibiotic",
+      "recommendedAntibiotics": "Recommended for this diagnosis",
+      "otherAntibiotics": "Other antibiotics",
       "loadingPrescription": "Generating prescription...",
       "errorPrescription": "Error generating prescription. Please try again.",
       "selectDiagnosis": "Select a diagnosis to get a prescription",
@@ -171,6 +174,10 @@
       "warningAlertsTitle": "Warnings",
       "infoAlertsTitle": "Information",
       "noAlerts": "No safety alerts detected.",
+      "llmPrescriptionHint": "This diagnosis does not require antibiotics. Click to get an adapted treatment recommendation.",
+      "llmPrescriptionTitle": "Treatment recommendation",
+      "llmPrescriptionDisclaimer": "This recommendation is AI-generated. It must be validated by a healthcare professional before use.",
+      "regenerate": "Regenerate recommendation",
       "alertType": {
         "allergy": "Allergy",
         "interaction": "Drug interaction",
@@ -198,7 +205,10 @@
     "thinking": "Assistant is thinking...",
     "newSession": "New session",
     "section": "Section",
-    "excerpt": "Excerpt"
+    "excerpt": "Excerpt",
+    "retry": "Retry",
+    "errorSendRetry": "Error sending message.",
+    "loadingHistory": "Loading history..."
   },
   "alerts": {
     "critical": "Critical alert",

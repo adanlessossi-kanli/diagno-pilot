@@ -67,18 +67,23 @@ sequenceDiagram
     actor User
     participant ChatRouter as chat router<br/>POST /api/v1/chat/message
     participant ChatService
-    participant RAGService
+    participant RAGService as LlamaIndexPipeline
     participant EmbeddingModel
     participant MongoDB
     participant Redis
     participant LLMRouter
 
     User->>ChatRouter: {message, session_id?, patient_context?}
-    ChatRouter->>ChatService: send_message(session_id, message, patient_context)
+    ChatRouter->>ChatRouter: Validate ownership<br/>(user_id == session owner OR admin)
+    ChatRouter->>ChatService: send_message(session_id, message, patient_context, user_id)
 
-    ChatService->>RAGService: query(question, context, top_k=5)
+    ChatService->>MongoDB: _load_history(session_id)
+    MongoDB-->>ChatService: session messages
+    ChatService->>ChatService: Cap history to last 20 messages
 
-    RAGService->>Redis: GET rag cache key
+    ChatService->>RAGService: query(question, context, top_k=5,<br/>session_history=history[-20:])
+
+    RAGService->>Redis: GET rag cache key<br/>(includes history hash when session_history present)
     alt cache hit
         Redis-->>RAGService: RAGResponse
     else cache miss
@@ -95,7 +100,9 @@ sequenceDiagram
         RAGService->>MongoDB: $vectorSearch document_chunks
         MongoDB-->>RAGService: top-k chunks
 
-        RAGService->>LLMRouter: generate(question, context+chunks)
+        RAGService->>RAGService: Filter sources by<br/>SOURCE_RELEVANCE_THRESHOLD (≥ 0.3)
+
+        RAGService->>LLMRouter: generate(question, context+chunks+session_history)
         LLMRouter->>LLMRouter: try MedicalQwen3 (CircuitBreaker + Retry)
         alt primary ok
             LLMRouter-->>RAGService: answer, fallback_used=false
@@ -112,6 +119,38 @@ sequenceDiagram
     ChatService-->>ChatRouter: (session_id, RAGResponse)
     ChatRouter-->>User: {session_id, answer, sources, llm_used, warnings}
 ```
+
+---
+
+## Session Ownership & Access Control
+
+All chat endpoints enforce session ownership to protect PHI:
+
+- `GET /api/v1/chat/history/{session_id}` — verifies `user_id` matches the session owner before returning data. Returns HTTP 404 if the session does not belong to the requester.
+- `DELETE /api/v1/chat/sessions/{session_id}` — same ownership check before deletion.
+- Users with the `admin` role bypass ownership checks and can access any session.
+
+The `ChatService.get_history()` method accepts an optional `user_id` parameter that is included in the MongoDB query filter alongside `session_id`.
+
+---
+
+## Session Listing
+
+`GET /api/v1/chat/sessions` returns the authenticated user's chat sessions, sorted by `updated_at` descending.
+
+- Supports `skip` and `limit` query parameters (default limit: 20, cap: 100).
+- Each session includes `session_id`, `created_at`, `updated_at`, and a preview of the first user message.
+- Returns an empty list with HTTP 200 when the user has no sessions.
+
+---
+
+## Chat History Pagination
+
+`GET /api/v1/chat/history/{session_id}` supports paginated message retrieval:
+
+- `skip` (default 0) and `limit` (default 50, cap 200) query parameters.
+- Response includes a `total_messages` field with the total count of messages in the session.
+- Uses MongoDB `$slice` to return only the requested message window.
 
 ---
 

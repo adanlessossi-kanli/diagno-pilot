@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\agents\mcp_servers\query_helpers.py
+# hypothesis_version: 6.151.9
+
+[', ', '?', '?j', 'age_group', 'allergies', 'comorbidities', 'duration_days', 'hepatic_failure', 'insuffisance rénale', 'name', 'renal_failure', 'severity', 'weight_kg']

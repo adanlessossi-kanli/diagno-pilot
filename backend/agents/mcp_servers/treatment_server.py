@@ -27,6 +27,7 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from backend.agents.mcp_servers.base_server import BaseMCPServer
+from backend.agents.mcp_servers.query_helpers import build_patient_context, build_symptom_text
 from backend.core.config import settings
 from backend.services.embedding_model import EmbeddingModel
 from backend.services.index_manager import IndexManager
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 SERVER_PORT = int(os.environ.get("SERVER_PORT", "8004"))
-SOURCE_FILTER = {"metadata.document_type": "guideline"}
+SOURCE_FILTER: dict[str, Any] = {"metadata.document_type": "protocol"}
 
 TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -164,13 +165,15 @@ class TreatmentMCPServer(BaseMCPServer):
     async def _handle_query_treatment(self, arguments: dict[str, Any]) -> dict:
         """Retrieval-only: embed query, retrieve chunks, return without LLM call."""
         symptoms = arguments.get("symptoms", [])
+        patient_profile = arguments.get("patient_profile")
         region = arguments.get("region")
 
-        symptom_names = ", ".join(s["name"] for s in symptoms if isinstance(s, dict) and "name" in s)
+        symptom_detail = build_symptom_text(symptoms)
+        patient_ctx = build_patient_context(patient_profile)
         region_clause = f" dans la région {region}" if region else ""
         sub_question = (
             f"Quels protocoles de traitement sont recommandés pour les symptômes "
-            f"suivants{region_clause} : {symptom_names} ?"
+            f"suivants{region_clause} : {symptom_detail} ?{patient_ctx}"
         )
 
         try:
@@ -179,6 +182,12 @@ class TreatmentMCPServer(BaseMCPServer):
                 query_vector, sub_question, top_k=5, region=region,
                 source_filter=SOURCE_FILTER,
             )
+            # Fallback: retry without source_filter when filtered retrieval is empty
+            if not raw_chunks and SOURCE_FILTER:
+                logger.info("treatment: filtered retrieval empty, retrying without source_filter")
+                raw_chunks = await self._index_manager.retrieve(
+                    query_vector, sub_question, top_k=5, region=region,
+                )
         except Exception as exc:
             logger.error("Retrieval error: %s", exc)
             return {

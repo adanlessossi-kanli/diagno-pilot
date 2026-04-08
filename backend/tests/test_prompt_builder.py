@@ -110,10 +110,10 @@ def test_prompt_includes_profile_fields(profile: PatientProfile) -> None:
         )
 
     if profile.comorbidities.renal_failure:
-        assert "renal failure" in prompt, "renal failure not found in prompt"
+        assert "renal failure" in prompt or "insuffisance rénale" in prompt, "renal failure not found in prompt"
 
     if profile.comorbidities.hepatic_failure:
-        assert "hepatic failure" in prompt, "hepatic failure not found in prompt"
+        assert "hepatic failure" in prompt or "insuffisance hépatique" in prompt, "hepatic failure not found in prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ def test_build_with_full_profile_contains_all_fields() -> None:
     prompt = pb.build(symptoms, profile)
 
     # Patient profile section header
-    assert "## Patient profile" in prompt
+    assert "## Patient profile" in prompt or "## Profil patient" in prompt
 
     # Age group
     assert AgeGroup.ADULT.value in prompt  # "adult"
@@ -158,20 +158,20 @@ def test_build_with_full_profile_contains_all_fields() -> None:
     assert "65.0" in prompt
 
     # Comorbidities
-    assert "renal failure" in prompt
+    assert "renal failure" in prompt or "insuffisance rénale" in prompt
 
     # Allergies
     assert "penicillin" in prompt
     assert "sulfonamides" in prompt
 
     # Symptoms section
-    assert "## Symptoms" in prompt
+    assert "## Symptoms" in prompt or "## Symptômes" in prompt
     assert "fever" in prompt
     assert "cough" in prompt
 
     # JSON instruction
-    assert "JSON array" in prompt
-    assert "AT LEAST 3" in prompt
+    assert "tableau JSON" in prompt
+    assert "AU MOINS 3" in prompt
 
 
 def test_build_without_profile_has_no_patient_section() -> None:
@@ -182,15 +182,15 @@ def test_build_without_profile_has_no_patient_section() -> None:
     prompt = pb.build(symptoms, None)
 
     # No patient profile section
-    assert "## Patient profile" not in prompt
+    assert "## Patient profile" not in prompt and "## Profil patient" not in prompt
 
     # Symptoms section must still be present
-    assert "## Symptoms" in prompt
+    assert "## Symptoms" in prompt or "## Symptômes" in prompt
     assert "fever" in prompt
     assert "cough" in prompt
 
     # JSON instruction must still be present
-    assert "JSON array" in prompt
+    assert "tableau JSON" in prompt
 
 
 def test_build_symptoms_section_includes_severity_and_duration() -> None:
@@ -223,6 +223,6 @@ def test_build_json_instruction_present() -> None:
     pb = PromptBuilder()
     prompt = pb.build([], None)
 
-    assert "JSON array" in prompt
-    assert "AT LEAST 3" in prompt
-    assert "descending probability" in prompt
+    assert "tableau JSON" in prompt
+    assert "AU MOINS 3" in prompt
+    assert "probabilité décroissante" in prompt

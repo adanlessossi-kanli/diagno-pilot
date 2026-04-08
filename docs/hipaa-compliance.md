@@ -280,6 +280,28 @@ enc.rotate_key("nouvelle_clé_aesgcm_base64url")
 
 ## Frontière PHI dans le pipeline d'agents
 
+### Contrôle de propriété des sessions (Session Ownership)
+
+Tous les endpoints exposant des données PHI appliquent une vérification de propriété de session :
+
+**Endpoints Chat :**
+- `GET /api/v1/chat/history/{session_id}` — le `user_id` du demandeur est inclus dans le filtre MongoDB. Si la session n'appartient pas au demandeur, HTTP 404 est retourné.
+- `GET /api/v1/chat/sessions` — retourne uniquement les sessions appartenant à l'utilisateur authentifié.
+- `DELETE /api/v1/chat/sessions/{session_id}` — vérifie la propriété avant suppression.
+
+**Endpoints Diagnostic :**
+- `GET /api/v1/diagnose/session/{session_id}` — le `user_id` du demandeur est inclus dans le filtre MongoDB. Si la consultation n'appartient pas au demandeur, HTTP 404 est retourné.
+- `POST /api/v1/diagnose/prescription` (avec `session_id`) — vérifie la propriété de la consultation avant de lier la prescription.
+
+**Bypass admin :** Les utilisateurs avec le rôle `admin` contournent les vérifications de propriété et peuvent accéder à toute session ou consultation. Cela est nécessaire pour les opérations d'audit et de support.
+
+### TTL des sessions de chat (90 jours)
+
+Un index TTL MongoDB est créé au démarrage de l'application sur le champ `chat_sessions.updated_at` avec une expiration de **90 jours** (7 776 000 secondes). Cela garantit que les sessions de chat inactives contenant des données PHI sont automatiquement supprimées après 90 jours d'inactivité.
+
+- Une migration idempotente au démarrage remplit le champ `updated_at` sur les sessions existantes qui n'en disposent pas (en utilisant `created_at` ou l'horodatage courant comme valeur de repli).
+- La migration s'exécute **avant** la création de l'index TTL pour garantir que tous les documents sont éligibles à l'expiration.
+
 Le pipeline d'agents (`AgentPipeline`) applique une frontière PHI stricte :
 
 ```

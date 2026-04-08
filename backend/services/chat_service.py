@@ -67,11 +67,16 @@ class ChatService:
         """
         session_id = session_id or str(uuid.uuid4())
 
+        # Req 1.1, 1.4: load session history and cap at 20 messages
+        history = await self._load_history(session_id)
+        history = history[-20:]
+
         # Query RAG with the full conversation context
         rag_response = await self._rag.query(
             question=user_message,
             context=patient_context,
             top_k=5,
+            session_history=history,
         )
 
         now = datetime.now(timezone.utc)
@@ -108,13 +113,90 @@ class ChatService:
 
         return session_id, rag_response
 
-    async def get_history(self, session_id: str) -> dict | None:
-        """Return the full session document or None if not found."""
+    async def get_history(self, session_id: str, user_id: str | None = None) -> dict | None:
+        """Return the full session document or None if not found.
+
+        When *user_id* is provided the query also filters by owner so that
+        only the session owner (or an admin who omits user_id) can retrieve it.
+        """
+        query: dict = {"session_id": session_id}
+        if user_id is not None:
+            query["user_id"] = user_id
         async with timed_db_op(self.COLLECTION, "find_one"):
-            return await self._db[self.COLLECTION].find_one(
-                {"session_id": session_id},
-                {"_id": 0},
+            return await self._db[self.COLLECTION].find_one(query, {"_id": 0})
+
+    async def list_sessions(self, user_id: str, skip: int = 0, limit: int = 20) -> list[dict]:
+        """Return the user's chat sessions sorted by most recently updated.
+
+        Each entry contains session_id, created_at, updated_at, and a preview
+        of the first message (via ``$slice``).
+        """
+        async with timed_db_op(self.COLLECTION, "find"):
+            cursor = (
+                self._db[self.COLLECTION]
+                .find(
+                    {"user_id": user_id},
+                    {
+                        "session_id": 1,
+                        "created_at": 1,
+                        "updated_at": 1,
+                        "messages": {"$slice": 1},
+                        "_id": 0,
+                    },
+                )
+                .sort("updated_at", -1)
+                .skip(skip)
+                .limit(limit)
             )
+            return await cursor.to_list(length=limit)
+
+    async def get_history_paginated(
+        self,
+        session_id: str,
+        user_id: str | None = None,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> dict | None:
+        """Return a paginated window of messages for a session.
+
+        Uses MongoDB ``$slice`` for the message window and an aggregation
+        pipeline to compute ``total_messages``.
+        """
+        query: dict = {"session_id": session_id}
+        if user_id is not None:
+            query["user_id"] = user_id
+
+        async with timed_db_op(self.COLLECTION, "find_one"):
+            doc = await self._db[self.COLLECTION].find_one(
+                query,
+                {
+                    "session_id": 1,
+                    "messages": {"$slice": [skip, limit]},
+                    "patient_context": 1,
+                    "created_at": 1,
+                    "updated_at": 1,
+                    "_id": 0,
+                },
+            )
+        if doc is None:
+            return None
+
+        async with timed_db_op(self.COLLECTION, "aggregate"):
+            total = await self._db[self.COLLECTION].aggregate([
+                {"$match": {"session_id": session_id}},
+                {"$project": {"total": {"$size": "$messages"}}},
+            ]).to_list(1)
+        doc["total_messages"] = total[0]["total"] if total else 0
+        return doc
+
+    async def delete_session(self, session_id: str, user_id: str | None = None) -> bool:
+        """Delete a chat session. Returns True if a document was removed."""
+        query: dict = {"session_id": session_id}
+        if user_id is not None:
+            query["user_id"] = user_id
+        async with timed_db_op(self.COLLECTION, "delete_one"):
+            result = await self._db[self.COLLECTION].delete_one(query)
+        return result.deleted_count > 0
 
     # ------------------------------------------------------------------
     # Private helpers

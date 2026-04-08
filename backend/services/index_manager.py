@@ -77,11 +77,14 @@ class BM25Retriever:
         query: str,
         top_k: int = 5,
         region: str | None = None,
+        source_filter: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Return up to *top_k* chunks matching *query* via MongoDB ``$text`` search."""
         match_stage: dict[str, Any] = {"$text": {"$search": query}}
         if region and region != "ALL":
             match_stage["metadata.region"] = {"$in": [region, "ALL"]}
+        if source_filter:
+            match_stage.update(source_filter)
 
         pipeline: list[dict[str, Any]] = [
             {"$match": match_stage},
@@ -260,7 +263,7 @@ class IndexManager:
             logger.warning("Vector search failed: %s", exc)
 
         # --- BM25 keyword search ---
-        bm25_chunks = await self._bm25.retrieve(query_text, top_k=top_k, region=region)
+        bm25_chunks = await self._bm25.retrieve(query_text, top_k=top_k, region=region, source_filter=source_filter)
 
         # --- Fusion ---
         if vector_chunks and bm25_chunks:

@@ -55,7 +55,8 @@ describe('AuthContext', () => {
   it('a. login success — sets user via /auth/me (REQ 3.3)', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockResolvedValueOnce(fakeUser); // after login (mount skips — no cookie)
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
+      .mockResolvedValueOnce(fakeUser); // after login
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -75,7 +76,8 @@ describe('AuthContext', () => {
   it('b. login does NOT call /api/auth/set-cookie BFF route (REQ 3.1)', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockResolvedValueOnce(fakeUser); // after login (mount skips — no cookie)
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
+      .mockResolvedValueOnce(fakeUser); // after login
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -136,7 +138,8 @@ describe('AuthContext', () => {
   it('g. role-based redirect — admin goes to /fr', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
-      .mockResolvedValueOnce({ ...fakeUser, role: 'admin' }); // after login (mount skips — no cookie)
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
+      .mockResolvedValueOnce({ ...fakeUser, role: 'admin' }); // after login
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -158,12 +161,11 @@ describe('AuthContext', () => {
   });
 
   it('i. fetchWithRefresh — replays request after successful silent refresh (REQ 3.2)', async () => {
-    mockMe
-      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })); // mount (no cookie, skipped)
-
+    // Mount will call me() → 401, then tryRefresh via global.fetch → 401 (default), so user=null
     const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // After mount completes (no cookie → skips me()), set up fresh mocks
+    // After mount completes, set up fresh mocks for fetchWithRefresh
     mockMe.mockResolvedValue(fakeUser); // for tryRefresh → fetchMe
 
     const mockFetch = vi.fn()
@@ -172,8 +174,6 @@ describe('AuthContext', () => {
       .mockResolvedValueOnce({ status: 200, ok: true } as Response); // retry
 
     global.fetch = mockFetch;
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     let response!: Response;
     await act(async () => {

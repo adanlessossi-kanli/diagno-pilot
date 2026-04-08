@@ -259,6 +259,7 @@ describe('DiagnosePage — Property 11: Critical alerts rendered with distinct s
               ]}
               antibiotics={['Amoxicillin']}
               onGetPrescription={mockOnGetPrescription}
+              onGetLLMPrescription={() => Promise.resolve('Test')}
             />
           );
 

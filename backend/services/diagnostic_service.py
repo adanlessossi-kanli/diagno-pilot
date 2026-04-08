@@ -40,17 +40,49 @@ FALLBACK_DISCLAIMER = (
     "⚠️ Cette réponse a été générée par le modèle de secours et nécessite une vérification clinique."
 )
 
-DIAGNOSIS_SYSTEM_PROMPT = (
-    "Tu es un assistant médical expert en maladies tropicales. "
+_DIAGNOSIS_SYSTEM_PROMPT_FR = (
+    "Tu es un assistant médical expert en maladies tropicales d'Afrique de l'Ouest "
+    "(paludisme, fièvre typhoïde, dengue, méningite, schistosomiase, etc.). "
     "En te basant en priorité sur les passages de documents fournis, "
     "génère un diagnostic différentiel au format JSON strict. "
     "Si les passages ne contiennent pas assez d'information, utilise tes connaissances "
-    "médicales pour compléter le diagnostic. "
-    "Réponds UNIQUEMENT avec un tableau JSON valide, sans texte avant ou après. "
+    "médicales pour compléter le diagnostic, en priorisant les pathologies endémiques "
+    "de la région du patient (Togo, Bénin, Afrique de l'Ouest). "
+    "Réponds UNIQUEMENT avec un tableau JSON valide, sans bloc de code markdown, "
+    "sans texte avant ou après. "
+    "IMPORTANT : Tous les noms de conditions et symptômes dans le JSON DOIVENT être en FRANÇAIS. "
+    "Ne jamais utiliser l'anglais pour les noms de maladies ou symptômes. "
     "Format requis : "
-    '[{"condition": "<nom>", "probability": <0.0-1.0>, "icd_code": "<CIM-10>", "matching_symptoms": ["<symptôme>"]}, ...]. '
+    '[{"condition": "<nom en français>", "probability": <0.0-1.0>, "icd_code": "<CIM-10>", '
+    '"matching_symptoms": ["<symptôme en français>"]}, ...]. '
     "Inclure au moins 3 diagnostics ordonnés par probabilité décroissante."
 )
+
+_DIAGNOSIS_SYSTEM_PROMPT_EN = (
+    "You are a medical assistant specializing in West African tropical diseases "
+    "(malaria, typhoid fever, dengue, meningitis, schistosomiasis, etc.). "
+    "Based primarily on the provided document passages, generate a differential diagnosis "
+    "in strict JSON format. If the passages lack sufficient information, use your medical "
+    "knowledge to complete the diagnosis, prioritizing endemic pathologies of the patient's "
+    "region (Togo, Benin, West Africa). "
+    "Respond ONLY with a valid JSON array, no markdown code blocks, no text before or after. "
+    "ALL condition names and symptoms in the JSON MUST be in ENGLISH. "
+    "Required format: "
+    '[{"condition": "<name in English>", "probability": <0.0-1.0>, "icd_code": "<ICD-10>", '
+    '"matching_symptoms": ["<symptom in English>"]}, ...]. '
+    "Include at least 3 diagnoses ordered by descending probability."
+)
+
+
+def _get_diagnosis_system_prompt(locale: str) -> str:
+    """Return the diagnosis system prompt in the appropriate language."""
+    if locale.startswith("fr"):
+        return _DIAGNOSIS_SYSTEM_PROMPT_FR
+    return _DIAGNOSIS_SYSTEM_PROMPT_EN
+
+
+# Keep backward-compat alias for any code referencing the old constant
+DIAGNOSIS_SYSTEM_PROMPT = _DIAGNOSIS_SYSTEM_PROMPT_FR
 
 
 @dataclass
@@ -66,6 +98,8 @@ class DiagnosticResult:
     confidence_score: float = 0.0
     evidence_citations: list = field(default_factory=list)
     agent_contributions: list = field(default_factory=list)
+    parse_failed: bool = False
+    consultation_persisted: bool = False
 
 
 class DiagnosticOrchestrator:
@@ -150,12 +184,12 @@ class DiagnosticOrchestrator:
         Raises:
             HTTPException: Propagated from RAGService if the LLM is unavailable.
         """
-        if self._mcp_host is not None:
-            result = await self._get_diagnosis_via_mcp(symptoms, patient_profile, locale, region, user_id=user_id)
-        elif self._agent_pipeline is not None:
-            result = await self._get_diagnosis_via_agent_pipeline(symptoms, patient_profile, locale, region)
-        else:
-            result = await self._get_diagnosis_via_rag(symptoms, patient_profile, locale, region)
+        # Primary path: RAG (LLM-driven diagnosis with optional knowledge base context).
+        # The RAG path always calls the LLM — if the knowledge base has relevant
+        # documents they enrich the context, otherwise the LLM diagnoses from its
+        # own medical knowledge.  MCP and AgentPipeline paths are only used when
+        # explicitly requested via a future configuration flag.
+        result = await self._get_diagnosis_via_rag(symptoms, patient_profile, locale, region)
 
         # Add disclaimer when fallback LLM was used — REQ 4.2
         if result.fallback_used:
@@ -207,11 +241,14 @@ class DiagnosticOrchestrator:
                 patient_profile_hash=patient_hash,
                 locale=locale,
                 region=region,
-                confidence_score=0.0,  # RAG path doesn't expose per-call score here
+                confidence_score=result.confidence_score,
                 diagnoses=[d.model_dump() for d in result.diagnoses],
                 fallback_used=result.fallback_used,
                 degraded_warning=result.degraded_warning,
-                agent_results=[],
+                agent_results=[
+                    c if isinstance(c, dict) else (c.model_dump() if hasattr(c, "model_dump") else vars(c))
+                    for c in result.agent_contributions
+                ] if result.agent_contributions else [],
             )
 
             await self._db["diagnostic_audit"].insert_one(audit.model_dump())
@@ -262,13 +299,13 @@ class DiagnosticOrchestrator:
                 context_text = "\n---\n".join(all_chunks_content[:5])
                 symptom_names = ", ".join(s.name for s in symptoms)
                 llm_context = [
-                    {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT},
+                    {"role": "system", "content": _get_diagnosis_system_prompt(locale)},
                     {"role": "system", "content": f"Documents pertinents :\n{context_text}"},
                 ]
                 llm_result = await self._rag._llm.generate(
                     f"Symptômes : {symptom_names}", llm_context
                 )
-                parsed = self._diagnostic_parser.parse(llm_result.answer)
+                parsed, _parse_failed = self._diagnostic_parser.parse(llm_result.answer, locale=locale)
                 if parsed and len(parsed) >= 3:
                     result.diagnoses = parsed
                     result.fallback_used = llm_result.fallback_used
@@ -350,6 +387,7 @@ class DiagnosticOrchestrator:
                 ],
             )
             await self._db["consultations"].insert_one(consultation.model_dump())
+            result.consultation_persisted = True
             logger.debug(
                 "MCP Consultation created for session %s user_id=%s",
                 mcp_session_id,
@@ -423,9 +461,9 @@ class DiagnosticOrchestrator:
             context=patient_profile,
             top_k=5,
             region=region,
-            system_prompt=DIAGNOSIS_SYSTEM_PROMPT,
+            system_prompt=_get_diagnosis_system_prompt(locale),
         )
-        diagnoses = self._diagnostic_parser.parse(rag_response.answer)
+        diagnoses, parse_failed = self._diagnostic_parser.parse(rag_response.answer, locale=locale)
 
         # Language mismatch detection
         language_mismatch = False
@@ -448,6 +486,7 @@ class DiagnosticOrchestrator:
             degraded_warning=rag_response.degraded_warning,
             locale=locale,
             language_mismatch=language_mismatch,
+            parse_failed=parse_failed,
         )
 
         logger.info(

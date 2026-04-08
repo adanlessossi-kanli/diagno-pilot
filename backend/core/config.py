@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     LLAMAINDEX_CHUNK_SIZE: int = 512
     LLAMAINDEX_CHUNK_OVERLAP_TOKENS: int = 50
     LLAMAINDEX_SIMILARITY_THRESHOLD: float = 0.75
+    SOURCE_RELEVANCE_THRESHOLD: float = 0.3
 
     # MCP Agent URLs
     AGENT_EPIDEMIOLOGY_URL: str = "http://agent-epidemiology:8001"

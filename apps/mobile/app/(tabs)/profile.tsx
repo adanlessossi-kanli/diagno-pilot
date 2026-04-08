@@ -31,13 +31,13 @@ export default function ProfileScreen() {
         <Text style={styles.langLabel}>Langue / Language</Text>
         <View style={styles.langSelector}>
           <TouchableOpacity
-            style={[styles.langButton, locale === 'fr' && styles.langButtonActive]}
-            onPress={() => void setLocale('fr')}
+            style={[styles.langButton, locale.startsWith('fr') && styles.langButtonActive]}
+            onPress={() => void setLocale('fr-TG')}
             accessibilityRole="button"
             accessibilityLabel="Français"
-            accessibilityState={{ selected: locale === 'fr' }}
+            accessibilityState={{ selected: locale.startsWith('fr') }}
           >
-            <Text style={[styles.langButtonText, locale === 'fr' && styles.langButtonTextActive]}>
+            <Text style={[styles.langButtonText, locale.startsWith('fr') && styles.langButtonTextActive]}>
               FR
             </Text>
           </TouchableOpacity>

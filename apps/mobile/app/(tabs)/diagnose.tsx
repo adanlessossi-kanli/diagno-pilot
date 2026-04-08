@@ -1,15 +1,17 @@
-// REQ-02, REQ-03, REQ-09: Mode guidé — diagnostic différentiel + prescription
-import React, { useState } from 'react';
+// REQ-02, REQ-03, REQ-09, REQ-8.5, REQ-9.5, REQ-25.2: Mode guidé — diagnostic différentiel + prescription
+// With AsyncStorage persistence, inline retry on failure, and parse_failed warning banner
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { useI18n } from '../../src/contexts/I18nContext';
 import { MobileSymptomInput } from '../../src/components/MobileSymptomInput';
 import { MobilePrescriptionCard } from '../../src/components/MobilePrescriptionCard';
 import { MobileAlertBanner } from '../../src/components/MobileAlertBanner';
@@ -20,8 +22,21 @@ import { getProbabilityColor } from '../../src/utils/probabilityColor';
 type Step = 'symptoms' | 'differential' | 'prescription';
 type DiagnosisEntry = DiagnosisResponse['diagnoses'][number];
 
+const STORAGE_KEY = 'diagno-pilot-diagnose-state';
+
+interface PersistedState {
+  step: Step;
+  symptoms: Symptom[];
+  diagnoses: DiagnosisEntry[];
+  selectedDiagnosis: DiagnosisEntry | null;
+  prescription: Prescription | null;
+  alerts: SafetyAlert[];
+  parseFailed: boolean;
+}
+
 export default function DiagnoseScreen() {
   const { apiClient } = useAuth();
+  const { locale } = useI18n();
   const [step, setStep] = useState<Step>('symptoms');
   const [symptoms, setSymptoms] = useState<Symptom[]>([]);
   const [diagnoses, setDiagnoses] = useState<DiagnosisEntry[]>([]);
@@ -29,16 +44,62 @@ export default function DiagnoseScreen() {
   const [prescription, setPrescription] = useState<Prescription | null>(null);
   const [alerts, setAlerts] = useState<SafetyAlert[]>([]);
   const [loading, setLoading] = useState(false);
+  const [parseFailed, setParseFailed] = useState(false);
+
+  // REQ-9.5: Inline error state for diagnosis and prescription failures
+  const [diagnosisError, setDiagnosisError] = useState(false);
+  const [prescriptionError, setPrescriptionError] = useState(false);
+  // Track the last diagnosis that failed prescription fetch for retry
+  const lastPrescriptionDiagnosis = useRef<DiagnosisEntry | null>(null);
+
+  const isFrench = locale.startsWith('fr');
+
+  // REQ-8.5: Restore persisted state on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const saved: PersistedState = JSON.parse(raw);
+          setStep(saved.step);
+          setSymptoms(saved.symptoms);
+          setDiagnoses(saved.diagnoses);
+          setSelectedDiagnosis(saved.selectedDiagnosis);
+          setPrescription(saved.prescription);
+          setAlerts(saved.alerts);
+          setParseFailed(saved.parseFailed ?? false);
+        }
+      } catch {
+        // Corrupted storage — start fresh
+      }
+    })();
+  }, []);
+
+  // REQ-8.5: Persist state whenever it changes
+  const persistState = useCallback(async (state: PersistedState) => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // Storage write failure — non-critical
+    }
+  }, []);
+
+  // Persist on every meaningful state change
+  useEffect(() => {
+    persistState({ step, symptoms, diagnoses, selectedDiagnosis, prescription, alerts, parseFailed });
+  }, [step, symptoms, diagnoses, selectedDiagnosis, prescription, alerts, parseFailed, persistState]);
 
   async function handleGetDiagnoses() {
     if (symptoms.length === 0) return;
     setLoading(true);
+    setDiagnosisError(false);
     try {
       const res = await apiClient.diagnose.getSymptomsDiagnosis(symptoms);
       setDiagnoses(res.diagnoses);
+      setParseFailed(res.parseFailed ?? false);
       setStep('differential');
     } catch {
-      Alert.alert('Erreur', 'Impossible d\'obtenir les diagnostics. Vérifiez votre connexion.');
+      setDiagnosisError(true);
     } finally {
       setLoading(false);
     }
@@ -46,7 +107,9 @@ export default function DiagnoseScreen() {
 
   async function handleGetPrescription(diagnosis: DiagnosisEntry) {
     setSelectedDiagnosis(diagnosis);
+    lastPrescriptionDiagnosis.current = diagnosis;
     setLoading(true);
+    setPrescriptionError(false);
     try {
       const res = await apiClient.diagnose.getPrescription(diagnosis.condition, {
         allergies: [],
@@ -58,7 +121,7 @@ export default function DiagnoseScreen() {
       setAlerts(res.alerts);
       setStep('prescription');
     } catch {
-      Alert.alert('Erreur', 'Impossible d\'obtenir la prescription.');
+      setPrescriptionError(true);
     } finally {
       setLoading(false);
     }
@@ -71,6 +134,10 @@ export default function DiagnoseScreen() {
     setSelectedDiagnosis(null);
     setPrescription(null);
     setAlerts([]);
+    setParseFailed(false);
+    setDiagnosisError(false);
+    setPrescriptionError(false);
+    AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
   }
 
   const criticalAlerts = alerts.filter((a) => a.level === 'critical');
@@ -100,6 +167,26 @@ export default function DiagnoseScreen() {
             onAdd={(s) => setSymptoms((prev) => [...prev, s])}
             onRemove={(i) => setSymptoms((prev) => prev.filter((_, idx) => idx !== i))}
           />
+
+          {/* REQ-9.5: Inline error with Retry for diagnosis failure */}
+          {diagnosisError && (
+            <View style={styles.errorBanner} accessibilityRole="alert">
+              <Text style={styles.errorText}>
+                {isFrench
+                  ? "Impossible d'obtenir les diagnostics. Vérifiez votre connexion."
+                  : 'Unable to get diagnoses. Check your connection.'}
+              </Text>
+              <TouchableOpacity
+                style={styles.retryButton}
+                onPress={handleGetDiagnoses}
+                accessibilityRole="button"
+                accessibilityLabel={isFrench ? 'Réessayer' : 'Retry'}
+              >
+                <Text style={styles.retryButtonText}>{isFrench ? 'Réessayer' : 'Retry'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <TouchableOpacity
             style={[styles.primaryButton, symptoms.length === 0 && styles.buttonDisabled]}
             onPress={handleGetDiagnoses}
@@ -119,6 +206,18 @@ export default function DiagnoseScreen() {
       {step === 'differential' && (
         <View>
           <Text style={styles.sectionTitle}>Diagnostics différentiels</Text>
+
+          {/* REQ-25.2, 25.3, 25.4: Parse failure warning banner */}
+          {parseFailed && (
+            <View style={styles.parseWarningBanner} accessibilityRole="alert">
+              <Text style={styles.parseWarningText}>
+                {isFrench
+                  ? 'Les résultats diagnostiques peuvent être incomplets ou peu fiables. Veuillez exercer votre jugement clinique.'
+                  : 'Diagnostic results may be incomplete or unreliable. Please exercise clinical judgment.'}
+              </Text>
+            </View>
+          )}
+
           {diagnoses.map((d, i) => (
             <TouchableOpacity
               key={`${d.condition}-${i}`}
@@ -143,6 +242,30 @@ export default function DiagnoseScreen() {
               )}
             </TouchableOpacity>
           ))}
+
+          {/* REQ-9.5: Inline error with Retry for prescription failure */}
+          {prescriptionError && (
+            <View style={styles.errorBanner} accessibilityRole="alert">
+              <Text style={styles.errorText}>
+                {isFrench
+                  ? "Impossible d'obtenir la prescription."
+                  : 'Unable to get the prescription.'}
+              </Text>
+              <TouchableOpacity
+                style={styles.retryButton}
+                onPress={() => {
+                  if (lastPrescriptionDiagnosis.current) {
+                    handleGetPrescription(lastPrescriptionDiagnosis.current);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={isFrench ? 'Réessayer' : 'Retry'}
+              >
+                <Text style={styles.retryButtonText}>{isFrench ? 'Réessayer' : 'Retry'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <TouchableOpacity style={styles.secondaryButton} onPress={handleReset}>
             <Text style={styles.secondaryButtonText}>← Recommencer</Text>
           </TouchableOpacity>
@@ -226,4 +349,21 @@ const styles = StyleSheet.create({
     marginBottom: 12, borderWidth: 1, borderColor: '#fca5a5',
   },
   criticalBlockTitle: { fontSize: 14, fontWeight: '700', color: '#dc2626', marginBottom: 8 },
+  // REQ-9.5: Error banner with retry
+  errorBanner: {
+    backgroundColor: '#fef2f2', borderRadius: 8, padding: 12,
+    marginTop: 12, borderWidth: 1, borderColor: '#fca5a5',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  errorText: { color: '#dc2626', fontSize: 13, flex: 1, marginRight: 8 },
+  retryButton: {
+    backgroundColor: '#dc2626', borderRadius: 6, paddingHorizontal: 14, paddingVertical: 6,
+  },
+  retryButtonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  // REQ-25.2: Parse failure warning banner
+  parseWarningBanner: {
+    backgroundColor: '#fffbeb', borderRadius: 8, padding: 12,
+    marginBottom: 12, borderWidth: 1, borderColor: '#fbbf24',
+  },
+  parseWarningText: { color: '#92400e', fontSize: 13, fontWeight: '500' },
 });

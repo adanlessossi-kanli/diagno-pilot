@@ -74,7 +74,7 @@ def test_p10_valid_diagnoses_do_not_raise(diagnoses: list[DifferentialDiagnosis]
     **Validates: Requirements 6.1, 6.3, 6.4**
     """
     parser = DiagnosticParser()
-    result = parser.parse(_make_json_answer(diagnoses))
+    result, parse_failed = parser.parse(_make_json_answer(diagnoses))
     assert len(result) >= 3
     for d in result:
         assert d.condition and d.condition.strip()
@@ -93,8 +93,9 @@ def test_p10_empty_list_returns_placeholders():
     **Validates: Requirements 6.1**
     """
     parser = DiagnosticParser()
-    result = parser.parse("[]")
+    result, parse_failed = parser.parse("[]")
     assert len(result) == 3
+    assert parse_failed is True
     for d in result:
         assert d.probability == 0.0
         assert d.icd_code is None
@@ -127,7 +128,7 @@ def test_p10_out_of_range_probability_is_clamped():
         {"condition": "C", "probability": 0.5, "icd_code": None},
     ]
     parser = DiagnosticParser()
-    result = parser.parse(json.dumps(entries))
+    result, _parse_failed = parser.parse(json.dumps(entries))
     for d in result:
         assert 0.0 <= d.probability <= 1.0
 
@@ -149,7 +150,7 @@ def test_p10_invalid_icd_code_is_nullified():
         {"condition": "C", "probability": 0.3, "icd_code": "123"},
     ]
     parser = DiagnosticParser()
-    result = parser.parse(json.dumps(entries))
+    result, _parse_failed = parser.parse(json.dumps(entries))
     for d in result:
         if d.icd_code is not None:
             assert _re.match(r"^[A-Z][0-9]{2}(\.[0-9]{1,4})?$", d.icd_code)

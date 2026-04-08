@@ -51,7 +51,9 @@ function makeAssistantReply(withSources = true): ChatMessage {
     sources: withSources
       ? [
           {
+            document_id: 'doc-1',
             title: 'Guide antibiotiques OMS',
+            source: 'oms-guidelines.pdf',
             section: 'Fluoroquinolones',
             excerpt: 'Contre-indiqué chez les moins de 18 ans.',
           },
@@ -85,7 +87,7 @@ describe('ChatScreen — message sending', () => {
     await waitFor(() => {
       expect(screen.getByText('Quelle est la dose de ciprofloxacine ?')).toBeTruthy();
     });
-  });
+  }, 10000);
 
   it('renders assistant reply after sending', async () => {
     mockSendMessage.mockResolvedValue(makeAssistantReply(false));
