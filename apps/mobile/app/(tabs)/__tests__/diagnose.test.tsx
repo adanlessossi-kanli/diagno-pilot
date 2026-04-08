@@ -67,6 +67,16 @@ jest.mock('../../../src/contexts/AuthContext', () => ({
   }),
 }));
 
+jest.mock('../../../src/contexts/I18nContext', () => ({
+  useI18n: () => ({
+    locale: 'fr-TG',
+    setLocale: jest.fn(),
+    t: (key: string) => key,
+    cacheVersion: 0,
+  }),
+}));
+
+
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const mockDiagnoses = [

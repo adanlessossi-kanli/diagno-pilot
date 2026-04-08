@@ -123,6 +123,7 @@
     "sources": "Sources",
     "fallbackWarning": "Certains résultats ont été produits par le modèle de secours. Vérification clinique recommandée.",
     "degradedWarning": "Mode dégradé : certains agents n'ont pas pu contribuer.",
+    "parseFailedWarning": "Les résultats diagnostiques peuvent être incomplets ou peu fiables. Veuillez exercer votre jugement clinique.",
     "confidenceScore": "Score de confiance",
     "agentContributions": "Contributions des agents",
     "agentName": "Agent",
@@ -150,6 +151,8 @@
       "title": "Prescription antibiotique",
       "getPrescription": "Obtenir la prescription",
       "selectAntibiotic": "Sélectionner un antibiotique",
+      "recommendedAntibiotics": "Recommandés pour ce diagnostic",
+      "otherAntibiotics": "Autres antibiotiques",
       "loadingPrescription": "Génération de la prescription...",
       "errorPrescription": "Erreur lors de la génération de la prescription. Veuillez réessayer.",
       "selectDiagnosis": "Sélectionnez un diagnostic pour obtenir une prescription",
@@ -171,6 +174,10 @@
       "warningAlertsTitle": "Avertissements",
       "infoAlertsTitle": "Informations",
       "noAlerts": "Aucune alerte de sécurité détectée.",
+      "llmPrescriptionHint": "Ce diagnostic ne nécessite pas d'antibiotique. Cliquez pour obtenir une recommandation de traitement adaptée.",
+      "llmPrescriptionTitle": "Recommandation de traitement",
+      "llmPrescriptionDisclaimer": "Cette recommandation est générée par un modèle d'IA. Elle doit être validée par un professionnel de santé avant toute application.",
+      "regenerate": "Régénérer la recommandation",
       "alertType": {
         "allergy": "Allergie",
         "interaction": "Interaction médicamenteuse",
@@ -198,7 +205,10 @@
     "thinking": "L'assistant réfléchit...",
     "newSession": "Nouvelle session",
     "section": "Section",
-    "excerpt": "Extrait"
+    "excerpt": "Extrait",
+    "retry": "Réessayer",
+    "errorSendRetry": "Erreur lors de l'envoi du message.",
+    "loadingHistory": "Chargement de l'historique..."
   },
   "alerts": {
     "critical": "Alerte critique",

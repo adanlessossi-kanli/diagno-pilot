@@ -13,8 +13,9 @@
 4. [Docker Compose Production Override](#4-docker-compose-production-override)
 5. [Horizontal Scaling](#5-horizontal-scaling)
 6. [Bandwidth Optimisation (West African Deployments)](#6-bandwidth-optimisation-west-african-deployments)
-7. [Health Check Endpoint](#7-health-check-endpoint)
-8. [JWT Secret Rotation](#8-jwt-secret-rotation)
+7. [Chat Session TTL and Backfill Migration](#7-chat-session-ttl-and-backfill-migration)
+8. [Health Check Endpoint](#8-health-check-endpoint)
+9. [JWT Secret Rotation](#9-jwt-secret-rotation)
 
 ---
 
@@ -57,6 +58,7 @@ All variables are read by `backend/core/config.py` at startup via `pydantic-sett
 | `CACHE_TTL_INTERACTIONS` | `integer` | `3600` | No | TTL in seconds for interaction cache entries. |
 | `CACHE_TTL_EMBEDDINGS` | `integer` | `86400` | No | TTL in seconds for embedding cache entries. |
 | `CACHE_TTL_RAG` | `integer` | `300` | No | TTL in seconds for RAG result cache entries. |
+| `SOURCE_RELEVANCE_THRESHOLD` | `float` | `0.3` | No | Minimum similarity score for a retrieved chunk to be included in the response `sources` list. Chunks below this threshold are filtered out. Must be ≥ `LLAMAINDEX_SIMILARITY_THRESHOLD`. |
 | `CACHE_KEY_VERSION` | `string` | `v1` | No | Cache key namespace prefix. Increment to invalidate all cached entries during a deployment. |
 
 ### LLM / Embedding
@@ -299,7 +301,47 @@ The pre-built dashboard is already provisioned at `docker/grafana/dashboards/dia
 
 ---
 
-## 7. Health Check Endpoint
+## 7. Chat Session TTL and Backfill Migration
+
+### TTL Index on `chat_sessions.updated_at`
+
+At application startup, a MongoDB TTL index is created on `chat_sessions.updated_at` with an expiry of **90 days** (7,776,000 seconds). This ensures stale chat sessions containing PHI are automatically purged.
+
+```
+Collection: chat_sessions
+Field: updated_at
+expireAfterSeconds: 7776000  (90 × 24 × 3600)
+background: true
+```
+
+The index is created idempotently — if it already exists, MongoDB skips creation.
+
+### `updated_at` Backfill Migration
+
+Before the TTL index is created, a one-time idempotent migration runs at startup to backfill the `updated_at` field on existing `chat_sessions` documents that lack it:
+
+- Documents without `updated_at` receive the value of their `created_at` field.
+- If `created_at` is also missing, the current timestamp is used.
+- The migration logs the number of documents updated.
+- Running the migration multiple times has no effect on documents that already have `updated_at`.
+
+This migration must complete before the TTL index is created to ensure all documents are eligible for expiry.
+
+### Idempotency Key Index on `consultations`
+
+A unique sparse index is created on `consultations.idempotency_key` at startup. This prevents duplicate consultation creation when clients retry diagnosis requests with the same idempotency key.
+
+```
+Collection: consultations
+Field: idempotency_key
+unique: true
+sparse: true  (allows null values)
+background: true
+```
+
+---
+
+## 8. Health Check Endpoint
 
 The backend exposes a `/health` endpoint that probes all downstream dependencies and returns a summary of system health.
 
@@ -360,7 +402,7 @@ upstream backend {
 
 ---
 
-## 8. JWT Secret Rotation
+## 9. JWT Secret Rotation
 
 Rotating `JWT_SECRET` invalidates all existing tokens signed with the old secret. To rotate without forcing all users to log out immediately, follow a two-phase rolling rotation.
 

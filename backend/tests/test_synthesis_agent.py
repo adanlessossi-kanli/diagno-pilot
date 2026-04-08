@@ -526,3 +526,141 @@ def test_property_mcp_11_fallback_disclaimer_absent(
         f"disclaimer must be None when no agent has fallback_used=True, "
         f"got: {result.disclaimer!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Strategies for symptom-aware differential diagnoses
+# ---------------------------------------------------------------------------
+
+_st_symptom_name = st.text(
+    min_size=1, max_size=30,
+    alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd", "Zs")),
+)
+
+_st_differential_diagnosis_with_symptoms = st.builds(
+    DifferentialDiagnosis,
+    condition=_st_condition,
+    probability=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+    icd_code=st.none(),
+    matching_symptoms=st.lists(_st_symptom_name, min_size=0, max_size=5),
+)
+
+_st_agent_result_with_symptoms = st.builds(
+    AgentResult,
+    agent_name=st.text(min_size=1, max_size=30),
+    sub_question=st.text(min_size=1, max_size=100),
+    chunks=st.lists(st.just({"content": "chunk"}), min_size=1, max_size=5),
+    confidence_score=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+    partial_differential=st.lists(_st_differential_diagnosis_with_symptoms, min_size=1, max_size=5),
+    timed_out=st.just(False),
+    omitted=st.just(False),
+)
+
+
+# ---------------------------------------------------------------------------
+# Feature: chat-diagnosis-improvements, Property 9: Synthesis agent merge correctness
+# ---------------------------------------------------------------------------
+
+# **Validates: Requirements 15.1, 15.2, 15.3**
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    agents=st.lists(_st_agent_result_with_symptoms, min_size=2, max_size=4),
+    shared_condition=_st_condition,
+    symptoms_a=st.lists(_st_symptom_name, min_size=1, max_size=5),
+    symptoms_b=st.lists(_st_symptom_name, min_size=1, max_size=5),
+    prob_a=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+    prob_b=st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+)
+def test_property_9_synthesis_agent_merge_correctness(
+    agents: list[AgentResult],
+    shared_condition: str,
+    symptoms_a: list[str],
+    symptoms_b: list[str],
+    prob_a: float,
+    prob_b: float,
+) -> None:
+    """Validates: Requirements 15.1, 15.2, 15.3
+
+    When two agents return the same condition (case-insensitive), the merged
+    result must:
+    1. Contain the condition exactly once (Req 15.3 — deduplication).
+    2. Have the highest probability among all occurrences (Req 15.3).
+    3. Have matching_symptoms that are the case-insensitive union of all
+       contributing agents' symptoms (Req 15.1, 15.2).
+    """
+    shared_key = shared_condition.strip().lower()
+
+    # Assign unique agent names
+    for i, agent in enumerate(agents):
+        agent.agent_name = f"agent_{i}"
+
+    # Inject the shared condition into the first two agents with distinct symptoms
+    diag_a = DifferentialDiagnosis(
+        condition=shared_condition,
+        probability=prob_a,
+        matching_symptoms=symptoms_a,
+    )
+    diag_b = DifferentialDiagnosis(
+        condition=shared_condition,
+        probability=prob_b,
+        matching_symptoms=symptoms_b,
+    )
+    agents[0].partial_differential = [diag_a] + [
+        d for d in agents[0].partial_differential
+        if d.condition.strip().lower() != shared_key
+    ]
+    agents[1].partial_differential = [diag_b] + [
+        d for d in agents[1].partial_differential
+        if d.condition.strip().lower() != shared_key
+    ]
+    # Strip the shared condition from remaining agents so only prob_a/prob_b
+    # are in play for the merge assertion.
+    for agent in agents[2:]:
+        agent.partial_differential = [
+            d for d in agent.partial_differential
+            if d.condition.strip().lower() != shared_key
+        ]
+
+    synth = Synthesis_Agent()
+    result = synth.synthesize(agents)
+
+    # Filter out placeholder diagnostics
+    non_placeholder = [
+        d for d in result.diagnoses
+        if not d.condition.startswith("Diagnostic différentiel")
+    ]
+
+    # Property 1: condition appears exactly once
+    matches = [d for d in non_placeholder if d.condition.strip().lower() == shared_key]
+    assert len(matches) == 1, (
+        f"Expected exactly 1 entry for '{shared_condition}', "
+        f"got {len(matches)} in {[d.condition for d in non_placeholder]}"
+    )
+
+    merged = matches[0]
+
+    # Property 2: highest probability is kept (Req 15.3)
+    expected_prob = max(prob_a, prob_b)
+    assert merged.probability == expected_prob, (
+        f"Expected probability {expected_prob} for '{shared_condition}', "
+        f"got {merged.probability}"
+    )
+
+    # Property 3: matching_symptoms is the case-insensitive union (Req 15.1, 15.2)
+    merged_symptom_keys = {s.strip().lower() for s in merged.matching_symptoms}
+    expected_symptom_keys = {
+        s.strip().lower() for s in symptoms_a + symptoms_b if s.strip()
+    }
+    assert merged_symptom_keys == expected_symptom_keys, (
+        f"Expected symptom keys {expected_symptom_keys}, "
+        f"got {merged_symptom_keys}"
+    )
+
+    # Property 4: no duplicate symptom names (case-insensitive) (Req 15.2)
+    seen_keys = set()
+    for s in merged.matching_symptoms:
+        key = s.strip().lower()
+        assert key not in seen_keys, (
+            f"Duplicate symptom '{s}' in matching_symptoms: {merged.matching_symptoms}"
+        )
+        seen_keys.add(key)

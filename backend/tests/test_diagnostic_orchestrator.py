@@ -52,7 +52,7 @@ def test_delegation_calls_prompt_builder_with_correct_args():
     )
 
     mock_parser = MagicMock(spec=DiagnosticParser)
-    mock_parser.parse.return_value = _make_diagnoses()
+    mock_parser.parse.return_value = (_make_diagnoses(), False)
 
     orchestrator = DiagnosticOrchestrator(
         rag_service=mock_rag,
@@ -78,7 +78,7 @@ def test_delegation_calls_rag_with_prompt_from_builder():
     )
 
     mock_parser = MagicMock(spec=DiagnosticParser)
-    mock_parser.parse.return_value = _make_diagnoses()
+    mock_parser.parse.return_value = (_make_diagnoses(), False)
 
     orchestrator = DiagnosticOrchestrator(
         rag_service=mock_rag,
@@ -111,7 +111,7 @@ def test_delegation_calls_parser_with_rag_answer():
     )
 
     mock_parser = MagicMock(spec=DiagnosticParser)
-    mock_parser.parse.return_value = _make_diagnoses()
+    mock_parser.parse.return_value = (_make_diagnoses(), False)
 
     orchestrator = DiagnosticOrchestrator(
         rag_service=mock_rag,
@@ -121,7 +121,7 @@ def test_delegation_calls_parser_with_rag_answer():
 
     asyncio.run(orchestrator.get_differential_diagnosis(symptoms, None))
 
-    mock_parser.parse.assert_called_once_with(rag_answer)
+    mock_parser.parse.assert_called_once_with(rag_answer, locale="fr-TG")
 
 
 def test_delegation_returns_parser_result():
@@ -138,7 +138,7 @@ def test_delegation_returns_parser_result():
     )
 
     mock_parser = MagicMock(spec=DiagnosticParser)
-    mock_parser.parse.return_value = expected
+    mock_parser.parse.return_value = (expected, False)
 
     orchestrator = DiagnosticOrchestrator(
         rag_service=mock_rag,
@@ -230,11 +230,11 @@ def _make_orchestrator_with_mock_db():
 
     mock_parser = MagicMock(spec=DiagnosticParser)
     from backend.models.consultation import DifferentialDiagnosis
-    mock_parser.parse.return_value = [
+    mock_parser.parse.return_value = ([
         DifferentialDiagnosis(condition="Malaria", probability=0.8, icd_code="B54"),
         DifferentialDiagnosis(condition="Typhoid", probability=0.5, icd_code="A01.0"),
         DifferentialDiagnosis(condition="Dengue", probability=0.3, icd_code="A90"),
-    ]
+    ], False)
 
     # Mock MongoDB collection
     mock_collection = MagicMock()

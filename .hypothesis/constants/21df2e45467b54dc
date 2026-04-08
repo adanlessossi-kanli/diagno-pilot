@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\chat.py
+# hypothesis_version: 6.151.9
+
+[100, 200, 4000, '/chat', '/message', '/sessions', '60/minute', 'Session deleted', '_id', 'admin', 'before', 'chat', 'content', 'created_at', 'detail', 'guest', 'infirmière', 'medecin', 'message', 'messages', 'patient_context', 'role', 'session_id', 'total_messages', 'updated_at']

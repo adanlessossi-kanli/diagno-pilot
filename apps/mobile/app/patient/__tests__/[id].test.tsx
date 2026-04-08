@@ -147,7 +147,12 @@ describe('PatientDetailScreen — required fields', () => {
 describe('Property 17 — Mobile patient detail renders required fields', () => {
   it('fc.property: any patient with non-null full_name, weight_kg, allergies → all displayed', async () => {
     const patientArb = fc.record({
-      fullName: fc.string({ minLength: 2, maxLength: 40 }).filter(s => s.trim().length > 0),
+      fullName: fc.string({ minLength: 2, maxLength: 40 }).filter(s => {
+        const t = s.trim();
+        // Require at least 2 chars after trim and at least one letter to avoid
+        // short punctuation-only names that collide with UI elements
+        return t.length >= 2 && /[a-zA-Z]/.test(t);
+      }),
       weightKg: fc.float({ min: 1, max: 200, noNaN: true }),
       allergies: fc.array(
         fc.string({ minLength: 1, maxLength: 20 }).filter(s => s.trim().length > 0),
@@ -171,8 +176,8 @@ describe('Property 17 — Mobile patient detail renders required fields', () => 
         const { unmount } = render(<PatientDetailScreen />);
 
         await waitFor(() => {
-          // Full name is displayed
-          expect(screen.getByText(trimmedName)).toBeTruthy();
+          // Full name is displayed (use getAllByText in case name appears in multiple places)
+          expect(screen.getAllByText(trimmedName).length).toBeGreaterThanOrEqual(1);
 
           // Weight is displayed
           expect(screen.getByText(`${roundedWeight} kg`)).toBeTruthy();

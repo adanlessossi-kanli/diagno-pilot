@@ -74,14 +74,23 @@ flowchart TD
     N --> O([RAGResponse\nanswer · sources · confidence_score\ngrounding_warning si dégradé])
 ```
 
+### Filtrage de pertinence des sources
+
+Après la récupération et le re-ranking des chunks, le pipeline applique un second seuil de pertinence (`SOURCE_RELEVANCE_THRESHOLD`, défaut `0.3`) pour filtrer les sources incluses dans la réponse. Ce seuil opère au niveau de la réponse et est supérieur ou égal au seuil de récupération (`SIMILARITY_THRESHOLD`), garantissant que seuls les chunks les plus pertinents sont présentés au clinicien.
+
+- Les chunks dont le score est inférieur à `SOURCE_RELEVANCE_THRESHOLD` sont exclus de la liste `sources` dans la `RAGResponse`.
+- Lorsqu'aucun chunk ne dépasse le seuil, la liste `sources` est vide (le LLM peut toujours générer une réponse à partir de ses connaissances).
+- Le frontend masque le panneau « Sources » lorsque la liste est vide.
+
 ### Constantes clés
 
 | Constante | Valeur |
 |-----------|--------|
 | `SIMILARITY_THRESHOLD` | `0.75` |
+| `SOURCE_RELEVANCE_THRESHOLD` | `0.3` |
 | `NO_CONTEXT_MESSAGE` | `"Information non disponible dans la base de connaissances."` |
 | Modèle CrossEncoder | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
-| Historique de session | 5 derniers messages (user + assistant) |
+| Historique de session | 20 derniers messages (user + assistant) |
 | RRF k | `60` |
 
 ---
@@ -358,6 +367,26 @@ Stocke les sessions diagnostiques persistées, liées à un praticien et optionn
 **Index :**
 - `mcp_session_id` (sparse)
 - `{ user_id: 1, created_at: -1 }` (historique praticien)
+- `idempotency_key` (unique, sparse) — pour la déduplication des requêtes diagnostiques
+
+### Idempotence des requêtes diagnostiques
+
+Le modèle `DiagnoseRequest` accepte un champ optionnel `idempotency_key` (généré côté client). Lorsqu'une clé est fournie :
+
+1. Le routeur vérifie si une consultation avec la même `idempotency_key` existe déjà dans MongoDB.
+2. Si oui, la réponse existante est retournée avec HTTP 200 — aucune nouvelle consultation n'est créée.
+3. Si non, la consultation est créée normalement et la clé est stockée dans le document.
+
+Un index unique sparse sur `idempotency_key` garantit l'unicité tout en permettant les valeurs nulles (requêtes sans clé d'idempotence).
+
+### Persistance unique des consultations (chemin MCP)
+
+Sur le chemin MCP, la consultation est persistée une seule fois par `DiagnosticOrchestrator._create_mcp_consultation`. Le `DiagnosticResult` inclut un flag `consultation_persisted` :
+
+- `True` lorsque le chemin MCP a déjà écrit la consultation → le routeur saute son propre `insert_one`.
+- `False` (défaut) pour les chemins RAG et AgentPipeline → le routeur effectue l'écriture comme avant.
+
+Cela évite les doublons de consultations sur le chemin MCP.
 
 ---
 

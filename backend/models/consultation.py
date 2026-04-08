@@ -8,7 +8,7 @@ from .alert import SafetyAlert
 
 
 class Symptom(BaseModel):
-    name: str
+    name: str = Field(max_length=200)
     severity: str | None = None
     duration_days: int | None = Field(default=None, ge=0)
 

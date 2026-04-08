@@ -216,6 +216,17 @@ export default function DiagnosePage() {
     return apiClient.diagnose.getPrescription(antibiotic, patientProfile);
   }
 
+  async function handleGetLLMPrescription(condition: string): Promise<string> {
+    const sessionId = `rx-${Date.now()}`;
+    const patientProfile = buildPatientProfile();
+    const patientCtx = patientProfile
+      ? ` Patient: ${patientProfile.allergies?.length ? `allergies: ${patientProfile.allergies.join(', ')}` : 'no known allergies'}.`
+      : '';
+    const prompt = `En tant que médecin, propose un protocole de traitement pour le diagnostic "${condition}".${patientCtx} Inclus les médicaments, posologies, durée et précautions. Réponds de manière structurée.`;
+    const msg = await apiClient.chat.sendMessage(sessionId, prompt, patientProfile ?? undefined);
+    return msg.content;
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -479,14 +490,21 @@ export default function DiagnosePage() {
               <div className="space-y-2" data-testid="warnings-section">
                 {results.fallbackWarning && (
                   <div role="alert" className="bg-orange-50 border-l-4 border-orange-400 p-3 text-sm text-orange-800">
-                    ⚠️ {results.fallbackWarning}
+                    ⚠️ {t('fallbackWarning')}
                   </div>
                 )}
                 {results.degradedWarning && (
                   <div role="alert" className="bg-yellow-50 border-l-4 border-yellow-400 p-3 text-sm text-yellow-800">
-                    ℹ️ {results.degradedWarning}
+                    ℹ️ {t('degradedWarning')}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Parse failure warning banner (Req 25.1, 25.3, 25.4) */}
+            {results.parseFailed && (
+              <div role="alert" data-testid="parse-failed-warning" className="bg-red-50 border-l-4 border-red-500 p-3 text-sm text-red-800">
+                ⚠️ {t('parseFailedWarning')}
               </div>
             )}
 
@@ -612,6 +630,7 @@ export default function DiagnosePage() {
               diagnoses={results.diagnoses}
               antibiotics={antibiotics}
               onGetPrescription={(antibiotic) => handleGetPrescription(antibiotic)}
+              onGetLLMPrescription={(condition) => handleGetLLMPrescription(condition)}
             />
           )}
         </div>

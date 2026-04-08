@@ -33,6 +33,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
   createApiClient: () => ({
     chat: {
       sendMessage: mockSendMessage,
+      getHistory: vi.fn().mockResolvedValue(null),
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),

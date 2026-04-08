@@ -4,6 +4,7 @@ import time
 import traceback
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import httpx
 from dotenv import load_dotenv
@@ -99,6 +100,34 @@ async def lifespan(app: FastAPI):
     # Ensure unique index on users.email
     await _db["users"].create_index("email", unique=True, background=True)
     logger.info("users.email unique index ensured")
+
+    # --- Req 26: Backfill updated_at on existing chat_sessions (idempotent) ---
+    backfill_result = await _db["chat_sessions"].update_many(
+        {"updated_at": {"$exists": False}},
+        [{"$set": {"updated_at": {"$ifNull": ["$created_at", datetime.now(timezone.utc)]}}}],
+    )
+    if backfill_result.modified_count > 0:
+        logger.info(
+            "Backfilled updated_at on %d chat_sessions documents",
+            backfill_result.modified_count,
+        )
+
+    # --- Req 7.1: TTL index on chat_sessions.updated_at (90 days) ---
+    await _db["chat_sessions"].create_index(
+        "updated_at",
+        expireAfterSeconds=90 * 24 * 3600,
+        background=True,
+    )
+    logger.info("chat_sessions TTL index ensured")
+
+    # --- Req 20.4: Unique sparse index on consultations.idempotency_key ---
+    await _db["consultations"].create_index(
+        "idempotency_key",
+        unique=True,
+        sparse=True,
+        background=True,
+    )
+    logger.info("consultations.idempotency_key unique index ensured")
 
     # Ensure vector search index on document_chunks for RAG (Atlas-only feature)
     try:

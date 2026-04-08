@@ -19,6 +19,7 @@ export interface PrescriptionStepProps {
   diagnoses: DiagnosisEntry[];
   antibiotics: string[];
   onGetPrescription: (antibiotic: string) => Promise<PrescriptionResponse>;
+  onGetLLMPrescription: (condition: string) => Promise<string>;
 }
 
 // ─── Alert level helpers ──────────────────────────────────────────────────────
@@ -99,17 +100,88 @@ function AlertItem({ alert }: { alert: SafetyAlert }) {
   );
 }
 
+// ─── Condition → recommended antibiotics mapping ──────────────────────────────
+
+/** Maps condition keywords (lowercase) to recommended antibiotic protocol names.
+ *  When a diagnosis matches, these antibiotics are shown first in the selector. */
+const CONDITION_ANTIBIOTICS: Record<string, string[]> = {
+  // Bacterial infections
+  'pneumoni':       ['amoxicillin', 'amoxicillin-clavulanate', 'azithromycin', 'ceftriaxone'],
+  'bronchit':       ['amoxicillin', 'azithromycin', 'doxycycline'],
+  'otit':           ['amoxicillin', 'amoxicillin-clavulanate', 'azithromycin'],
+  'sinusit':        ['amoxicillin', 'amoxicillin-clavulanate'],
+  'angine':         ['amoxicillin', 'penicillin-v', 'azithromycin'],
+  'pharyngit':      ['amoxicillin', 'penicillin-v', 'azithromycin'],
+  'tonsill':        ['amoxicillin', 'penicillin-v', 'azithromycin'],
+  // Tropical / West African
+  'typho':          ['ciprofloxacin', 'ceftriaxone', 'azithromycin', 'cotrimoxazole'],
+  'fièvre typhoïde':['ciprofloxacin', 'ceftriaxone', 'azithromycin'],
+  'typhoid':        ['ciprofloxacin', 'ceftriaxone', 'azithromycin'],
+  'méningit':       ['ceftriaxone', 'amoxicillin', 'gentamicin'],
+  'meningit':       ['ceftriaxone', 'amoxicillin', 'gentamicin'],
+  'dysenteri':      ['ciprofloxacin', 'azithromycin', 'cotrimoxazole'],
+  'shigell':        ['ciprofloxacin', 'azithromycin', 'ceftriaxone'],
+  'cholera':        ['doxycycline', 'azithromycin', 'ciprofloxacin'],
+  'choléra':        ['doxycycline', 'azithromycin', 'ciprofloxacin'],
+  // Urinary / GI
+  'urinair':        ['ciprofloxacin', 'cotrimoxazole', 'amoxicillin-clavulanate', 'ceftriaxone'],
+  'urinary':        ['ciprofloxacin', 'cotrimoxazole', 'amoxicillin-clavulanate', 'ceftriaxone'],
+  'cystit':         ['ciprofloxacin', 'cotrimoxazole', 'amoxicillin-clavulanate'],
+  'pyélonéphrit':   ['ceftriaxone', 'ciprofloxacin', 'gentamicin'],
+  'pyelonephrit':   ['ceftriaxone', 'ciprofloxacin', 'gentamicin'],
+  'gastro':         ['azithromycin', 'ciprofloxacin', 'metronidazole'],
+  'diarrh':         ['azithromycin', 'ciprofloxacin', 'cotrimoxazole'],
+  // Parasitic (antibiotics as adjunct)
+  'amibiase':       ['metronidazole'],
+  'amoebiasis':     ['metronidazole'],
+  'giardia':        ['metronidazole'],
+  // Skin / soft tissue
+  'cellulite':      ['amoxicillin-clavulanate', 'ceftriaxone'],
+  'cellulitis':     ['amoxicillin-clavulanate', 'ceftriaxone'],
+  'abcès':          ['amoxicillin-clavulanate', 'metronidazole'],
+  'abscess':        ['amoxicillin-clavulanate', 'metronidazole'],
+  // Sepsis
+  'sepsis':         ['ceftriaxone', 'gentamicin', 'metronidazole'],
+  'septicémi':      ['ceftriaxone', 'gentamicin', 'metronidazole'],
+};
+
+/** Return recommended antibiotics for a condition, falling back to the full list. */
+function getRecommendedAntibiotics(condition: string, allAntibiotics: string[]): { recommended: string[]; others: string[] } {
+  const lower = condition.toLowerCase();
+  for (const [keyword, recs] of Object.entries(CONDITION_ANTIBIOTICS)) {
+    if (lower.includes(keyword)) {
+      const available = recs.filter((r) => allAntibiotics.includes(r));
+      if (available.length > 0) {
+        const others = allAntibiotics.filter((a) => !available.includes(a));
+        return { recommended: available, others };
+      }
+    }
+  }
+  return { recommended: [], others: allAntibiotics };
+}
+
+/** Check if a condition is known to need antibiotics. */
+function needsAntibiotics(condition: string): boolean {
+  const lower = condition.toLowerCase();
+  return Object.keys(CONDITION_ANTIBIOTICS).some((kw) => lower.includes(kw));
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: PrescriptionStepProps) {
+export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription, onGetLLMPrescription }: PrescriptionStepProps) {
   const t = useTranslations('diagnose.prescriptionStep');
   const tCommon = useTranslations('common');
 
   const [selectedDiagnosisIndex, setSelectedDiagnosisIndex] = useState<number>(0);
-  const [selectedAntibiotic, setSelectedAntibiotic] = useState<string>(antibiotics[0] ?? '');
+  const selectedCondition = diagnoses[selectedDiagnosisIndex]?.condition ?? '';
+  const isAntibioticCase = needsAntibiotics(selectedCondition);
+  const { recommended, others } = getRecommendedAntibiotics(selectedCondition, antibiotics);
+  const effectiveList = [...recommended, ...others];
+  const [selectedAntibiotic, setSelectedAntibiotic] = useState<string>(effectiveList[0] ?? '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [prescriptionData, setPrescriptionData] = useState<PrescriptionResponse | null>(null);
+  const [llmPrescription, setLlmPrescription] = useState<string | null>(null);
   const [criticalConfirmed, setCriticalConfirmed] = useState(false);
 
   const criticalAlerts = prescriptionData?.alerts.filter((a) => a.level === 'critical') ?? [];
@@ -125,11 +197,17 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
   async function handleGetPrescription() {
     setError('');
     setPrescriptionData(null);
+    setLlmPrescription(null);
     setCriticalConfirmed(false);
     setLoading(true);
     try {
-      const result = await onGetPrescription(selectedAntibiotic);
-      setPrescriptionData(result);
+      if (isAntibioticCase) {
+        const result = await onGetPrescription(selectedAntibiotic);
+        setPrescriptionData(result);
+      } else {
+        const result = await onGetLLMPrescription(selectedCondition);
+        setLlmPrescription(result);
+      }
     } catch {
       setError(t('errorPrescription'));
     } finally {
@@ -147,8 +225,14 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
         <select
           value={selectedDiagnosisIndex}
           onChange={(e) => {
-            setSelectedDiagnosisIndex(Number(e.target.value));
+            const newIndex = Number(e.target.value);
+            setSelectedDiagnosisIndex(newIndex);
+            const newCondition = diagnoses[newIndex]?.condition ?? '';
+            const { recommended: newRec, others: newOthers } = getRecommendedAntibiotics(newCondition, antibiotics);
+            const newList = [...newRec, ...newOthers];
+            setSelectedAntibiotic(newList[0] ?? '');
             setPrescriptionData(null);
+            setLlmPrescription(null);
             setCriticalConfirmed(false);
             setError('');
           }}
@@ -165,27 +249,47 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
         </select>
       </div>
 
-      {/* Antibiotic selector */}
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700">{t('selectAntibiotic')}</label>
-        <select
-          value={selectedAntibiotic}
-          onChange={(e) => {
-            setSelectedAntibiotic(e.target.value);
-            setPrescriptionData(null);
-            setCriticalConfirmed(false);
-            setError('');
-          }}
-          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {antibiotics.map((ab) => (
-            <option key={ab} value={ab}>{ab}</option>
-          ))}
-        </select>
-      </div>
+      {/* Antibiotic selector — only for bacterial conditions */}
+      {isAntibioticCase && (
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">{t('selectAntibiotic')}</label>
+          <select
+            value={selectedAntibiotic}
+            onChange={(e) => {
+              setSelectedAntibiotic(e.target.value);
+              setPrescriptionData(null);
+              setCriticalConfirmed(false);
+              setError('');
+            }}
+            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {recommended.length > 0 && (
+              <optgroup label={t('recommendedAntibiotics')}>
+                {recommended.map((ab) => (
+                  <option key={ab} value={ab}>★ {ab}</option>
+                ))}
+              </optgroup>
+            )}
+            {others.length > 0 && (
+              <optgroup label={recommended.length > 0 ? t('otherAntibiotics') : ''}>
+                {others.map((ab) => (
+                  <option key={ab} value={ab}>{ab}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </div>
+      )}
+
+      {/* Non-antibiotic hint */}
+      {!isAntibioticCase && (
+        <div className="bg-blue-50 border border-blue-200 rounded px-4 py-3 text-sm text-blue-800">
+          💊 {t('llmPrescriptionHint')}
+        </div>
+      )}
 
       {/* Get prescription button */}
-      {!prescriptionData && (
+      {!prescriptionData && !llmPrescription && (
         <button
           type="button"
           onClick={() => void handleGetPrescription()}
@@ -203,7 +307,30 @@ export function PrescriptionStep({ diagnoses, antibiotics, onGetPrescription }: 
         </p>
       )}
 
-      {/* Prescription result */}
+      {/* LLM-generated treatment recommendation */}
+      {llmPrescription && (
+        <div className="space-y-3">
+          <div className="border rounded-lg p-5 bg-white space-y-3">
+            <h3 className="text-lg font-bold text-gray-900">{t('llmPrescriptionTitle')}</h3>
+            <div className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+              {llmPrescription}
+            </div>
+          </div>
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            ⚠️ {t('llmPrescriptionDisclaimer')}
+          </p>
+          <button
+            type="button"
+            onClick={() => { setLlmPrescription(null); void handleGetPrescription(); }}
+            disabled={loading}
+            className="text-sm text-blue-600 hover:underline disabled:opacity-50"
+          >
+            {t('regenerate')}
+          </button>
+        </div>
+      )}
+
+      {/* Antibiotic prescription result */}
       {prescriptionData && (
         <div className="space-y-5">
           {/* Prescription details */}

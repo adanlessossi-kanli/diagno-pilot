@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\diagnose.py
+# hypothesis_version: 6.151.9
+
+['$set', '/antibiotics', '/diagnose', '/prescription', '/symptoms', '30/minute', 'Session not found', '_id', 'admin', 'agent_contributions', 'alerts', 'confidence_score', 'consultations', 'created_at', 'degraded_warning', 'diagnose', 'diagnoses', 'evidence_citations', 'fallback_warning', 'find_one', 'fr-TG', 'idempotency_key', 'infirmière', 'insert_one', 'is_one_shot', 'llm_used', 'locale', 'mcp_session_id', 'medecin', 'model_dump', 'parse_failed', 'patient_id', 'prescription', 'region', 'role', 'session_id', 'symptoms', 'update_one', 'user_id', 'warnings_present']

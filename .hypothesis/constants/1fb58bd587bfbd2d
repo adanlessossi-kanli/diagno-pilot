@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\mcp_host.py
+# hypothesis_version: 6.151.9
+
+[0.0, 5.0, 120, 200, '2.0', 'Content-Type', 'application/json', 'arguments', 'chunks', 'confidence_score', 'data:', 'description', 'epidemiology', 'error', 'fallback_used', 'id', 'jsonrpc', 'lab', 'locale', 'method', 'name', 'params', 'partial_differential', 'patient_profile', 'prompts', 'prompts/get', 'prompts/list', 'region', 'resources', 'resources/list', 'resources/read', 'result', 'sub_question', 'symptomatology', 'symptoms', 'tools', 'tools/call', 'tools/list', 'treatment', 'uri']

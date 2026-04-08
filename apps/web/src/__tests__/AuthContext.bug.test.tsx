@@ -72,13 +72,14 @@ describe('Bug 1.9 — Wrong post-login redirect for admin', () => {
   it('admin login redirects to /fr (not /fr/admin)', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
       .mockResolvedValueOnce({
         id: 'admin1',
         email: 'admin@test.com',
         fullName: 'Admin',
         role: 'admin',
         locale: 'fr',
-      }); // after login (mount skips — no cookie)
+      }); // after login
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -95,13 +96,14 @@ describe('Bug 1.9 — Wrong post-login redirect for admin', () => {
   it('medecin login redirects to /fr (already correct, baseline)', async () => {
     mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
     mockMe
+      .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
       .mockResolvedValueOnce({
         id: 'doc1',
         email: 'doc@test.com',
         fullName: 'Dr Test',
         role: 'medecin',
         locale: 'fr',
-      }); // after login (mount skips — no cookie)
+      }); // after login
 
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -135,13 +137,14 @@ describe('Bug 1.9 — Property: all roles redirect to /${locale} after login', (
 
           mockLogin.mockResolvedValue({ token_type: 'bearer', expires_in: 900 });
           mockMe
+            .mockRejectedValueOnce(Object.assign(new Error('no session'), { status: 401 })) // mount
             .mockResolvedValueOnce({
               id: 'user1',
               email: `${role}@test.com`,
               fullName: 'Test User',
               role,
               locale: 'fr',
-            }); // after login (mount skips — no cookie)
+            }); // after login
 
           const { result, unmount } = renderHook(() => useAuth(), { wrapper });
           await waitFor(() => expect(result.current.isLoading).toBe(false));

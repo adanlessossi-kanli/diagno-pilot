@@ -56,6 +56,7 @@ function renderComponent(onGetPrescription: () => Promise<PrescriptionResponse>)
       diagnoses={mockDiagnoses}
       antibiotics={['Amoxicillin', 'Azithromycin']}
       onGetPrescription={onGetPrescription}
+      onGetLLMPrescription={() => Promise.resolve('Test LLM prescription')}
     />,
   );
 }

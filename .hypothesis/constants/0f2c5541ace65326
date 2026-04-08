@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\chat_service.py
+# hypothesis_version: 6.151.9
+
+['$each', '$match', '$messages', '$project', '$push', '$set', '$setOnInsert', '$size', '$slice', '_id', 'aggregate', 'assistant', 'chat_sessions', 'content', 'created_at', 'delete_one', 'find', 'find_one', 'id', 'messages', 'patient_context', 'role', 'session_id', 'sources', 'timestamp', 'total', 'total_messages', 'update_one', 'updated_at', 'user', 'user_id']

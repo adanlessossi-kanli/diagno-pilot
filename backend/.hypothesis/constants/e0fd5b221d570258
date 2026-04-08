@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\agents\mcp_servers\lab_server.py
+# hypothesis_version: 6.151.9
+
+[0.0, 500, '$regex', '8003', 'CHU|MSF', 'Laboratory Documents', 'Retrieval error: %s', 'SERVER_PORT', '__main__', 'agent_name', 'application/json', 'array', 'chunks', 'condition', 'confidence_score', 'content', 'description', 'document_chunks', 'document_id', 'duration_days', 'excerpt', 'fallback_used', 'icd_code', 'integer', 'items', 'lab', 'lab_query', 'locale', 'matching_symptoms', 'metadata', 'metadata.source', 'name', 'nullable', 'object', 'page', 'partial_differential', 'patient_profile', 'probability', 'properties', 'query_lab', 'region', 'required', 'score', 'severity', 'source', 'string', 'sub_question', 'symptoms', 'text', 'title', 'type']

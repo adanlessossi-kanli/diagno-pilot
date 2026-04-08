@@ -9,6 +9,7 @@ Implements Requirements 4.7, 4.8.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from typing import Any
 
@@ -31,6 +32,8 @@ NO_CONTEXT_MESSAGE = "Information non disponible dans la base de connaissances."
 
 GROUNDING_SYSTEM_PROMPT = (
     "Tu es un assistant médical spécialisé en maladies tropicales et médecine générale. "
+    "Détecte la langue du message de l'utilisateur et réponds dans cette même langue. "
+    "En cas d'ambiguïté (mot unique, texte mixte), utilise la langue de la locale fournie. "
     "Réponds en priorité en te basant sur les passages de documents fournis ci-dessous. "
     "Si les passages fournis ne contiennent pas d'information pertinente, tu peux utiliser "
     "tes connaissances médicales pour répondre, mais uniquement pour des questions médicales "
@@ -110,7 +113,7 @@ class LlamaIndexPipeline:
             A ``RAGResponse`` with answer, sources, llm_used, confidence, etc.
         """
         # --- Cache lookup (RAG responses: 5 min TTL) ---
-        cache_key = self._build_cache_key(question, context, region)
+        cache_key = self._build_cache_key(question, context, region, session_history=session_history)
         cached = await cache_service.get(cache_key)
         if cached is not None:
             cache_hits_total.labels(cache="rag").inc()
@@ -184,8 +187,15 @@ class LlamaIndexPipeline:
             for c in top_chunks
         ]
 
+        # Req 10.1–10.4: Filter sources by relevance threshold
+        source_threshold = settings.SOURCE_RELEVANCE_THRESHOLD
+        sources = [
+            s for s, c in zip(sources, top_chunks)
+            if float(c.get("ce_score", c.get("score", 0.0))) >= source_threshold
+        ]
+
         # --- Build LLM context ---
-        llm_context: list[dict[str, str]] = [
+        llm_context_with_chunks: list[dict[str, str]] = [
             {
                 "role": "system",
                 "content": system_prompt
@@ -198,16 +208,16 @@ class LlamaIndexPipeline:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 if role in ("user", "assistant") and content:
-                    llm_context.append({"role": role, "content": content})
+                    llm_context_with_chunks.append({"role": role, "content": content})
         if context:
-            llm_context.append(
+            llm_context_with_chunks.append(
                 {"role": "system", "content": f"Patient context: {context.model_dump_json()}"}
             )
         for c in top_chunks[:3]:
-            llm_context.append({"role": "system", "content": c.get("content", "")[:300]})
+            llm_context_with_chunks.append({"role": "system", "content": c.get("content", "")[:300]})
 
         # --- Generate answer ---
-        llm_result = await self._llm.generate(question, llm_context)
+        llm_result = await self._llm.generate(question, llm_context_with_chunks)
 
         # --- Confidence score (mean of source chunk scores) ---
         source_scores: list[float] = [
@@ -239,6 +249,7 @@ class LlamaIndexPipeline:
         question: str,
         context: PatientProfile | None,
         region: str | None,
+        session_history: list[dict[str, Any]] | None = None,
     ) -> str:
         q_hash = hashlib.sha256(question.encode()).hexdigest()
         if context is not None:
@@ -248,4 +259,8 @@ class LlamaIndexPipeline:
             identifier = q_hash
         if region and region != "ALL":
             identifier = f"{identifier}:region={region}"
+        if session_history:
+            history_str = json.dumps(session_history, sort_keys=True, default=str)
+            h_hash = hashlib.sha256(history_str.encode()).hexdigest()
+            identifier = f"{identifier}:hist={h_hash}"
         return cache_service.make_key("rag", identifier)

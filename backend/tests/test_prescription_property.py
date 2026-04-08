@@ -25,6 +25,7 @@ from backend.services.alert_service import AlertService
 from backend.services.prescription_service import (
     ANTIBIOTIC_PROTOCOLS,
     PrescriptionService,
+    _PAEDIATRIC_GROUPS,
 )
 
 # ---------------------------------------------------------------------------
@@ -144,4 +145,131 @@ def test_allergy_always_generates_critical_alert(antibiotic: str):
     assert len(critical_alerts) >= 1, (
         f"Expected at least 1 CRITICAL alert for allergy to {antibiotic!r}, "
         f"got alerts: {alerts}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Strategies for dose floor clamping tests
+# ---------------------------------------------------------------------------
+
+all_age_group_strategy = st.sampled_from(list(AgeGroup))
+
+# Weight strategy that covers paediatric and adult ranges
+weight_strategy = st.floats(min_value=0.5, max_value=120.0, allow_nan=False, allow_infinity=False)
+
+# Custom floor percentage (1–100)
+floor_pct_strategy = st.integers(min_value=1, max_value=100)
+
+
+def _make_patient(
+    age_group: AgeGroup,
+    weight_kg: float,
+    renal: bool,
+    hepatic: bool,
+) -> PatientProfile:
+    return PatientProfile(
+        full_name="Test Patient",
+        weight_kg=weight_kg,
+        age_group=age_group,
+        allergies=[],
+        comorbidities=Comorbidities(renal_failure=renal, hepatic_failure=hepatic),
+        current_medications=[],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Property 11 : Prescription dose floor clamping
+# ---------------------------------------------------------------------------
+
+@given(
+    antibiotic=antibiotic_strategy,
+    age_group=all_age_group_strategy,
+    weight_kg=weight_strategy,
+)
+@h_settings(max_examples=300)
+def test_dose_floor_clamping_when_both_failures(
+    antibiotic: str,
+    age_group: AgeGroup,
+    weight_kg: float,
+):
+    """
+    **Property 11 — both failures present**
+    **Validates: Requirements 17.1, 17.2, 17.4**
+
+    When both renal and hepatic failure are present, the final dose must be
+    at least pre_adjustment_dose × (min_dose_floor_pct / 100).
+    """
+    protocol = ANTIBIOTIC_PROTOCOLS[antibiotic]
+    service = PrescriptionService()
+    patient = _make_patient(age_group, weight_kg, renal=True, hepatic=True)
+
+    rx = asyncio.run(service.calculate_prescription(antibiotic=antibiotic, patient=patient))
+
+    # Compute expected pre-adjustment dose
+    is_paediatric = age_group in _PAEDIATRIC_GROUPS
+    if is_paediatric:
+        raw_dose = protocol.paediatric_dose_per_kg * weight_kg
+        pre_adj = min(raw_dose, protocol.adult_max_dose_mg)
+    else:
+        pre_adj = protocol.adult_max_dose_mg
+
+    floor_pct = protocol.min_dose_floor_pct / 100.0
+    min_dose = round(pre_adj * floor_pct, 2)
+
+    assert rx.dose_mg >= min_dose - 0.01, (
+        f"dose_mg={rx.dose_mg} below floor {min_dose} "
+        f"(pre_adj={pre_adj}, floor_pct={protocol.min_dose_floor_pct}%) "
+        f"for {antibiotic!r}, age_group={age_group.value}, weight={weight_kg}"
+    )
+
+
+@given(
+    antibiotic=antibiotic_strategy,
+    age_group=all_age_group_strategy,
+    weight_kg=weight_strategy,
+    renal_only=st.booleans(),
+)
+@h_settings(max_examples=300)
+def test_no_clamping_when_single_failure(
+    antibiotic: str,
+    age_group: AgeGroup,
+    weight_kg: float,
+    renal_only: bool,
+):
+    """
+    **Property 11 — single failure, no clamping**
+    **Validates: Requirements 17.1, 17.4**
+
+    When only one of renal or hepatic failure is present (not both),
+    the dose equals the straightforward single-adjustment result with no
+    floor clamping applied.
+    """
+    protocol = ANTIBIOTIC_PROTOCOLS[antibiotic]
+    service = PrescriptionService()
+
+    renal = renal_only
+    hepatic = not renal_only
+    patient = _make_patient(age_group, weight_kg, renal=renal, hepatic=hepatic)
+
+    rx = asyncio.run(service.calculate_prescription(antibiotic=antibiotic, patient=patient))
+
+    # Compute expected dose with single adjustment (no clamping)
+    is_paediatric = age_group in _PAEDIATRIC_GROUPS
+    if is_paediatric:
+        raw_dose = protocol.paediatric_dose_per_kg * weight_kg
+        pre_adj = min(raw_dose, protocol.adult_max_dose_mg)
+    else:
+        pre_adj = protocol.adult_max_dose_mg
+
+    if renal:
+        expected = pre_adj * protocol.renal_adjustment_factor
+    else:
+        expected = pre_adj * protocol.hepatic_adjustment_factor
+
+    expected = max(expected, 0.0)
+
+    assert abs(rx.dose_mg - round(expected, 2)) < 0.02, (
+        f"dose_mg={rx.dose_mg} != expected {round(expected, 2)} "
+        f"(single {'renal' if renal else 'hepatic'} adjustment) "
+        f"for {antibiotic!r}, age_group={age_group.value}, weight={weight_kg}"
     )

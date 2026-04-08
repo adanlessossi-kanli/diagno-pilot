@@ -20,6 +20,21 @@ from backend.services.mcp_host import AgentResult
 logger = logging.getLogger(__name__)
 
 
+def _union_symptoms(a: list[str], b: list[str]) -> list[str]:
+    """Case-insensitive union of symptom lists (Req 15.2).
+
+    Preserves the first-seen casing for each symptom name.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for s in a + b:
+        key = s.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            result.append(s.strip())
+    return result
+
+
 class Synthesis_Agent:
     """Fusionne les résultats des quatre agents spécialistes en un DiagnosticResult.
 
@@ -143,8 +158,20 @@ class Synthesis_Agent:
             for diag in result.partial_differential:
                 key = diag.condition.strip().lower()
                 existing = merged.get(key)
-                if existing is None or diag.probability > existing.probability:
+                if existing is None:
                     merged[key] = diag
+                else:
+                    # Req 15.1: union matching_symptoms
+                    # Req 15.2: case-insensitive deduplication
+                    # Req 15.3: keep highest probability
+                    merged[key] = DifferentialDiagnosis(
+                        condition=existing.condition,
+                        probability=max(existing.probability, diag.probability),
+                        icd_code=existing.icd_code or diag.icd_code,
+                        matching_symptoms=_union_symptoms(
+                            existing.matching_symptoms, diag.matching_symptoms
+                        ),
+                    )
 
         # --- Trier par probabilité décroissante ---
         diagnoses: list[DifferentialDiagnosis] = sorted(

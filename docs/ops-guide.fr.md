@@ -13,8 +13,9 @@
 4. [Surcharge Docker Compose pour la production](#4-surcharge-docker-compose-pour-la-production)
 5. [Mise à l'échelle horizontale](#5-mise-à-léchelle-horizontale)
 6. [Optimisation de la bande passante (déploiements en Afrique de l'Ouest)](#6-optimisation-de-la-bande-passante-déploiements-en-afrique-de-louest)
-7. [Point de terminaison de vérification de l'état](#7-point-de-terminaison-de-vérification-de-létat)
-8. [Rotation du secret JWT](#8-rotation-du-secret-jwt)
+7. [TTL des sessions de chat et migration de remplissage](#7-ttl-des-sessions-de-chat-et-migration-de-remplissage)
+8. [Point de terminaison de vérification de l'état](#8-point-de-terminaison-de-vérification-de-létat)
+9. [Rotation du secret JWT](#9-rotation-du-secret-jwt)
 
 ---
 
@@ -57,6 +58,7 @@ Toutes les variables sont lues par `backend/core/config.py` au démarrage via `p
 | `CACHE_TTL_INTERACTIONS` | `integer` | `3600` | Non | TTL en secondes pour les entrées du cache d'interactions. |
 | `CACHE_TTL_EMBEDDINGS` | `integer` | `86400` | Non | TTL en secondes pour les entrées du cache d'embeddings. |
 | `CACHE_TTL_RAG` | `integer` | `300` | Non | TTL en secondes pour les entrées du cache de résultats RAG. |
+| `SOURCE_RELEVANCE_THRESHOLD` | `float` | `0.3` | Non | Score de similarité minimum pour qu'un chunk récupéré soit inclus dans la liste `sources` de la réponse. Les chunks en dessous de ce seuil sont filtrés. Doit être ≥ `LLAMAINDEX_SIMILARITY_THRESHOLD`. |
 | `CACHE_KEY_VERSION` | `string` | `v1` | Non | Préfixe d'espace de noms pour les clés de cache. Incrémenter pour invalider toutes les entrées en cache lors d'un déploiement. |
 
 ### LLM / Embedding
@@ -299,7 +301,47 @@ Le tableau de bord préconstruit est déjà provisionné dans `docker/grafana/da
 
 ---
 
-## 7. Point de terminaison de vérification de l'état
+## 7. TTL des sessions de chat et migration de remplissage
+
+### Index TTL sur `chat_sessions.updated_at`
+
+Au démarrage de l'application, un index TTL MongoDB est créé sur `chat_sessions.updated_at` avec une expiration de **90 jours** (7 776 000 secondes). Cela garantit que les sessions de chat obsolètes contenant des données PHI sont automatiquement purgées.
+
+```
+Collection : chat_sessions
+Champ : updated_at
+expireAfterSeconds : 7776000  (90 × 24 × 3600)
+background : true
+```
+
+L'index est créé de manière idempotente — s'il existe déjà, MongoDB ignore la création.
+
+### Migration de remplissage `updated_at`
+
+Avant la création de l'index TTL, une migration idempotente unique s'exécute au démarrage pour remplir le champ `updated_at` sur les documents `chat_sessions` existants qui en sont dépourvus :
+
+- Les documents sans `updated_at` reçoivent la valeur de leur champ `created_at`.
+- Si `created_at` est également absent, l'horodatage courant est utilisé.
+- La migration journalise le nombre de documents mis à jour.
+- L'exécution multiple de la migration n'a aucun effet sur les documents qui possèdent déjà `updated_at`.
+
+Cette migration doit se terminer avant la création de l'index TTL pour garantir que tous les documents sont éligibles à l'expiration.
+
+### Index de clé d'idempotence sur `consultations`
+
+Un index unique sparse est créé sur `consultations.idempotency_key` au démarrage. Cela empêche la création de consultations en double lorsque les clients réessaient des requêtes diagnostiques avec la même clé d'idempotence.
+
+```
+Collection : consultations
+Champ : idempotency_key
+unique : true
+sparse : true  (autorise les valeurs nulles)
+background : true
+```
+
+---
+
+## 8. Point de terminaison de vérification de l'état
 
 Le backend expose un point de terminaison `/health` qui sonde toutes les dépendances en aval et retourne un résumé de l'état du système.
 
@@ -360,7 +402,7 @@ upstream backend {
 
 ---
 
-## 8. Rotation du secret JWT
+## 9. Rotation du secret JWT
 
 La rotation de `JWT_SECRET` invalide tous les jetons existants signés avec l'ancien secret. Pour effectuer une rotation sans forcer immédiatement la déconnexion de tous les utilisateurs, suivre une rotation progressive en deux phases.
 

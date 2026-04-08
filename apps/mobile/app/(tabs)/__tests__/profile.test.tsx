@@ -81,7 +81,7 @@ describe('ProfileScreen — language selector', () => {
     expect(screen.getByLabelText('English')).toBeTruthy();
   });
 
-  it('b. pressing FR calls setLocale with "fr"', async () => {
+  it('b. pressing FR calls setLocale with "fr-TG"', async () => {
     renderWithI18n('en');
 
     await waitFor(() => expect(screen.getByLabelText('Français')).toBeTruthy());
@@ -89,7 +89,7 @@ describe('ProfileScreen — language selector', () => {
     fireEvent.press(screen.getByLabelText('Français'));
 
     await waitFor(() =>
-      expect(mockSetItemAsync).toHaveBeenCalledWith('diagno_locale', 'fr')
+      expect(mockSetItemAsync).toHaveBeenCalledWith('diagno_locale', 'fr-TG')
     );
   });
 
@@ -105,7 +105,7 @@ describe('ProfileScreen — language selector', () => {
     );
   });
 
-  it('d. active locale button (FR) has accessibilityState selected=true when locale is fr', async () => {
+  it('d. active locale button (FR) has accessibilityState selected=true when locale is fr-TG', async () => {
     renderWithI18n('fr');
 
     await waitFor(() => expect(screen.getByLabelText('Français')).toBeTruthy());

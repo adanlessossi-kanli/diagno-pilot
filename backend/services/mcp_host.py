@@ -277,18 +277,6 @@ class MCP_Host:
                 fallback_used=bool(data.get("fallback_used", False)),
             )
 
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Agent %r timed out after %ds",
-                agent_name,
-                AGENT_TIMEOUT,
-            )
-            self._capability_cache.pop(agent_name, None)
-            return AgentResult(
-                agent_name=agent_name,
-                sub_question=sub_question,
-                timed_out=True,
-            )
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             logger.warning(
                 "Agent %r unreachable: %s — invalidating cache",

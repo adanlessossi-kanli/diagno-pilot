@@ -314,6 +314,14 @@ async def _test_property_5(role: str, endpoint: tuple[str, str]):
     }
     app.dependency_overrides[get_current_user] = lambda: medical_user
 
+    # Ensure chat_service exists on app.state for chat router endpoints
+    from backend.routers.chat import get_chat_service
+    mock_chat_svc = MagicMock()
+    mock_chat_svc.get_history_paginated = AsyncMock(return_value=None)
+    mock_chat_svc.list_sessions = AsyncMock(return_value=[])
+    mock_chat_svc.delete_session = AsyncMock(return_value=False)
+    app.dependency_overrides[get_chat_service] = lambda: mock_chat_svc
+
     method, path = endpoint
     mock_db = _make_mock_db()
 

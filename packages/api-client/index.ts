@@ -70,6 +70,8 @@ export interface DiagnosisResponse {
   agentContributions?: AgentContribution[];
   /** Evidence citations backing the diagnoses */
   evidenceCitations?: EvidenceCitation[];
+  /** True when the diagnostic parser could not produce reliable results */
+  parseFailed?: boolean;
 }
 
 export interface PrescriptionResponse {
@@ -154,14 +156,15 @@ const DiagnosisResponseSchema = z.object({
     matchingSymptoms: z.array(z.string()).optional().default([]),
     concordantSymptoms: z.array(z.string()).optional().default([]),
   })),
-  llmUsed: z.string().optional(),
-  sources: z.array(DocumentSourceSchema).optional(),
-  fallbackWarning: z.string().optional(),
-  degradedWarning: z.string().optional(),
-  warningsPresent: z.boolean().optional(),
-  confidenceScore: z.number().optional(),
+  llmUsed: z.string().nullish(),
+  sources: z.array(DocumentSourceSchema).nullish(),
+  fallbackWarning: z.string().nullish(),
+  degradedWarning: z.string().nullish(),
+  warningsPresent: z.boolean().nullish(),
+  confidenceScore: z.number().nullish(),
   agentContributions: z.array(AgentContributionSchema).optional().default([]),
   evidenceCitations: z.array(EvidenceCitationSchema).optional().default([]),
+  parseFailed: z.boolean().optional().default(false),
 });
 
 const PaginatedPatientResponseSchema = z.object({

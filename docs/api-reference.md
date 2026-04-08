@@ -189,6 +189,147 @@ Chargement de documents avec dispatch par format.
 
 ## Services de conformité HIPAA
 
+---
+
+## Endpoints Chat
+
+### `GET /api/v1/chat/sessions`
+
+Retourne la liste des sessions de chat de l'utilisateur authentifié, triées par `updated_at` décroissant.
+
+| Attribut | Valeur |
+|----------|--------|
+| Méthode | `GET` |
+| Chemin | `/api/v1/chat/sessions` |
+| Rôles requis | `admin`, `medecin`, `infirmière` |
+
+**Paramètres de requête :**
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `skip` | `int` | `0` | Nombre de sessions à ignorer |
+| `limit` | `int` | `20` | Nombre de sessions à retourner (cap : 100) |
+
+**Réponse 200 OK :**
+
+```json
+[
+  {
+    "session_id": "uuid-string",
+    "created_at": "2026-04-07T10:30:00Z",
+    "updated_at": "2026-04-07T11:00:00Z",
+    "messages": [
+      {"role": "user", "content": "Quels sont les symptômes du paludisme ?"}
+    ]
+  }
+]
+```
+
+Retourne une liste vide `[]` avec HTTP 200 lorsque l'utilisateur n'a aucune session.
+
+---
+
+### `GET /api/v1/chat/history/{session_id}`
+
+Retourne l'historique paginé des messages d'une session de chat. Vérifie que la session appartient à l'utilisateur authentifié (bypass admin).
+
+| Attribut | Valeur |
+|----------|--------|
+| Méthode | `GET` |
+| Chemin | `/api/v1/chat/history/{session_id}` |
+| Rôles requis | `admin`, `medecin`, `infirmière` |
+
+**Paramètres de requête :**
+
+| Paramètre | Type | Défaut | Description |
+|---|---|---|---|
+| `skip` | `int` | `0` | Offset dans la liste des messages |
+| `limit` | `int` | `50` | Nombre de messages à retourner (cap : 200) |
+
+**Réponse 200 OK :**
+
+```json
+{
+  "session_id": "uuid-string",
+  "messages": [...],
+  "patient_context": {...},
+  "created_at": "2026-04-07T10:30:00Z",
+  "updated_at": "2026-04-07T11:00:00Z",
+  "total_messages": 42
+}
+```
+
+**Réponse 404 Not Found** — session inexistante ou non possédée par l'utilisateur :
+
+```json
+{"detail": "Chat session not found"}
+```
+
+---
+
+### `DELETE /api/v1/chat/sessions/{session_id}`
+
+Supprime une session de chat. Vérifie que la session appartient à l'utilisateur authentifié (bypass admin).
+
+| Attribut | Valeur |
+|----------|--------|
+| Méthode | `DELETE` |
+| Chemin | `/api/v1/chat/sessions/{session_id}` |
+| Rôles requis | `admin`, `medecin`, `infirmière` |
+
+**Réponse 200 OK :**
+
+```json
+{"status": "deleted"}
+```
+
+**Réponse 404 Not Found** — session inexistante ou non possédée par l'utilisateur :
+
+```json
+{"detail": "Chat session not found"}
+```
+
+---
+
+## Endpoints Diagnostic — Champs mis à jour
+
+### `POST /api/v1/diagnose/symptoms` — Champs de requête mis à jour
+
+**Nouveaux champs dans `DiagnoseRequest` :**
+
+| Champ | Type | Requis | Description |
+|---|---|---|---|
+| `idempotency_key` | `string \| null` | Non | Clé d'idempotence générée côté client. Si une consultation avec la même clé existe, la réponse existante est retournée (HTTP 200) sans créer de doublon. |
+
+**Contraintes de validation :**
+
+| Champ | Contrainte |
+|---|---|
+| `symptoms` | `min_length=1, max_length=30` |
+| `symptoms[].name` | `max_length=200` |
+
+**Nouveau champ dans `DiagnoseResponse` :**
+
+| Champ | Type | Description |
+|---|---|---|
+| `parse_failed` | `bool` | `true` si le parseur n'a pas pu extraire ≥ 3 diagnostics valides. Le frontend affiche un avertissement. |
+
+---
+
+### `POST /api/v1/diagnose/prescription` — Champs de requête mis à jour
+
+**Nouveau champ dans `PrescriptionRequest` :**
+
+| Champ | Type | Requis | Description |
+|---|---|---|---|
+| `session_id` | `string \| null` | Non | Identifiant de la session diagnostique. Lorsque fourni, la prescription et les alertes sont liées à la consultation correspondante. |
+
+Lorsque `session_id` est fourni, le routeur met à jour les champs `prescription` et `alerts` du document de consultation correspondant (avec vérification de propriété). Lorsque `session_id` est absent, la prescription est retournée sans persistance (comportement existant préservé).
+
+---
+
+## Services de conformité HIPAA
+
 ### PHI\_Classifier
 
 Classifie les champs de données comme PHI ou non-PHI.
