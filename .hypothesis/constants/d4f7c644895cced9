@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\llamaindex_pipeline.py
+# hypothesis_version: 6.151.9
+
+[0.0, 300, 500, '.\t', '.\n', '. ', 'ALL', 'assistant', 'ce_score', 'content', 'document_id', 'done', 'error', 'metadata', 'page', 'rag', 'retryable', 'role', 'score', 'section', 'source', 'system', 'title', 'token', 'unknown', 'user', '…']

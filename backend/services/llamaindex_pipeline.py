@@ -207,6 +207,7 @@ class LlamaIndexPipeline:
                 section=c.get("metadata", {}).get("section"),
                 excerpt=_truncate_excerpt(c.get("content", "")),
                 page=c.get("metadata", {}).get("page"),
+                confidence_score=float(c.get("ce_score", c.get("score", 0.0))),
             )
             for c in top_chunks
         ]
@@ -360,6 +361,7 @@ class LlamaIndexPipeline:
                     section=c.get("metadata", {}).get("section"),
                     excerpt=_truncate_excerpt(c.get("content", "")),
                     page=c.get("metadata", {}).get("page"),
+                    confidence_score=float(c.get("ce_score", c.get("score", 0.0))),
                 )
                 for c in top_chunks
             ]
