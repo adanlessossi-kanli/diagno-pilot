@@ -5,10 +5,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 import React from 'react';
+import type { StreamEvent } from '@diagno-pilot/api-client';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
-const mockSendMessage = vi.fn();
+const mockSendMessageStream = vi.fn();
 
 // jsdom doesn't implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -32,7 +33,7 @@ vi.mock('../../../../contexts/AuthContext', () => ({
 vi.mock('@diagno-pilot/api-client', () => ({
   createApiClient: () => ({
     chat: {
-      sendMessage: mockSendMessage,
+      sendMessageStream: mockSendMessageStream,
       getHistory: vi.fn().mockResolvedValue(null),
     },
     patients: {
@@ -40,6 +41,16 @@ vi.mock('@diagno-pilot/api-client', () => ({
     },
   }),
 }));
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function mockStreamFromEvents(events: StreamEvent[]) {
+  return async function* () {
+    for (const event of events) {
+      yield event;
+    }
+  };
+}
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -65,13 +76,20 @@ describe('ChatPage — page-level tests', () => {
   });
 
   it('appends user message to conversation after sending', async () => {
-    mockSendMessage.mockResolvedValue({
-      id: 'assistant-1',
-      role: 'assistant',
-      content: 'Based on the symptoms, I recommend...',
-      timestamp: new Date().toISOString(),
-      sources: [],
-    });
+    mockSendMessageStream.mockImplementation(
+      mockStreamFromEvents([
+        { type: 'token', content: 'Based on the symptoms, I recommend...' },
+        {
+          type: 'done',
+          answer: 'Based on the symptoms, I recommend...',
+          session_id: 'sess-1',
+          sources: [],
+          llm_used: 'test-model',
+          fallback_warning: null,
+          warnings_present: false,
+        },
+      ]),
+    );
 
     const { default: ChatPage } = await import('../page');
     render(<ChatPage />);
@@ -89,13 +107,20 @@ describe('ChatPage — page-level tests', () => {
 
   it('renders assistant response after sending a message', async () => {
     const assistantContent = 'Based on the symptoms, I recommend rest and hydration.';
-    mockSendMessage.mockResolvedValue({
-      id: 'assistant-1',
-      role: 'assistant',
-      content: assistantContent,
-      timestamp: new Date().toISOString(),
-      sources: [],
-    });
+    mockSendMessageStream.mockImplementation(
+      mockStreamFromEvents([
+        { type: 'token', content: assistantContent },
+        {
+          type: 'done',
+          answer: assistantContent,
+          session_id: 'sess-1',
+          sources: [],
+          llm_used: 'test-model',
+          fallback_warning: null,
+          warnings_present: false,
+        },
+      ]),
+    );
 
     const { default: ChatPage } = await import('../page');
     render(<ChatPage />);
@@ -113,19 +138,28 @@ describe('ChatPage — page-level tests', () => {
   });
 
   it('renders source citations when assistant response includes sources', async () => {
-    mockSendMessage.mockResolvedValue({
-      id: 'assistant-1',
-      role: 'assistant',
-      content: 'Here is the answer with sources.',
-      timestamp: new Date().toISOString(),
-      sources: [
+    mockSendMessageStream.mockImplementation(
+      mockStreamFromEvents([
+        { type: 'token', content: 'Here is the answer with sources.' },
         {
-          title: 'WHO Guidelines 2024',
-          section: 'Chapter 3',
-          excerpt: 'Fever management protocol',
+          type: 'done',
+          answer: 'Here is the answer with sources.',
+          session_id: 'sess-1',
+          sources: [
+            {
+              document_id: 'doc-1',
+              title: 'WHO Guidelines 2024',
+              source: 'who.int',
+              section: 'Chapter 3',
+              excerpt: 'Fever management protocol',
+            },
+          ],
+          llm_used: 'test-model',
+          fallback_warning: null,
+          warnings_present: false,
         },
-      ],
-    });
+      ]),
+    );
 
     const { default: ChatPage } = await import('../page');
     render(<ChatPage />);
@@ -150,13 +184,20 @@ describe('ChatPage — page-level tests', () => {
   });
 
   it('calls the chat API with the message content', async () => {
-    mockSendMessage.mockResolvedValue({
-      id: 'assistant-1',
-      role: 'assistant',
-      content: 'Response',
-      timestamp: new Date().toISOString(),
-      sources: [],
-    });
+    mockSendMessageStream.mockImplementation(
+      mockStreamFromEvents([
+        { type: 'token', content: 'Response' },
+        {
+          type: 'done',
+          answer: 'Response',
+          session_id: 'sess-1',
+          sources: [],
+          llm_used: 'test-model',
+          fallback_warning: null,
+          warnings_present: false,
+        },
+      ]),
+    );
 
     const { default: ChatPage } = await import('../page');
     render(<ChatPage />);
@@ -169,10 +210,10 @@ describe('ChatPage — page-level tests', () => {
     });
 
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledOnce();
+      expect(mockSendMessageStream).toHaveBeenCalledOnce();
     });
 
-    const [, messageContent] = mockSendMessage.mock.calls[0] as [string, string];
+    const [, messageContent] = mockSendMessageStream.mock.calls[0] as [string, string];
     expect(messageContent).toBe('What are the symptoms of malaria?');
   });
 });

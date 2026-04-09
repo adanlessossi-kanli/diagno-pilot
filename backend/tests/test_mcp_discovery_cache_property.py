@@ -82,7 +82,7 @@ async def test_property_3_discovery_cache_idempotence(
     """
     host = MCP_Host.__new__(MCP_Host)
     host._capability_cache = {}
-    host._rpc_call_log: list[str] = []  # type: ignore[attr-defined]
+    host._rpc_call_log = []  # type: ignore[attr-defined]
 
     with patch.object(
         MCP_Host, "_send_rpc", new=_mock_send_rpc

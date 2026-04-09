@@ -177,9 +177,13 @@ def test_p3b_chat_message_rate_limit_429(user_id: str):
 
         # Mock ChatService to avoid LLM/DB calls
         mock_chat_service = MagicMock()
-        from backend.models.document import RAGResponse
-        mock_rag_response = RAGResponse(answer="ok", sources=[], llm_used="mock")
-        mock_chat_service.send_message = AsyncMock(return_value=("session-123", mock_rag_response))
+
+        async def _fake_stream(*args, **kwargs):
+            from backend.services.llamaindex_pipeline import StreamEvent
+            yield StreamEvent(type="token", content="ok")
+            yield StreamEvent(type="done", answer="ok", sources=[], llm_used="mock")
+
+        mock_chat_service.send_message_stream = MagicMock(side_effect=_fake_stream)
 
         app.dependency_overrides[get_current_user] = mock_get_current_user
         app.dependency_overrides[get_chat_service] = lambda: mock_chat_service

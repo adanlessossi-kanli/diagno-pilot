@@ -68,7 +68,7 @@ def test_property_15_consultation_history_sorted_descending(
     where each element's ``created_at`` >= the next element's ``created_at``.
     """
     # Simulate what the DB query does: sort by created_at descending
-    sorted_consultations = sorted(
+    sorted_consultations: list[Consultation] = sorted(
         consultations,
         key=lambda c: c.created_at,
         reverse=True,
@@ -141,6 +141,6 @@ def test_edge_empty_list_trivially_sorted() -> None:
 
     **Validates: Requirements 11.10**
     """
-    sorted_consultations = sorted([], key=lambda c: c.created_at, reverse=True)
+    sorted_consultations: list[Consultation] = sorted([], key=lambda c: c.created_at, reverse=True)
 
     assert sorted_consultations == []

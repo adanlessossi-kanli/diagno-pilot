@@ -25,7 +25,7 @@ loader = SourceLoaderService()
 protocol_orgs = st.sampled_from(["PNLP", "MSF", "pnlp-togo", "msf-france"])
 guideline_orgs = st.sampled_from(["CHU", "OMS", "WHO", "chu-lome", "oms-afro"])
 other_orgs = st.text(
-    alphabet=st.characters(whitelist_categories=("Ll",)),
+    alphabet=st.characters(whitelist_categories=["Ll"]),
     min_size=1,
     max_size=20,
 ).filter(
@@ -45,7 +45,7 @@ base_text = st.text(alphabet=safe_alphabet, min_size=1, max_size=200).filter(
 
 # Unsupported extensions — not in {pdf, docx, csv, txt, html}
 unsupported_ext = st.text(
-    alphabet=st.characters(whitelist_categories=("Ll",)),
+    alphabet=st.characters(whitelist_categories=["Ll"]),
     min_size=1,
     max_size=10,
 ).filter(lambda e: e not in SourceLoaderService.SUPPORTED_FORMATS)

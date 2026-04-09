@@ -393,35 +393,45 @@ export function createApiClient(
   // ─── Chat (/api/v1/chat) ────────────────────────────────────────────────────
 
   const chat = {
-    /** REQ-04 — Send a message in a chat session */
-    async sendMessage(
+    /** REQ-04 — Retrieve the full message history for a session */
+    getHistory(sessionId: string, signal?: AbortSignal): Promise<ChatSession> {
+      return get<ChatSession>(`/api/v1/chat/history/${encodeURIComponent(sessionId)}`, signal);
+    },
+
+    /** REQ-06 — Stream a chat message response via SSE */
+    async *sendMessageStream(
       sessionId: string,
       content: string,
       patientContext?: PatientProfile,
       signal?: AbortSignal,
-    ): Promise<ChatMessage> {
-      // Backend returns { session_id, answer, sources, llm_used } — map to ChatMessage
-      const raw = await post<{ session_id: string; answer: string; sources: DocumentSource[]; llm_used: string }>(
-        '/api/v1/chat/message',
-        {
+    ): AsyncGenerator<StreamEvent> {
+      const res = await fetch(`${base}/api/v1/chat/message`, {
+        method: 'POST',
+        headers: csrfHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({
           session_id: sessionId,
           message: content,
           patient_context: serializePatientProfile(patientContext),
-        },
+        }),
         signal,
-      );
-      return {
-        id: `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        role: 'assistant',
-        content: raw.answer,
-        sources: raw.sources,
-        timestamp: new Date().toISOString(),
-      };
-    },
+      });
 
-    /** REQ-04 — Retrieve the full message history for a session */
-    getHistory(sessionId: string, signal?: AbortSignal): Promise<ChatSession> {
-      return get<ChatSession>(`/api/v1/chat/history/${encodeURIComponent(sessionId)}`, signal);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => undefined);
+        const err: ApiError = {
+          status: res.status,
+          message: (detail as { detail?: string })?.detail ?? res.statusText,
+          detail,
+        };
+        throw err;
+      }
+
+      if (!res.body) {
+        throw new Error('Response body is null — streaming not supported');
+      }
+
+      yield* parseSSEStream(res.body);
     },
   };
 
@@ -624,6 +634,92 @@ export function createApiClient(
   };
 
   return { auth, chat, diagnose, patients, documents, files, alerts };
+}
+
+// ─── SSE Streaming types ──────────────────────────────────────────────────────
+
+export type StreamEvent =
+  | { type: 'token'; content: string }
+  | {
+      type: 'done';
+      answer: string;
+      session_id: string;
+      sources: DocumentSource[];
+      llm_used: string;
+      fallback_warning: string | null;
+      warnings_present: boolean;
+    }
+  | { type: 'error'; error: string; retryable: boolean };
+
+// ─── SSE parser ───────────────────────────────────────────────────────────────
+
+/**
+ * Parses a raw SSE text stream into `StreamEvent` objects.
+ * Exported for testability (Property 7).
+ */
+export async function* parseSSEStream(
+  stream: ReadableStream<Uint8Array>,
+): AsyncGenerator<StreamEvent> {
+  const reader = stream.pipeThrough(new TextDecoderStream() as unknown as ReadableWritablePair<string, Uint8Array>).getReader();
+  let buffer = '';
+  let currentEvent = '';
+  let currentData = '';
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += value;
+
+      const lines = buffer.split('\n');
+      // Keep the last (possibly incomplete) line in the buffer
+      buffer = lines.pop() ?? '';
+
+      for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, '');
+        if (line.startsWith('event:')) {
+          currentEvent = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          currentData = line.slice(5).trim();
+        } else if (line === '') {
+          // Empty line = end of SSE message
+          if (currentEvent && currentData) {
+            try {
+              const parsed = JSON.parse(currentData) as Record<string, unknown>;
+              if (currentEvent === 'token') {
+                yield { type: 'token', content: parsed.content as string };
+              } else if (currentEvent === 'done') {
+                yield {
+                  type: 'done',
+                  answer: parsed.answer as string,
+                  session_id: parsed.session_id as string,
+                  sources: parsed.sources as DocumentSource[],
+                  llm_used: parsed.llm_used as string,
+                  fallback_warning: (parsed.fallback_warning as string | null) ?? null,
+                  warnings_present: (parsed.warnings_present as boolean) ?? false,
+                };
+                return;
+              } else if (currentEvent === 'error') {
+                yield {
+                  type: 'error',
+                  error: parsed.error as string,
+                  retryable: (parsed.retryable as boolean) ?? false,
+                };
+                return;
+              }
+            } catch {
+              // Malformed JSON — skip event, log warning
+              console.warn('SSE: failed to parse data as JSON', currentData);
+            }
+          }
+          currentEvent = '';
+          currentData = '';
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;

@@ -6,6 +6,7 @@ Tests: chunking, text extraction, embedding, S3 upload/delete, MongoDB persisten
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -478,7 +479,7 @@ def test_property_3_title_and_source_independence_in_document_source(
     and source populated from metadata.source independently.
     """
     # Simulate what RAGService does when building DocumentSource from a chunk
-    chunk = {
+    chunk: dict[str, Any] = {
         "document_id": "doc1",
         "content": "Some medical content.",
         "metadata": {
@@ -521,7 +522,7 @@ from backend.services.document_service import infer_document_type  # noqa: E402
         st.just("CHU Abomey-Calavi"),
         st.just("OMS AFRO"),
         st.just("WHO AFRO"),
-        st.text(min_size=1, max_size=50, alphabet=st.characters(blacklist_categories=('Cs',))),
+        st.text(min_size=1, max_size=50, alphabet=st.characters(blacklist_categories=['Cs'])),
     )
 )
 def test_property_10_metadata_enrichment_correct_for_source(source: str):

@@ -14,9 +14,10 @@ from unittest.mock import AsyncMock, MagicMock
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
-from backend.models.document import DocumentSource, RAGResponse
+from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
+from backend.services.llamaindex_pipeline import StreamEvent
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -75,19 +76,22 @@ def test_chat_response_always_contains_at_least_one_source(
     """
     **Validates: Requirements REQ-04**
 
-    For any user message, ChatService.send_message must return a RAGResponse
-    that contains at least one DocumentSource with a non-empty document_id
-    and a non-empty source field.
+    For any user message, ChatService.send_message_stream must yield a done
+    StreamEvent that contains at least one DocumentSource with a non-empty
+    document_id and a non-empty source field.
     """
-    # Build a mock RAGService that returns the generated sources
-    mock_rag = AsyncMock()
-    mock_rag.query = AsyncMock(
-        return_value=RAGResponse(
+    # Build a mock RAGService that yields streaming events
+    async def _fake_query_stream(**kwargs):
+        yield StreamEvent(type="token", content=answer)
+        yield StreamEvent(
+            type="done",
             answer=answer,
             sources=sources,
             llm_used="mock",
         )
-    )
+
+    mock_rag = MagicMock()
+    mock_rag.query_stream = MagicMock(side_effect=_fake_query_stream)
 
     # Build a mock DB that accepts upserts without hitting MongoDB
     mock_db = MagicMock()
@@ -98,20 +102,27 @@ def test_chat_response_always_contains_at_least_one_source(
 
     service = ChatService(db=mock_db, rag_service=mock_rag)
 
-    session_id, rag_response = asyncio.run(
-        service.send_message(
+    async def _collect():
+        done_event = None
+        async for event in service.send_message_stream(
             session_id=None,
             user_message=message,
             patient_context=patient_context,
-        )
-    )
+        ):
+            if event.type == "done":
+                done_event = event
+        return done_event
+
+    done_event = asyncio.run(_collect())
+
+    assert done_event is not None, "Expected a done event from send_message_stream"
 
     # Property: at least one source must be present
-    assert len(rag_response.sources) >= 1, (
-        f"Expected at least 1 source in RAG response, got {len(rag_response.sources)}"
+    assert len(done_event.sources) >= 1, (
+        f"Expected at least 1 source in done event, got {len(done_event.sources)}"
     )
 
-    for src in rag_response.sources:
+    for src in done_event.sources:
         # Each source must have a non-empty document_id
         assert src.document_id and src.document_id.strip(), (
             f"DocumentSource.document_id must be non-empty, got {src.document_id!r}"
@@ -120,8 +131,3 @@ def test_chat_response_always_contains_at_least_one_source(
         assert src.source and src.source.strip(), (
             f"DocumentSource.source must be non-empty, got {src.source!r}"
         )
-
-    # session_id must be a non-empty string
-    assert session_id and isinstance(session_id, str), (
-        f"session_id must be a non-empty string, got {session_id!r}"
-    )

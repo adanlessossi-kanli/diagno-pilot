@@ -1,11 +1,14 @@
 """Chat router — conversational RAG Q&A endpoints (REQ-04)."""
 
+import json
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
+from sse_starlette.sse import EventSourceResponse
 
 from backend.core.auth import require_role
 from backend.core.rate_limit import limiter
-from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
 
@@ -29,16 +32,6 @@ class ChatMessageRequest(BaseModel):
         if isinstance(v, str):
             return v.strip()
         return v
-
-
-class ChatMessageResponse(BaseModel):
-    session_id: str
-    answer: str
-    sources: list[DocumentSource]
-    llm_used: str
-    fallback_warning: str | None = None
-    degraded_warning: str | None = None
-    warnings_present: bool = False
 
 
 class ChatHistoryResponse(BaseModel):
@@ -74,42 +67,58 @@ def get_chat_service(request: Request) -> ChatService:
 # Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post(
-    "/message",
-    response_model=ChatMessageResponse,
-    status_code=status.HTTP_200_OK,
-)
+@router.post("/message")
 @limiter.limit("60/minute")
-async def send_message(
+async def stream_message(
     request: Request,
     body: ChatMessageRequest,
     current_user: dict = Depends(require_role(["admin", "medecin", "infirmière", "guest"])),
     chat_service: ChatService = Depends(get_chat_service),
-):
+) -> EventSourceResponse:
     """POST /api/v1/chat/message
 
-    Send a user message to the RAG assistant. Creates a new session if
-    *session_id* is omitted. Returns the assistant answer with cited sources.
+    Stream assistant tokens via SSE. Creates a new session if
+    *session_id* is omitted. Emits token, done, and error events.
     """
-    session_id, rag_response = await chat_service.send_message(
-        session_id=body.session_id,
-        user_message=body.message,
-        patient_context=body.patient_context,
-        user_id=str(current_user["_id"]),
-    )
+    session_id = body.session_id or str(uuid.uuid4())
 
-    fallback_warning = FALLBACK_WARNING if rag_response.fallback_used else None
-    warnings_present = bool(fallback_warning or rag_response.degraded_warning)
+    async def event_generator():
+        async for event in chat_service.send_message_stream(
+            session_id=session_id,
+            user_message=body.message,
+            patient_context=body.patient_context,
+            user_id=str(current_user["_id"]),
+        ):
+            if event.type == "token":
+                yield {
+                    "event": "token",
+                    "data": json.dumps({"content": event.content}),
+                }
+            elif event.type == "done":
+                sources = [s.model_dump() for s in (event.sources or [])]
+                fallback_warning = FALLBACK_WARNING if event.fallback_used else None
+                warnings_present = bool(fallback_warning)
+                yield {
+                    "event": "done",
+                    "data": json.dumps({
+                        "answer": event.answer,
+                        "session_id": session_id,
+                        "sources": sources,
+                        "llm_used": event.llm_used,
+                        "fallback_warning": fallback_warning,
+                        "warnings_present": warnings_present,
+                    }),
+                }
+            elif event.type == "error":
+                yield {
+                    "event": "error",
+                    "data": json.dumps({
+                        "error": event.error,
+                        "retryable": event.retryable,
+                    }),
+                }
 
-    return ChatMessageResponse(
-        session_id=session_id,
-        answer=rag_response.answer,
-        sources=rag_response.sources,
-        llm_used=rag_response.llm_used,
-        fallback_warning=fallback_warning,
-        degraded_warning=rag_response.degraded_warning,
-        warnings_present=warnings_present,
-    )
+    return EventSourceResponse(event_generator())
 
 
 @router.get(

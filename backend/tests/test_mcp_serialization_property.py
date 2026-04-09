@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from typing import Any
 
 from hypothesis import given, settings as h_settings, HealthCheck
 from hypothesis import strategies as st
@@ -65,7 +66,7 @@ _st_agent_result = st.builds(
 )
 
 # Tool invocation arguments matching the TOOL_INPUT_SCHEMA from the design doc
-_st_symptom_dict = st.fixed_dictionaries(
+_st_symptom_dict: st.SearchStrategy[dict[str, Any]] = st.fixed_dictionaries(
     {
         "name": _st_text,
     },
@@ -75,7 +76,7 @@ _st_symptom_dict = st.fixed_dictionaries(
     },
 )
 
-_st_patient_profile = st.one_of(
+_st_patient_profile: st.SearchStrategy[dict[str, Any] | None] = st.one_of(
     st.none(),
     st.fixed_dictionaries({
         "full_name": _st_text,
@@ -84,7 +85,7 @@ _st_patient_profile = st.one_of(
     }),
 )
 
-_st_tool_arguments = st.fixed_dictionaries(
+_st_tool_arguments: st.SearchStrategy[dict[str, Any]] = st.fixed_dictionaries(
     {
         "symptoms": st.lists(_st_symptom_dict, min_size=1, max_size=10),
         "locale": st.sampled_from(["fr-TG", "fr-BJ", "en"]),

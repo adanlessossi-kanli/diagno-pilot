@@ -39,7 +39,22 @@ export default function ChatScreen() {
     setLoading(true);
 
     try {
-      const reply = await apiClient.chat.sendMessage(sessionId, text);
+      let answer = '';
+      for await (const event of apiClient.chat.sendMessageStream(sessionId, text)) {
+        if (event.type === 'token') {
+          answer += event.content;
+        } else if (event.type === 'done') {
+          answer = event.answer;
+        } else if (event.type === 'error') {
+          throw new Error(event.error);
+        }
+      }
+      const reply: ChatMessage = {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: answer,
+        timestamp: new Date().toISOString(),
+      };
       setMessages((prev) => [...prev, reply]);
     } catch {
       const errMsg: ChatMessage = {

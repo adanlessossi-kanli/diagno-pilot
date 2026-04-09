@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\llm_router.py
+# hypothesis_version: 6.151.9
+
+[503, '/', 'Accept', 'Authorization', 'Content-Type', 'LLM_UNAVAILABLE', 'PHI_STRIP_FAILED', 'POST', '[DONE]', 'application/json', 'choices', 'code', 'content', 'data:', 'delta', 'error', 'gpt-5', 'llm_unavailable', 'message', 'messages', 'model', 'phi_strip_failed', 'qwen3', 'retryable', 'role', 'stream', 'success', 'system', 'text/event-stream', 'user']

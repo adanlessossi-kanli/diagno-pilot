@@ -1,15 +1,19 @@
 """ChatService — multi-turn RAG conversational assistant (REQ-04)."""
 from __future__ import annotations
 
+import logging
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from backend.core.db_metrics import timed_db_op
-from backend.models.document import DocumentSource, RAGResponse
+from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
-from backend.services.llamaindex_pipeline import LlamaIndexPipeline
+from backend.services.llamaindex_pipeline import LlamaIndexPipeline, StreamEvent
+
+logger = logging.getLogger(__name__)
 
 
 class ChatMessage:
@@ -53,31 +57,26 @@ class ChatService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def send_message(
+    async def send_message_stream(
         self,
         session_id: str | None,
         user_message: str,
         patient_context: PatientProfile | None = None,
         user_id: str | None = None,
-    ) -> tuple[str, RAGResponse]:
-        """Process a user message and return (session_id, RAGResponse).
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream assistant tokens for a user message, yielding StreamEvents.
 
         Creates a new session if *session_id* is None.
-        Persists both the user turn and the assistant turn in MongoDB.
+        Persists both turns after the ``done`` event; on mid-stream error
+        only the user turn is persisted.
+
+        Requirements: 5.1, 5.2, 5.3, 5.4.
         """
         session_id = session_id or str(uuid.uuid4())
 
-        # Req 1.1, 1.4: load session history and cap at 20 messages
+        # Load session history and cap at 20 messages
         history = await self._load_history(session_id)
         history = history[-20:]
-
-        # Query RAG with the full conversation context
-        rag_response = await self._rag.query(
-            question=user_message,
-            context=patient_context,
-            top_k=5,
-            session_history=history,
-        )
 
         now = datetime.now(timezone.utc)
         user_turn = {
@@ -87,31 +86,75 @@ class ChatService:
             "sources": [],
             "timestamp": now,
         }
-        assistant_turn = {
-            "id": str(uuid.uuid4()),
-            "role": "assistant",
-            "content": rag_response.answer,
-            "sources": [s.model_dump() for s in rag_response.sources],
-            "timestamp": now,
-        }
 
-        async with timed_db_op(self.COLLECTION, "update_one"):
-            await self._db[self.COLLECTION].update_one(
-                {"session_id": session_id},
-                {
-                    "$push": {"messages": {"$each": [user_turn, assistant_turn]}},
-                    "$setOnInsert": {
-                        "session_id": session_id,
-                        "user_id": user_id,
-                        "patient_context": patient_context.model_dump() if patient_context else None,
-                        "created_at": now,
-                    },
-                    "$set": {"updated_at": now},
-                },
-                upsert=True,
-            )
+        assembled_answer = ""
+        done_event: StreamEvent | None = None
+        had_error = False
 
-        return session_id, rag_response
+        async for event in self._rag.query_stream(
+            question=user_message,
+            context=patient_context,
+            top_k=5,
+            session_history=history,
+        ):
+            if event.type == "token":
+                assembled_answer += event.content or ""
+                yield event
+            elif event.type == "done":
+                done_event = event
+                yield event
+            elif event.type == "error":
+                had_error = True
+                yield event
+
+        # --- Persist turns to MongoDB ---
+        if had_error:
+            # Mid-stream error: persist user turn only
+            try:
+                async with timed_db_op(self.COLLECTION, "update_one"):
+                    await self._db[self.COLLECTION].update_one(
+                        {"session_id": session_id},
+                        {
+                            "$push": {"messages": user_turn},
+                            "$setOnInsert": {
+                                "session_id": session_id,
+                                "user_id": user_id,
+                                "patient_context": patient_context.model_dump() if patient_context else None,
+                                "created_at": now,
+                            },
+                            "$set": {"updated_at": now},
+                        },
+                        upsert=True,
+                    )
+            except Exception:
+                logger.exception("Failed to persist user turn after stream error")
+        elif done_event is not None:
+            # Successful stream: persist both user and assistant turns
+            assistant_turn = {
+                "id": str(uuid.uuid4()),
+                "role": "assistant",
+                "content": assembled_answer,
+                "sources": [s.model_dump() for s in (done_event.sources or [])],
+                "timestamp": now,
+            }
+            try:
+                async with timed_db_op(self.COLLECTION, "update_one"):
+                    await self._db[self.COLLECTION].update_one(
+                        {"session_id": session_id},
+                        {
+                            "$push": {"messages": {"$each": [user_turn, assistant_turn]}},
+                            "$setOnInsert": {
+                                "session_id": session_id,
+                                "user_id": user_id,
+                                "patient_context": patient_context.model_dump() if patient_context else None,
+                                "created_at": now,
+                            },
+                            "$set": {"updated_at": now},
+                        },
+                        upsert=True,
+                    )
+            except Exception:
+                logger.exception("Failed to persist turns after stream completion")
 
     async def get_history(self, session_id: str, user_id: str | None = None) -> dict | None:
         """Return the full session document or None if not found.

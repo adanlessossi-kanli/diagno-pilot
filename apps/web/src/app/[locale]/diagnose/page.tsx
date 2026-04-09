@@ -223,8 +223,17 @@ export default function DiagnosePage() {
       ? ` Patient: ${patientProfile.allergies?.length ? `allergies: ${patientProfile.allergies.join(', ')}` : 'no known allergies'}.`
       : '';
     const prompt = `En tant que médecin, propose un protocole de traitement pour le diagnostic "${condition}".${patientCtx} Inclus les médicaments, posologies, durée et précautions. Réponds de manière structurée.`;
-    const msg = await apiClient.chat.sendMessage(sessionId, prompt, patientProfile ?? undefined);
-    return msg.content;
+    let answer = '';
+    for await (const event of apiClient.chat.sendMessageStream(sessionId, prompt, patientProfile ?? undefined)) {
+      if (event.type === 'token') {
+        answer += event.content;
+      } else if (event.type === 'done') {
+        return event.answer;
+      } else if (event.type === 'error') {
+        throw new Error(event.error);
+      }
+    }
+    return answer;
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
