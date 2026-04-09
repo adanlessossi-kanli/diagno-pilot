@@ -22,7 +22,7 @@ The primary fix is backend-only: populate `confidence_score` on `DocumentSource`
 
 2.1 WHEN the `LlamaIndexPipeline` constructs `DocumentSource` objects from retrieved chunks in `query()` and `query_stream()` THEN the system SHALL populate the `confidence_score` field on each `DocumentSource` with the chunk's `ce_score` (or fallback `score`) value — this is the primary fix
 
-2.2 WHEN the frontend `SourcesPanel` component receives `message.sources` from a `done` SSE event THEN the system SHALL filter out any sources whose `confidence_score` is below `0.3` (matching the backend `SOURCE_RELEVANCE_THRESHOLD`) before rendering them — this is a defense-in-depth fallback
+2.2 WHEN the frontend `SourcesPanel` component receives `message.sources` from a `done` SSE event THEN the system SHALL filter out any sources whose `confidence_score` is below `0.3` before rendering them — this is a defense-in-depth fallback. Note: the `0.3` threshold is intentionally a fixed frontend default, independent of the backend `SOURCE_RELEVANCE_THRESHOLD` setting. If the backend threshold is lowered, the frontend filter acts as a safety net to prevent low-relevance sources from displaying.
 
 2.3 WHEN all sources in a response have `confidence_score` below the frontend display threshold THEN the system SHALL hide the sources panel entirely (display no sources)
 
@@ -32,7 +32,7 @@ The primary fix is backend-only: populate `confidence_score` on `DocumentSource`
 
 3.2 WHEN no chunks are retrieved (empty retrieval) THEN the system SHALL CONTINUE TO return an empty `sources` list and hide the sources panel
 
-3.3 WHEN the backend `SOURCE_RELEVANCE_THRESHOLD` filtering removes all chunks THEN the system SHALL CONTINUE TO return an empty `sources` list in the `done` SSE event
+3.3 WHEN the backend `SOURCE_RELEVANCE_THRESHOLD` filtering removes all sources (all chunk scores below threshold) THEN the system SHALL CONTINUE TO return an empty `sources` list in the `done` SSE event (the chunks are still used for LLM answer generation, only the `sources` list is empty)
 
 3.4 WHEN a cached RAG response is served THEN the system SHALL CONTINUE TO return the cached sources with their original `confidence_score` values intact
 
@@ -51,6 +51,8 @@ FUNCTION isBugCondition(X)
   
   // Returns true when any source has a missing confidence_score
   // (the primary bug — score not populated from chunk data)
+  // Note: the frontend defense-in-depth filter (Req 2.2) is a separate concern
+  // that operates on populated scores, not on the bug condition itself
   RETURN EXISTS source IN X.sources WHERE source.confidence_score IS NULL
 END FUNCTION
 ```

@@ -52,7 +52,9 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
   const t = useTranslations('chat');
   const [open, setOpen] = useState(false);
 
-  if (sources.length === 0) return null;
+  const filtered = sources.filter(s => s.confidence_score == null || s.confidence_score >= 0.3);
+
+  if (filtered.length === 0) return null;
 
   return (
     <div className="mt-2">
@@ -62,12 +64,12 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
         className="text-xs text-blue-600 hover:underline flex items-center gap-1"
         aria-expanded={open}
       >
-        <span>{t('sources')} ({sources.length})</span>
+        <span>{t('sources')} ({filtered.length})</span>
         <span aria-hidden="true">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
         <div className="mt-1.5 flex flex-wrap gap-1">
-          {sources.map((src, i) => (
+          {filtered.map((src, i) => (
             <CitationChip
               key={`${src.document_id}-${i}`}
               index={i + 1}
