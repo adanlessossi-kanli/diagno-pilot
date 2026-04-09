@@ -21,8 +21,8 @@ from backend.routers.diagnose import DiagnoseRequest
 # Strategies
 # ---------------------------------------------------------------------------
 
-_st_valid_name = st.text(min_size=1, max_size=200, alphabet=st.characters(blacklist_categories=("Cs",)))
-_st_long_name = st.text(min_size=201, max_size=300, alphabet=st.characters(blacklist_categories=("Cs",)))
+_st_valid_name = st.text(min_size=1, max_size=200, alphabet=st.characters(blacklist_categories=["Cs"]))
+_st_long_name = st.text(min_size=201, max_size=300, alphabet=st.characters(blacklist_categories=["Cs"]))
 
 _st_valid_symptom = _st_valid_name.map(lambda n: {"name": n})
 

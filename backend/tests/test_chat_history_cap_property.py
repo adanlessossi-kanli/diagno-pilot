@@ -4,7 +4,7 @@ Property test — History cap invariant (Property 1).
 Feature: chat-diagnosis-improvements, Property 1: History cap invariant
 
 For any chat session with N messages (where N >= 0), the session_history
-passed to LlamaIndexPipeline.query() SHALL contain at most 20 messages,
+passed to LlamaIndexPipeline.query_stream() SHALL contain at most 20 messages,
 and those 20 messages SHALL be the most recent ones from the session.
 
 **Validates: Requirements 1.4**
@@ -17,8 +17,8 @@ from unittest.mock import AsyncMock, MagicMock
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
-from backend.models.document import RAGResponse
 from backend.services.chat_service import ChatService
+from backend.services.llamaindex_pipeline import StreamEvent
 
 
 # ---------------------------------------------------------------------------
@@ -65,29 +65,28 @@ def test_history_cap_invariant(messages: list[dict]) -> None:
     # --- Arrange: mock RAG pipeline to capture session_history -----------
     captured_history: list[list[dict]] = []
 
-    async def _capture_query(**kwargs):
+    async def _capture_query_stream(**kwargs):
         captured_history.append(kwargs.get("session_history", []))
-        return RAGResponse(
-            answer="ok",
-            sources=[],
-            llm_used="mock",
-        )
+        yield StreamEvent(type="token", content="ok")
+        yield StreamEvent(type="done", answer="ok", sources=[], llm_used="mock")
 
-    mock_rag = AsyncMock()
-    mock_rag.query = AsyncMock(side_effect=_capture_query)
+    mock_rag = MagicMock()
+    mock_rag.query_stream = MagicMock(side_effect=_capture_query_stream)
 
     service = ChatService(db=mock_db, rag_service=mock_rag)
 
     # --- Act: send a message on an existing session ----------------------
-    asyncio.run(
-        service.send_message(
+    async def _run():
+        async for _ in service.send_message_stream(
             session_id="existing-session",
             user_message="test",
-        )
-    )
+        ):
+            pass
+
+    asyncio.run(_run())
 
     # --- Assert ----------------------------------------------------------
-    assert len(captured_history) == 1, "query() should be called exactly once"
+    assert len(captured_history) == 1, "query_stream() should be called exactly once"
     history_passed = captured_history[0]
 
     # Property: at most 20 messages

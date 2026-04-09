@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
+import type { StreamEvent } from '@diagno-pilot/api-client';
 import type { ChatMessage, PatientProfile, DocumentSource } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { CitationChip } from '../../../components/CitationChip';
@@ -78,7 +79,7 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStreaming?: boolean }) {
   const isUser = message.role === 'user';
 
   return (
@@ -92,6 +93,12 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           }`}
         >
           {message.content}
+          {isStreaming && (
+            <span
+              className="streaming-cursor"
+              aria-hidden="true"
+            />
+          )}
         </div>
         {!isUser && message.sources && message.sources.length > 0 && (
           <div className="px-1">
@@ -271,11 +278,24 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Retry state: stores the failed message content for retry capability
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
+  // Stream error with retryable flag
+  const [streamError, setStreamError] = useState<{ message: string; retryable: boolean } | null>(null);
+
+  // AbortController ref for cancelling in-progress streams
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Abort in-progress stream on unmount (navigation away) — Req 7.6
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Patient context
   const [patientMode, setPatientMode] = useState<PatientMode>('none');
@@ -290,8 +310,10 @@ export default function ChatPage() {
     allergies: '',
   });
 
-  // Auto-scroll ref
+  // Auto-scroll refs
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
 
   // Load message history when restoring a session from localStorage (Req 8.4)
   useEffect(() => {
@@ -319,10 +341,20 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Scroll to bottom whenever messages change
+  // Smart auto-scroll: scroll to bottom unless user has scrolled up
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const threshold = 50;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+    userScrolledUpRef.current = !isAtBottom;
+  }, []);
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+    if (!userScrolledUpRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, loading, streaming]);
 
   // Fetch patients when select mode is chosen
   const fetchPatients = useCallback(async () => {
@@ -381,9 +413,10 @@ export default function ChatPage() {
   // Send message
   async function handleSend(retryContent?: string) {
     const content = retryContent ?? input.trim();
-    if (!content || loading) return;
+    if (!content || loading || streaming) return;
 
     setError('');
+    setStreamError(null);
     setFailedMessage(null);
     if (!retryContent) setInput('');
 
@@ -397,21 +430,79 @@ export default function ChatPage() {
       content,
       timestamp: new Date().toISOString(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+
+    // Create a placeholder assistant message for streaming into
+    const assistantMsgId = `assistant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const placeholderAssistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, userMsg, placeholderAssistantMsg]);
     setLoading(true);
+    setStreaming(true);
+    userScrolledUpRef.current = false;
+
+    // Create an AbortController for this send
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const patientContext = buildPatientProfile();
-      const assistantMsg = await apiClient.chat.sendMessage(sessionId, content, patientContext);
-      setMessages((prev) => [...prev, assistantMsg]);
+      const stream = apiClient.chat.sendMessageStream(sessionId, content, patientContext, controller.signal);
+
+      for await (const event of stream) {
+        if (event.type === 'token') {
+          // Append token content to the streaming assistant message
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, content: m.content + event.content }
+                : m,
+            ),
+          );
+        } else if (event.type === 'done') {
+          // Finalize the message with full answer, sources, remove streaming state
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    content: event.answer,
+                    sources: event.sources,
+                  }
+                : m,
+            ),
+          );
+        } else if (event.type === 'error') {
+          // Remove the placeholder assistant message on error
+          setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
+          setStreamError({ message: event.error, retryable: event.retryable });
+          if (event.retryable) {
+            setFailedMessage(content);
+          }
+        }
+      }
     } catch (err) {
       // If 401, session expired — redirect to login
       if ((err as { status?: number })?.status === 401) {
         window.location.href = `/${locale}/login`;
         return;
       }
-      // Remove the optimistic user message on failure (Req 9.1)
-      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+
+      // If aborted by user, just clean up silently
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // Remove the placeholder assistant message if it's still empty
+        setMessages((prev) =>
+          prev.filter((m) => !(m.id === assistantMsgId && m.content === '')),
+        );
+        return;
+      }
+
+      // Remove the placeholder assistant message and the optimistic user message on failure
+      setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId && m.id !== userMsg.id));
       // Restore input text (Req 9.2)
       setInput(content);
 
@@ -424,6 +515,8 @@ export default function ChatPage() {
       }
     } finally {
       setLoading(false);
+      setStreaming(false);
+      abortControllerRef.current = null;
     }
   }
 
@@ -433,6 +526,7 @@ export default function ChatPage() {
     const content = failedMessage;
     setFailedMessage(null);
     setError('');
+    setStreamError(null);
     setInput('');
     void handleSend(content);
   }
@@ -445,11 +539,13 @@ export default function ChatPage() {
   }
 
   function handleNewSession() {
+    abortControllerRef.current?.abort();
     clearStoredSessionId();
     const newId = generateSessionId();
     setSessionId(newId);
     setMessages([]);
     setError('');
+    setStreamError(null);
     setFailedMessage(null);
     setInput('');
   }
@@ -484,17 +580,41 @@ export default function ChatPage() {
         />
       )}
 
+      {/* Streaming cursor CSS */}
+      <style>{`
+        .streaming-cursor::after {
+          content: '|';
+          display: inline;
+          animation: blink-cursor 0.8s step-end infinite;
+          font-weight: bold;
+        }
+        @keyframes blink-cursor {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
+        }
+      `}</style>
+
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+      >
         {loadingHistory && (
           <div className="flex justify-center py-4">
             <p className="text-xs text-gray-500 italic">{t('loadingHistory')}</p>
           </div>
         )}
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-        {loading && <ThinkingBubble key="thinking" />}
+        {messages.map((msg) => {
+          const isStreamingMsg = streaming && msg.role === 'assistant' && msg === messages[messages.length - 1] && msg.content !== '';
+          return (
+            <MessageBubble key={msg.id} message={msg} isStreaming={isStreamingMsg} />
+          );
+        })}
+        {loading && !streaming && <ThinkingBubble key="thinking" />}
+        {loading && streaming && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].content === '' && (
+          <ThinkingBubble key="thinking" />
+        )}
         <div key="scroll-anchor" ref={bottomRef} />
       </div>
 
@@ -504,6 +624,22 @@ export default function ChatPage() {
           <div role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center justify-between gap-2">
             <span>{error}</span>
             {failedMessage && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 border border-red-300 rounded px-2 py-0.5 shrink-0 transition-colors"
+              >
+                {t('retry')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {streamError && (
+        <div className="px-4 pb-2 shrink-0">
+          <div role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 flex items-center justify-between gap-2">
+            <span>{streamError.message}</span>
+            {streamError.retryable && failedMessage && (
               <button
                 type="button"
                 onClick={handleRetry}
@@ -526,13 +662,13 @@ export default function ChatPage() {
           rows={1}
           className="flex-1 border rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 max-h-32 overflow-y-auto"
           style={{ minHeight: '40px' }}
-          disabled={loading}
+          disabled={loading || streaming}
           aria-label={t('placeholder')}
         />
         <button
           type="button"
           onClick={() => void handleSend()}
-          disabled={loading || !input.trim()}
+          disabled={loading || streaming || !input.trim()}
           className="bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
           aria-label={t('send')}
         >

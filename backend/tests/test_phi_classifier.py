@@ -31,7 +31,7 @@ non_phi_field_strategy = st.sampled_from(sorted(PHIClassifier.NON_PHI_FIELDS))
 # Unknown field names — generated strings that are NOT in either known set
 _all_known = PHIClassifier.PHI_FIELDS | PHIClassifier.NON_PHI_FIELDS
 unknown_field_strategy = st.text(
-    alphabet=st.characters(whitelist_categories=("Ll",)),
+    alphabet=st.characters(whitelist_categories=["Ll"]),
     min_size=1,
     max_size=40,
 ).filter(lambda s: s not in _all_known)

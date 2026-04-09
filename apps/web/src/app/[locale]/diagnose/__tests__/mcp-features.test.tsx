@@ -123,8 +123,8 @@ describe('DiagnosePage — MCP warning banners (Req 16.1)', () => {
       expect(alerts.length).toBeGreaterThanOrEqual(2);
     });
 
-    expect(screen.getByText(/Fallback LLM was used/)).toBeDefined();
-    expect(screen.getByText(/Agents omitted: Epidemiology_Agent/)).toBeDefined();
+    expect(screen.getByText(/fallbackWarning/)).toBeDefined();
+    expect(screen.getByText(/degradedWarning/)).toBeDefined();
   });
 
   it('does not display warning banners when warningsPresent is false', async () => {

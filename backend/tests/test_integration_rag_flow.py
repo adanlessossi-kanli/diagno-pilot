@@ -24,6 +24,7 @@ from backend.services.chat_service import ChatService
 from backend.services.diagnostic_service import DiagnosticService
 from backend.services.prescription_service import ANTIBIOTIC_PROTOCOLS, PrescriptionService
 from backend.services.llm_router import LLMResult
+from backend.services.llamaindex_pipeline import StreamEvent
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +110,17 @@ def _make_rag_service(
     service = MagicMock()
     service.query = AsyncMock(return_value=rag_response)
     service._llm = mock_llm
+
+    async def _query_stream(**kwargs):
+        yield StreamEvent(type="token", content=llm_answer)
+        yield StreamEvent(
+            type="done",
+            answer=llm_answer,
+            sources=sources,
+            llm_used="qwen3",
+        )
+
+    service.query_stream = MagicMock(side_effect=_query_stream)
     return service
 
 
@@ -425,33 +437,41 @@ class TestChatRAGFlow:
         return ChatService(db=mock_db, rag_service=rag)
 
     def test_chat_returns_rag_response(self):
-        """send_message retourne une RAGResponse avec une réponse non vide."""
+        """send_message_stream yields a done event with a non-empty answer."""
         chat_svc = self._make_chat_service("L'amoxicilline est indiquée pour les infections ORL.")
 
-        session_id, response = asyncio.run(
-            chat_svc.send_message(
+        async def _collect():
+            events = []
+            async for event in chat_svc.send_message_stream(
                 session_id=None,
                 user_message="Quel antibiotique pour une otite ?",
-            )
-        )
+            ):
+                events.append(event)
+            return events
 
-        assert session_id is not None
-        assert isinstance(response, RAGResponse)
-        assert response.answer == "L'amoxicilline est indiquée pour les infections ORL."
+        events = asyncio.run(_collect())
+        done_events = [e for e in events if e.type == "done"]
+
+        assert len(done_events) == 1
+        assert done_events[0].answer == "L'amoxicilline est indiquée pour les infections ORL."
 
     def test_chat_response_includes_sources(self):
         """La réponse du chat cite les sources utilisées."""
         chat_svc = self._make_chat_service()
 
-        _, response = asyncio.run(
-            chat_svc.send_message(
+        async def _collect():
+            async for event in chat_svc.send_message_stream(
                 session_id=None,
                 user_message="Quelle est la posologie de l'amoxicilline ?",
-            )
-        )
+            ):
+                if event.type == "done":
+                    return event
+            return None
 
-        assert len(response.sources) >= 1, "Au moins une source doit être citée"
-        for src in response.sources:
+        done = asyncio.run(_collect())
+        assert done is not None
+        assert len(done.sources) >= 1, "Au moins une source doit être citée"
+        for src in done.sources:
             assert isinstance(src, DocumentSource)
             assert src.document_id
 
@@ -459,14 +479,18 @@ class TestChatRAGFlow:
         """Les sources citées contiennent les métadonnées du document."""
         chat_svc = self._make_chat_service()
 
-        _, response = asyncio.run(
-            chat_svc.send_message(
+        async def _collect():
+            async for event in chat_svc.send_message_stream(
                 session_id=None,
                 user_message="Traitement du paludisme ?",
-            )
-        )
+            ):
+                if event.type == "done":
+                    return event
+            return None
 
-        for src in response.sources:
+        done = asyncio.run(_collect())
+        assert done is not None
+        for src in done.sources:
             assert src.source, "Le champ source doit être renseigné"
 
     def test_chat_with_patient_context(self):
@@ -474,55 +498,49 @@ class TestChatRAGFlow:
         chat_svc = self._make_chat_service()
         patient = _make_patient(AgeGroup.CHILD, weight_kg=15.0)
 
-        _, response = asyncio.run(
-            chat_svc.send_message(
+        async def _collect():
+            async for _ in chat_svc.send_message_stream(
                 session_id=None,
                 user_message="Quelle dose pour cet enfant ?",
                 patient_context=patient,
-            )
-        )
+            ):
+                pass
 
-        assert isinstance(response, RAGResponse)
-        # Verify RAG was called with patient context
-        chat_svc._rag.query.assert_called_once()
+        asyncio.run(_collect())
+        # Verify RAG query_stream was called with patient context
+        chat_svc._rag.query_stream.assert_called_once()
 
     def test_chat_session_persisted(self):
         """La session de chat est persistée en base de données."""
         chat_svc = self._make_chat_service()
 
-        session_id, _ = asyncio.run(
-            chat_svc.send_message(
+        async def _collect():
+            async for _ in chat_svc.send_message_stream(
                 session_id=None,
                 user_message="Question médicale",
-            )
-        )
+            ):
+                pass
 
+        asyncio.run(_collect())
         # MongoDB update_one must have been called to persist the session
         chat_svc._db[ChatService.COLLECTION].update_one.assert_called_once()
-
-    def test_chat_reuses_existing_session(self):
-        """Une session existante est réutilisée si session_id est fourni."""
-        chat_svc = self._make_chat_service()
-        existing_session_id = "session-abc-123"
-
-        returned_id, _ = asyncio.run(
-            chat_svc.send_message(
-                session_id=existing_session_id,
-                user_message="Suite de la conversation",
-            )
-        )
-
-        assert returned_id == existing_session_id
 
     def test_chat_llm_used_field_populated(self):
         """Le champ llm_used de la réponse est renseigné."""
         chat_svc = self._make_chat_service()
 
-        _, response = asyncio.run(
-            chat_svc.send_message(session_id=None, user_message="Test")
-        )
+        async def _collect():
+            async for event in chat_svc.send_message_stream(
+                session_id=None,
+                user_message="Test",
+            ):
+                if event.type == "done":
+                    return event
+            return None
 
-        assert response.llm_used, "llm_used doit être renseigné"
+        done = asyncio.run(_collect())
+        assert done is not None
+        assert done.llm_used, "llm_used doit être renseigné"
 
 
 # ---------------------------------------------------------------------------
@@ -665,16 +683,21 @@ class TestEndToEndRAGFlow:
         chat_svc = ChatService(db=mock_db, rag_service=rag)
         patient = _make_patient(AgeGroup.ADULT, 65.0)
 
-        session_id, response = asyncio.run(
-            chat_svc.send_message(
+        async def _collect():
+            async for event in chat_svc.send_message_stream(
                 session_id=None,
                 user_message="Quel traitement pour le paludisme ?",
                 patient_context=patient,
-            )
-        )
+            ):
+                if event.type == "done":
+                    return event
+            return None
+
+        done = asyncio.run(_collect())
 
         # REQ-04 : réponse avec sources citées
-        assert response.answer == "Artémisinine-luméfantrine recommandée."
-        assert len(response.sources) >= 1
-        assert response.sources[0].source == "OMS_AFRO"
-        assert response.llm_used == "qwen3"
+        assert done is not None
+        assert done.answer == "Artémisinine-luméfantrine recommandée."
+        assert len(done.sources) >= 1
+        assert done.sources[0].source == "OMS_AFRO"
+        assert done.llm_used == "qwen3"

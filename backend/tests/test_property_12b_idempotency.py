@@ -26,10 +26,10 @@ from backend.routers.diagnose import DiagnoseResponse
 _st_idempotency_key = st.uuids().map(str)
 
 _st_diagnosis = st.fixed_dictionaries({
-    "condition": st.text(min_size=1, max_size=50, alphabet=st.characters(blacklist_categories=("Cs",))),
+    "condition": st.text(min_size=1, max_size=50, alphabet=st.characters(blacklist_categories=["Cs"])),
     "probability": st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
-    "icd_code": st.one_of(st.none(), st.text(min_size=3, max_size=10, alphabet=st.characters(blacklist_categories=("Cs",)))),
-    "matching_symptoms": st.lists(st.text(min_size=1, max_size=30, alphabet=st.characters(blacklist_categories=("Cs",))), max_size=5),
+    "icd_code": st.one_of(st.none(), st.text(min_size=3, max_size=10, alphabet=st.characters(blacklist_categories=["Cs"]))),
+    "matching_symptoms": st.lists(st.text(min_size=1, max_size=30, alphabet=st.characters(blacklist_categories=["Cs"])), max_size=5),
 })
 
 _st_diagnoses_list = st.lists(_st_diagnosis, min_size=1, max_size=5)
@@ -118,7 +118,7 @@ def test_property_12_idempotency_prevents_duplicate_creation(
     When an idempotency_key is provided and a matching consultation exists,
     the logic should return early without invoking insert_one.
     """
-    existing_doc = {
+    existing_doc: dict = {
         "session_id": str(uuid.uuid4()),
         "idempotency_key": idempotency_key,
         "diagnoses": [{"condition": "Test", "probability": 0.5, "icd_code": None, "matching_symptoms": []}],

@@ -22,7 +22,7 @@ from backend.services.semantic_chunker import SemanticChunkerService, _count_tok
 printable_text = st.text(
     alphabet=st.characters(
         whitelist_categories=("L", "N", "P", "Z"),
-        blacklist_categories=("Cs",),
+        blacklist_categories=["Cs"],
     ),
     min_size=1,
     max_size=2000,

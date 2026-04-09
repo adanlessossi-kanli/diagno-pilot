@@ -113,17 +113,15 @@ def _make_mock_document_service() -> MagicMock:
 
 
 def _make_mock_chat_service() -> MagicMock:
-    """Build a mock ChatService that returns a fake response."""
-    from backend.models.document import RAGResponse
-    fake_rag = RAGResponse(
-        answer="Test answer",
-        sources=[],
-        llm_used="test-model",
-        fallback_used=False,
-        degraded_warning=None,
-    )
+    """Build a mock ChatService that returns a fake streaming response."""
     mock_svc = MagicMock()
-    mock_svc.send_message = AsyncMock(return_value=("session-123", fake_rag))
+
+    async def _fake_stream(*args, **kwargs):
+        from backend.services.llamaindex_pipeline import StreamEvent
+        yield StreamEvent(type="token", content="Test answer")
+        yield StreamEvent(type="done", answer="Test answer", sources=[], llm_used="test-model")
+
+    mock_svc.send_message_stream = MagicMock(side_effect=_fake_stream)
     return mock_svc
 
 
