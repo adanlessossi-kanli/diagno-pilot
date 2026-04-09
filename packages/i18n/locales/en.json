@@ -210,7 +210,9 @@
     "retry": "Retry",
     "errorSendRetry": "Error sending message.",
     "loadingHistory": "Loading history...",
-    "newSessionVerifyFailed": "Could not verify session was saved. Please try again or continue your conversation."
+    "newSessionVerifyFailed": "Could not verify session was saved. Please try again or continue your conversation.",
+    "responseInterrupted": "[Response interrupted]",
+    "sourcesUnavailable": "Sources unavailable — response was interrupted before sources could be delivered."
   },
   "alerts": {
     "critical": "Critical alert",
