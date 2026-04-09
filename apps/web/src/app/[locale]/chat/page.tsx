@@ -10,6 +10,7 @@ import { CitationChip } from '../../../components/CitationChip';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type LocalChatMessage = ChatMessage & { interrupted?: boolean };
 type PatientMode = 'none' | 'select' | 'oneshot';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -79,8 +80,9 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
   );
 }
 
-function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStreaming?: boolean }) {
+function MessageBubble({ message, isStreaming }: { message: LocalChatMessage; isStreaming?: boolean }) {
   const isUser = message.role === 'user';
+  const t = useTranslations('chat');
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -104,6 +106,9 @@ function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStrea
           <div className="px-1">
             <SourcesPanel sources={message.sources} />
           </div>
+        )}
+        {!isUser && message.interrupted === true && (!message.sources || message.sources.length === 0) && (
+          <p className="text-xs text-gray-500 italic mt-1 px-1">{t('sourcesUnavailable')}</p>
         )}
         <p className={`text-xs text-gray-400 mt-1 px-1 ${isUser ? 'text-right' : 'text-left'}`}>
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -279,7 +284,7 @@ export default function ChatPage() {
   });
 
   // Messages
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -459,6 +464,8 @@ export default function ChatPage() {
       const patientContext = buildPatientProfile();
       const stream = apiClient.chat.sendMessageStream(sessionId, content, patientContext, controller.signal);
 
+      let receivedDone = false;
+
       for await (const event of stream) {
         if (event.type === 'token') {
           // Append token content to the streaming assistant message
@@ -482,6 +489,7 @@ export default function ChatPage() {
                 : m,
             ),
           );
+          receivedDone = true;
         } else if (event.type === 'error') {
           // Remove the placeholder assistant message on error
           setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
@@ -489,7 +497,19 @@ export default function ChatPage() {
           if (event.retryable) {
             setFailedMessage(content);
           }
+          receivedDone = true;
         }
+      }
+
+      // Post-loop: detect stream interruption (no done/error event received)
+      if (!receivedDone) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId && m.content !== ''
+              ? { ...m, content: m.content + `\n\n${t('responseInterrupted')}`, interrupted: true }
+              : m,
+          ),
+        );
       }
     } catch (err) {
       // If 401, session expired — redirect to login

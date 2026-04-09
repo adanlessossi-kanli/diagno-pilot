@@ -28,9 +28,11 @@ Note: The abort case (user clicks "New Chat" during streaming) is excluded from 
 
 3.2 WHEN the SSE stream receives an `error` event THEN the system SHALL CONTINUE TO remove the placeholder assistant message and display the error with retry capability as before
 
-3.3 WHEN the SSE stream is aborted and no tokens have been received (empty placeholder) THEN the system SHALL CONTINUE TO silently remove the empty placeholder message as before
+3.3 WHEN the SSE stream is aborted by the user and no tokens have been received (empty placeholder) THEN the system SHALL CONTINUE TO silently remove the empty placeholder message as before
 
-3.4 WHEN a non-streaming error occurs (e.g., HTTP 401, network failure before stream starts) THEN the system SHALL CONTINUE TO handle the error with existing retry and redirect logic as before
+3.4 WHEN the SSE stream is aborted by the user after tokens have been received (non-empty placeholder) THEN the system SHALL CONTINUE TO leave the partial message in state as-is — no interruption indicator is added because the user intentionally aborted (this case is excluded from the bug condition by `userAborted = false`)
+
+3.5 WHEN a non-streaming error occurs (e.g., HTTP 401, network failure before stream starts) THEN the system SHALL CONTINUE TO handle the error with existing retry and redirect logic as before
 
 ---
 
@@ -71,4 +73,4 @@ FOR ALL X WHERE NOT isBugCondition(X) DO
 END FOR
 ```
 
-This ensures that for all non-buggy inputs (normal `done` events, `error` events, empty-placeholder aborts, pre-stream failures), the fixed code behaves identically to the original.
+This ensures that for all non-buggy inputs (normal `done` events, `error` events, empty-placeholder aborts, non-empty-placeholder aborts, pre-stream failures), the fixed code behaves identically to the original.
