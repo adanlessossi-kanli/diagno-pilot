@@ -269,9 +269,13 @@ export default function ChatPage() {
   }, []);
 
   // Session — restore from localStorage or generate new
+  // Always store the session ID so the mount effect can verify it exists
   const [sessionId, setSessionId] = useState<string>(() => {
     const stored = getStoredSessionId();
-    return stored ?? generateSessionId();
+    if (stored) return stored;
+    const newId = generateSessionId();
+    storeSessionId(newId);
+    return newId;
   });
 
   // Messages
@@ -284,6 +288,8 @@ export default function ChatPage() {
 
   // Retry state: stores the failed message content for retry capability
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
+  // Verification state: tracks when backend verification is in flight for "New Chat"
+  const [verifying, setVerifying] = useState(false);
   // Stream error with retryable flag
   const [streamError, setStreamError] = useState<{ message: string; retryable: boolean } | null>(null);
 
@@ -538,16 +544,59 @@ export default function ChatPage() {
     }
   }
 
-  function handleNewSession() {
-    abortControllerRef.current?.abort();
-    clearStoredSessionId();
-    const newId = generateSessionId();
-    setSessionId(newId);
-    setMessages([]);
+  async function handleNewSession() {
+    // Case 1: Stream in progress — abort and clear immediately (skip verification)
+    if (streaming) {
+      abortControllerRef.current?.abort();
+      clearStoredSessionId();
+      const newId = generateSessionId();
+      setSessionId(newId);
+      setMessages([]);
+      setError('');
+      setStreamError(null);
+      setFailedMessage(null);
+      setInput('');
+      return;
+    }
+
+    // Case 2: No messages — proceed with synchronous reset (no backend call needed)
+    if (messages.length === 0) {
+      clearStoredSessionId();
+      const newId = generateSessionId();
+      setSessionId(newId);
+      setMessages([]);
+      setError('');
+      setStreamError(null);
+      setFailedMessage(null);
+      setInput('');
+      return;
+    }
+
+    // Case 3: Messages exist, no stream — verify session on backend before clearing
+    setVerifying(true);
     setError('');
-    setStreamError(null);
-    setFailedMessage(null);
-    setInput('');
+    try {
+      const verifyController = new AbortController();
+      const timeoutId = setTimeout(() => verifyController.abort(), 3000);
+      try {
+        await apiClient.chat.getHistory(sessionId, verifyController.signal);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      // Verification succeeded — safe to clear
+      clearStoredSessionId();
+      const newId = generateSessionId();
+      setSessionId(newId);
+      setMessages([]);
+      setStreamError(null);
+      setFailedMessage(null);
+      setInput('');
+    } catch {
+      // Verification failed (network error, 404, timeout) — preserve messages
+      setError(t('newSessionVerifyFailed'));
+    } finally {
+      setVerifying(false);
+    }
   }
 
   return (
@@ -557,9 +606,13 @@ export default function ChatPage() {
         <h1 className="text-lg font-bold text-gray-900">{t('title')}</h1>
         <button
           type="button"
-          onClick={handleNewSession}
-          className="text-sm text-blue-600 hover:underline"
+          onClick={() => void handleNewSession()}
+          disabled={verifying}
+          className="text-sm text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
         >
+          {verifying && (
+            <span className="inline-block w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+          )}
           {t('newSession')}
         </button>
       </header>

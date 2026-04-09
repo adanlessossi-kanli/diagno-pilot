@@ -146,6 +146,7 @@
       "loading": "Chargement de l'historique...",
       "errorFetch": "Erreur lors du chargement de l'historique."
     },
+    "restoredPartial": "Certains détails ne sont pas disponibles — affichage des résultats restaurés d'une session précédente.",
     "viewHistory": "Historique des diagnostics",
     "prescriptionStep": {
       "title": "Prescription antibiotique",
@@ -208,7 +209,8 @@
     "excerpt": "Extrait",
     "retry": "Réessayer",
     "errorSendRetry": "Erreur lors de l'envoi du message.",
-    "loadingHistory": "Chargement de l'historique..."
+    "loadingHistory": "Chargement de l'historique...",
+    "newSessionVerifyFailed": "Impossible de vérifier que la session a été sauvegardée. Veuillez réessayer ou continuer votre conversation."
   },
   "alerts": {
     "critical": "Alerte critique",

@@ -1,0 +1,115 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration tests (BEFORE implementing fix)
+  - **Property 1: Bug Condition** — Chat & Diagnose Data Loss
+  - **CRITICAL**: These tests MUST FAIL on unfixed code — failure confirms the bugs exist
+  - **DO NOT attempt to fix the tests or the code when they fail**
+  - **NOTE**: These tests encode the expected behavior — they will validate the fix when they pass after implementation
+  - **GOAL**: Surface counterexamples that demonstrate both data-loss bugs exist
+  - **Scoped PBT Approach**: Scope properties to concrete failing cases for reproducibility
+  - Test file: `apps/web/src/app/[locale]/chat/__tests__/handleNewSession.bugcondition.test.tsx`
+  - Test file: `apps/web/src/app/[locale]/diagnose/__tests__/diagnoseRestore.bugcondition.test.tsx`
+  - **Chat Bug Condition (from design isBugCondition_ChatDataLoss)**:
+    - Render ChatPage with mocked messages (messages.length > 0) and streaming=false
+    - Click "New Chat" button
+    - Assert that `apiClient.chat.getHistory` WAS called before clearing state (expected behavior)
+    - On UNFIXED code this will FAIL because `handleNewSession` clears synchronously without any backend call
+    - Also test: when getHistory succeeds, messages are cleared; when getHistory fails/404/timeout, error is shown and messages are preserved
+  - **Chat Bug Condition — Active Stream (from design isBugCondition_ChatDataLoss + streamInProgress)**:
+    - Render ChatPage with messages and an active stream (streaming=true)
+    - Click "New Chat" button
+    - Assert stream is aborted and state is cleared immediately without backend verification
+    - On UNFIXED code this partially passes (abort works) but the test encodes the full expected branching behavior
+  - **Diagnose Bug Condition (from design isBugCondition_DiagnoseDataLoss)**:
+    - Render DiagnosePage, submit symptoms, receive results with sessionId
+    - Unmount component (simulate navigation away)
+    - Assert sessionStorage contains the session ID namespaced by user ID
+    - Remount component
+    - Assert partial results are restored from backend via `apiClient.diagnose.getSession`
+    - On UNFIXED code this will FAIL because DiagnosePage never writes to sessionStorage and never restores on mount
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests FAIL (this is correct — it proves the bugs exist)
+  - Document counterexamples found (e.g., "handleNewSession clears state synchronously without getHistory call", "DiagnosePage never writes sessionId to sessionStorage")
+  - Mark task complete when tests are written, run, and failures are documented
+  - _Requirements: 1.1, 1.2, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
+
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** — Unchanged Chat & Diagnose Behaviors
+  - **IMPORTANT**: Follow observation-first methodology
+  - Test file: `apps/web/src/app/[locale]/chat/__tests__/handleNewSession.preservation.test.tsx`
+  - Test file: `apps/web/src/app/[locale]/diagnose/__tests__/diagnoseSubmit.preservation.test.tsx`
+  - **Observe on UNFIXED code, then write property-based tests**:
+  - **Empty Session New Chat Preservation (Req 3.1)**:
+    - Observe: clicking "New Chat" with zero messages generates a new session ID and resets state without any backend call
+    - Write property-based test: for all states where messages.length === 0, handleNewSession produces a new sessionId, clears input/error, and does NOT call getHistory
+    - Use fast-check to generate random empty-state configurations (varying error, input, failedMessage values)
+  - **SSE Streaming Preservation (Req 3.2, 3.4, 3.5, 3.6)**:
+    - Observe: sending a message produces SSE streaming with token appending, "done" event finalization with sources, and abort-on-unmount
+    - Write tests asserting streaming behavior is unchanged: tokens append to assistant message, "done" event finalizes content and sources, abort cleans up placeholder
+  - **Diagnose Submission Preservation (Req 3.3)**:
+    - Observe: submitting symptoms calls `POST /api/v1/diagnose/symptoms` and displays results with diagnoses, confidence score, warnings, etc.
+    - Write property-based test: for all valid symptom inputs, submission calls the API and renders results identically
+  - **Session Restore Preservation (Req 3.4)**:
+    - Observe: loading chat page with a stored session ID in localStorage fetches history via getHistory and displays messages
+    - Write test asserting this behavior is unchanged
+  - Verify all preservation tests PASS on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
+
+- [x] 3. Fix for chat data loss on "New Chat" and diagnostic data loss on navigation
+
+  - [x] 3.1 Implement async handleNewSession with backend verification
+    - Convert `handleNewSession` in `apps/web/src/app/[locale]/chat/page.tsx` from synchronous to async
+    - Add `const [verifying, setVerifying] = useState(false)` state
+    - Branch on `streaming` state:
+      - If `streaming === true`: abort stream via `abortControllerRef.current?.abort()`, then clear state immediately (skip verification)
+      - If `streaming === false` AND `messages.length > 0`: set `verifying=true`, call `apiClient.chat.getHistory(sessionId)` with a 3-second timeout (using AbortController + setTimeout), then clear state on success or show error on failure
+      - If `messages.length === 0`: proceed with current synchronous behavior (no backend call)
+    - On verification success: `clearStoredSessionId()`, `setMessages([])`, generate new session ID
+    - On verification failure (network error, 404, timeout): `setError(t('newSessionVerifyFailed'))`, do NOT clear messages
+    - Disable "New Chat" button while `verifying === true` and show brief loading indicator
+    - Add i18n key `chat.newSessionVerifyFailed` to `packages/i18n` (FR and EN)
+    - _Bug_Condition: isBugCondition_ChatDataLoss(input) where input.messages.length > 0_
+    - _Expected_Behavior: verify session via getHistory before clearing; abort+clear when streaming; error on verification failure_
+    - _Preservation: empty session "New Chat" unchanged (Req 3.1); streaming behavior unchanged (Req 3.2, 3.5, 3.6)_
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.5, 3.6_
+
+  - [x] 3.2 Implement sessionStorage persistence and partial restore for diagnose page
+    - In `apps/web/src/app/[locale]/diagnose/page.tsx`:
+    - Define sessionStorage key: `'diagno-pilot-diagnose-session-' + user?.id` (fall back to generic key if no user)
+    - After `setResults(response)` in `handleSubmit`, write `response.sessionId` to sessionStorage
+    - Clear old sessionStorage key before new submission (in handleSubmit, before API call)
+    - Add `useEffect` on mount: check sessionStorage for stored session ID, if found call `apiClient.diagnose.getSession(sessionId)`, map `DiagnoseSession` → partial `DiagnosisResponse` via `mapSessionToPartialResponse` adapter
+    - Implement `mapSessionToPartialResponse(session: DiagnoseSession): DiagnosisResponse` — maps `session.id` → `sessionId`, `session.diagnoses` → `diagnoses`, sets `confidenceScore`/`sources`/`evidenceCitations`/`agentContributions`/`llmUsed` to undefined/empty, `warningsPresent`/`parseFailed` to false
+    - Display "Restored partial" notice using i18n key `diagnose.restoredPartial` when showing restored results
+    - Handle getSession failure gracefully: clear sessionStorage, show empty form, do not block user
+    - Add i18n keys `diagnose.restoredPartial` to `packages/i18n` (FR and EN)
+    - _Bug_Condition: isBugCondition_DiagnoseDataLoss(input) where results ≠ null AND sessionId ≠ null AND navigatesAway_
+    - _Expected_Behavior: sessionId persisted to sessionStorage; partial results restored from backend on remount_
+    - _Preservation: symptom submission unchanged (Req 3.3); display behavior unchanged for fresh results_
+    - _Requirements: 2.6, 2.7, 3.3_
+
+  - [x] 3.3 Verify bug condition exploration tests now pass
+    - **Property 1: Expected Behavior** — Chat & Diagnose Data Loss Fixed
+    - **IMPORTANT**: Re-run the SAME tests from task 1 — do NOT write new tests
+    - The tests from task 1 encode the expected behavior
+    - When these tests pass, it confirms the expected behavior is satisfied
+    - Run bug condition exploration tests from step 1
+    - **EXPECTED OUTCOME**: Tests PASS (confirms bugs are fixed)
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7_
+
+  - [x] 3.4 Verify preservation tests still pass
+    - **Property 2: Preservation** — Unchanged Chat & Diagnose Behaviors
+    - **IMPORTANT**: Re-run the SAME tests from task 2 — do NOT write new tests
+    - Run preservation property tests from step 2
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm all preservation tests still pass after fix (no regressions)
+    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
+
+- [x] 4. Checkpoint — Ensure all tests pass
+  - Run full test suite: `cd apps/web && npx vitest --run`
+  - Ensure all bug condition exploration tests pass (task 1 tests on fixed code)
+  - Ensure all preservation property tests pass (task 2 tests on fixed code)
+  - Ensure no regressions in existing test suite
+  - Ask the user if questions arise
