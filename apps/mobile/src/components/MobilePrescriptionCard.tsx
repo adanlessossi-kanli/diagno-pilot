@@ -13,7 +13,7 @@ export function MobilePrescriptionCard({ prescription: rx }: MobilePrescriptionC
     <View style={styles.card}>
       <View style={styles.header}>
         <Text style={styles.antibiotic}>{rx.antibiotic}</Text>
-        {rx.is_capped_to_adult_dose && (
+        {rx.isCappedToAdultDose && (
           <View style={styles.cappedBadge}>
             <Text style={styles.cappedText}>⚠ Dose adulte max</Text>
           </View>
@@ -24,8 +24,8 @@ export function MobilePrescriptionCard({ prescription: rx }: MobilePrescriptionC
         <View style={styles.row}>
           <Text style={styles.label}>Dose</Text>
           <Text style={styles.value}>
-            {rx.dose_mg} mg
-            {rx.dose_per_kg !== undefined ? ` (${rx.dose_per_kg} mg/kg)` : ''}
+            {rx.doseMg} mg
+            {rx.dosePerKg !== undefined ? ` (${rx.dosePerKg} mg/kg)` : ''}
           </Text>
         </View>
         <View style={styles.row}>
@@ -35,7 +35,7 @@ export function MobilePrescriptionCard({ prescription: rx }: MobilePrescriptionC
         <View style={styles.row}>
           <Text style={styles.label}>Durée</Text>
           <Text style={styles.value}>
-            {rx.duration_days} jour{rx.duration_days !== 1 ? 's' : ''}
+            {rx.durationDays} jour{rx.durationDays !== 1 ? 's' : ''}
           </Text>
         </View>
         <View style={styles.row}>

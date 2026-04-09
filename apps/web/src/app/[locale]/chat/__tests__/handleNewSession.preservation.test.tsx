@@ -16,6 +16,8 @@ import fc from 'fast-check';
 
 const mockGetHistory = vi.fn();
 const mockSendMessageStream = vi.fn();
+const mockListSessions = vi.fn().mockResolvedValue({ sessions: [] });
+const mockDeleteSession = vi.fn();
 const mockListAllPatients = vi.fn().mockResolvedValue([]);
 
 // jsdom doesn't implement scrollIntoView
@@ -42,6 +44,8 @@ vi.mock('@diagno-pilot/api-client', () => ({
     chat: {
       sendMessageStream: mockSendMessageStream,
       getHistory: mockGetHistory,
+      listSessions: mockListSessions,
+      deleteSession: mockDeleteSession,
     },
     patients: {
       listAllPatients: mockListAllPatients,
@@ -65,6 +69,27 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   localStorage.clear();
+
+  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  })));
+
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+
   mockGetHistory.mockResolvedValue(null);
 });
 
@@ -150,7 +175,7 @@ describe('Preservation — SSE streaming behavior (Req 3.2, 3.4, 3.5, 3.6)', () 
           session_id: 'sess-1',
           sources: [
             {
-              document_id: 'doc-1',
+              documentId: 'doc-1',
               title: 'Test Source',
               source: 'test.com',
               section: 'Section 1',
@@ -180,7 +205,7 @@ describe('Preservation — SSE streaming behavior (Req 3.2, 3.4, 3.5, 3.6)', () 
     });
 
     // User message should be present
-    expect(screen.getByText('Test message')).toBeDefined();
+    expect(screen.getAllByText('Test message').length).toBeGreaterThanOrEqual(1);
 
     // Sources button should be visible
     await waitFor(() => {

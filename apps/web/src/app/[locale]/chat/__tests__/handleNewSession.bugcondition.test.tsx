@@ -25,6 +25,8 @@ import React from 'react';
 
 const mockGetHistory = vi.fn();
 const mockSendMessageStream = vi.fn();
+const mockListSessions = vi.fn().mockResolvedValue({ sessions: [] });
+const mockDeleteSession = vi.fn();
 
 // jsdom doesn't implement scrollIntoView
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -50,6 +52,8 @@ vi.mock('@diagno-pilot/api-client', () => ({
     chat: {
       sendMessageStream: mockSendMessageStream,
       getHistory: mockGetHistory,
+      listSessions: mockListSessions,
+      deleteSession: mockDeleteSession,
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),
@@ -106,6 +110,27 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   localStorage.clear();
+
+  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  })));
+
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+
   // Default: no stored session to restore
   mockGetHistory.mockResolvedValue(null);
 });

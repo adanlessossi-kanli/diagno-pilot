@@ -74,7 +74,7 @@ export function CitationPopup({ source, onClose }: CitationPopupProps) {
   useEffect(() => {
     if (!hasHighlight) return;
     setPdfLoading(true);
-    fetchPresignedUrl(source.document_id)
+    fetchPresignedUrl(source.documentId)
       .then((url) => {
         setPdfUrl(url);
         setPdfLoading(false);
@@ -83,7 +83,7 @@ export function CitationPopup({ source, onClose }: CitationPopupProps) {
         setPdfError(err.message ?? 'Failed to load document.');
         setPdfLoading(false);
       });
-  }, [source.document_id, hasHighlight]);
+  }, [source.documentId, hasHighlight]);
 
   // Close on Escape key (REQ 5.9)
   useEffect(() => {

@@ -213,19 +213,19 @@ Retourne la liste des sessions de chat de l'utilisateur authentifié, triées pa
 **Réponse 200 OK :**
 
 ```json
-[
-  {
-    "session_id": "uuid-string",
-    "created_at": "2026-04-07T10:30:00Z",
-    "updated_at": "2026-04-07T11:00:00Z",
-    "messages": [
-      {"role": "user", "content": "Quels sont les symptômes du paludisme ?"}
-    ]
-  }
-]
+{
+  "sessions": [
+    {
+      "session_id": "uuid-string",
+      "created_at": "2026-04-07T10:30:00Z",
+      "updated_at": "2026-04-07T11:00:00Z",
+      "preview": "Quels sont les symptômes du paludisme ?"
+    }
+  ]
+}
 ```
 
-Retourne une liste vide `[]` avec HTTP 200 lorsque l'utilisateur n'a aucune session.
+Retourne `{"sessions": []}` avec HTTP 200 lorsque l'utilisateur n'a aucune session.
 
 ---
 

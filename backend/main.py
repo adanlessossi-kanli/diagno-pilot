@@ -120,6 +120,14 @@ async def lifespan(app: FastAPI):
     )
     logger.info("chat_sessions TTL index ensured")
 
+    # Compound index for session listing (filter by user_id, sort by updated_at desc)
+    await _db["chat_sessions"].create_index(
+        [("user_id", 1), ("updated_at", -1)],
+        name="user_id_1_updated_at_-1",
+        background=True,
+    )
+    logger.info("chat_sessions (user_id, updated_at) compound index ensured")
+
     # --- Req 20.4: Unique sparse index on consultations.idempotency_key ---
     await _db["consultations"].create_index(
         "idempotency_key",

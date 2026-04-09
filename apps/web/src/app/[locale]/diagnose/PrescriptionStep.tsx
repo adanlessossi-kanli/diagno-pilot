@@ -46,7 +46,7 @@ function PrescriptionDetails({ prescription: rx }: { prescription: Prescription 
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-lg font-bold text-gray-900">{rx.antibiotic}</h3>
-        {rx.is_capped_to_adult_dose && (
+        {rx.isCappedToAdultDose && (
           <span className="text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300 rounded-full px-3 py-0.5">
             ⚠ {t('cappedToAdultDose')}
           </span>
@@ -57,9 +57,9 @@ function PrescriptionDetails({ prescription: rx }: { prescription: Prescription 
       <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
         <dt className="text-gray-500 font-medium">{t('dose')}</dt>
         <dd className="text-gray-900">
-          {rx.dose_mg} mg
-          {rx.dose_per_kg !== undefined && (
-            <span className="text-gray-500 ml-1">({rx.dose_per_kg} mg/kg)</span>
+          {rx.doseMg} mg
+          {rx.dosePerKg !== undefined && (
+            <span className="text-gray-500 ml-1">({rx.dosePerKg} mg/kg)</span>
           )}
         </dd>
 
@@ -67,7 +67,7 @@ function PrescriptionDetails({ prescription: rx }: { prescription: Prescription 
         <dd className="text-gray-900">{rx.frequency}</dd>
 
         <dt className="text-gray-500 font-medium">{t('duration')}</dt>
-        <dd className="text-gray-900">{t('durationDays', { days: rx.duration_days })}</dd>
+        <dd className="text-gray-900">{t('durationDays', { days: rx.durationDays })}</dd>
 
         <dt className="text-gray-500 font-medium">{t('route')}</dt>
         <dd className="text-gray-900">{rx.route}</dd>
@@ -89,8 +89,8 @@ function AlertItem({ alert }: { alert: SafetyAlert }) {
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide">
             {typeLabel}
-            {alert.affected_drug && (
-              <span className="ml-2 font-bold normal-case">{alert.affected_drug}</span>
+            {alert.affectedDrug && (
+              <span className="ml-2 font-bold normal-case">{alert.affectedDrug}</span>
             )}
           </p>
           <p className="mt-0.5 text-sm">{alert.message}</p>

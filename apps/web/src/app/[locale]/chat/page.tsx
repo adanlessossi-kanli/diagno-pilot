@@ -7,6 +7,8 @@ import type { StreamEvent } from '@diagno-pilot/api-client';
 import type { ChatMessage, PatientProfile, DocumentSource } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { CitationChip } from '../../../components/CitationChip';
+import { SessionHistoryPanel, upsertEntry, removeEntry } from '../../../components/SessionHistoryPanel';
+import type { SessionEntry } from '../../../components/SessionHistoryPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,7 +54,7 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
   const t = useTranslations('chat');
   const [open, setOpen] = useState(false);
 
-  const filtered = sources.filter(s => s.confidence_score == null || s.confidence_score >= 0.3);
+  const filtered = sources.filter(s => s.confidenceScore == null || s.confidenceScore >= 0.3);
 
   if (filtered.length === 0) return null;
 
@@ -71,7 +73,7 @@ function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
         <div className="mt-1.5 flex flex-wrap gap-1">
           {filtered.map((src, i) => (
             <CitationChip
-              key={`${src.document_id}-${i}`}
+              key={`${src.documentId}-${i}`}
               index={i + 1}
               source={src}
             />
@@ -267,22 +269,20 @@ function PatientContextPanel({
 
 export default function ChatPage() {
   const t = useTranslations('chat');
+  const tHistory = useTranslations('sessionHistory');
   const locale = useLocale();
   const { user } = useAuth();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
-  }, []);
+    return createApiClient(baseUrl, undefined, () => locale);
+  }, [locale]);
 
   // Session — restore from localStorage or generate new
-  // Always store the session ID so the mount effect can verify it exists
+  // The ID is only persisted to localStorage when the first message is sent,
+  // so the mount effect won't try to fetch history for a brand-new session.
   const [sessionId, setSessionId] = useState<string>(() => {
-    const stored = getStoredSessionId();
-    if (stored) return stored;
-    const newId = generateSessionId();
-    storeSessionId(newId);
-    return newId;
+    return getStoredSessionId() ?? generateSessionId();
   });
 
   // Messages
@@ -310,6 +310,17 @@ export default function ChatPage() {
     };
   }, []);
 
+  // ─── Session history state ──────────────────────────────────────────────────
+  const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [sessionsHasMore, setSessionsHasMore] = useState(true);
+  const sessionsPageRef = useRef(0);
+  const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [announceMessage, setAnnounceMessage] = useState<string | null>(null);
+
   // Patient context
   const [patientMode, setPatientMode] = useState<PatientMode>('none');
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -327,6 +338,97 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
+
+  // ─── Fetch sessions on mount (6.1) ──────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setSessionsLoading(true);
+    setSessionsError(null);
+    apiClient.chat.listSessions(0, 20)
+      .then((res) => {
+        if (cancelled) return;
+        const mapped = res.sessions.map((s) => ({
+          id: s.sessionId,
+          preview: s.preview ?? '\u2014',
+          date: s.updatedAt ?? s.createdAt ?? '',
+        }));
+        setSessions(mapped);
+        setSessionsHasMore(res.sessions.length >= 20);
+        sessionsPageRef.current = 20;
+      })
+      .catch(() => {
+        if (!cancelled) setSessionsError(tHistory('errorFetch'));
+      })
+      .finally(() => {
+        if (!cancelled) setSessionsLoading(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── Load more sessions (6.1) ───────────────────────────────────────────────
+  const handleLoadMore = useCallback(async () => {
+    if (sessionsLoadingMore || !sessionsHasMore) return;
+    setSessionsLoadingMore(true);
+    try {
+      const res = await apiClient.chat.listSessions(sessionsPageRef.current, 20);
+      const mapped = res.sessions.map((s) => ({
+        id: s.sessionId,
+        preview: s.preview ?? '\u2014',
+        date: s.updatedAt ?? s.createdAt ?? '',
+      }));
+      setSessions((prev) => {
+        const existingIds = new Set(prev.map((e) => e.id));
+        const deduped = mapped.filter((e) => !existingIds.has(e.id));
+        return [...prev, ...deduped];
+      });
+      setSessionsHasMore(res.sessions.length >= 20);
+      sessionsPageRef.current += 20;
+    } catch {
+      // Silently fail on load-more — user can scroll again
+    } finally {
+      setSessionsLoadingMore(false);
+    }
+  }, [sessionsLoadingMore, sessionsHasMore, apiClient]);
+
+  // ─── Session select handler (6.2) ───────────────────────────────────────────
+  const handleSessionSelect = useCallback(async (id: string) => {
+    setOperationError(null);
+    setSelectingId(id);
+    try {
+      const session = await apiClient.chat.getHistory(id);
+      setMessages(session?.messages ?? []);
+      setSessionId(id);
+      storeSessionId(id);
+      setAnnounceMessage(tHistory('sessionLoaded'));
+    } catch {
+      setOperationError(tHistory('errorLoad'));
+    } finally {
+      setSelectingId(null);
+    }
+  }, [apiClient, tHistory]);
+
+  // ─── Session delete handler (6.3) ───────────────────────────────────────────
+  const handleSessionDelete = useCallback(async (id: string) => {
+    setOperationError(null);
+    const snapshot = sessions;
+    setSessions((prev) => removeEntry(prev, id));
+    try {
+      await apiClient.chat.deleteSession(id);
+      setAnnounceMessage(tHistory('sessionDeleted'));
+      // If deleted session is the active one, clear chat and start new session
+      if (id === sessionId) {
+        clearStoredSessionId();
+        const newId = generateSessionId();
+        setSessionId(newId);
+        setMessages([]);
+      }
+    } catch {
+      // Restore snapshot on error
+      setSessions(snapshot);
+      setOperationError(tHistory('errorDelete'));
+    }
+  }, [sessions, apiClient, tHistory, sessionId]);
 
   // Load message history when restoring a session from localStorage (Req 8.4)
   useEffect(() => {
@@ -491,6 +593,14 @@ export default function ChatPage() {
                 : m,
             ),
           );
+          // Upsert session in history panel (6.4)
+          setSessions((prev) =>
+            upsertEntry(prev, {
+              id: event.session_id,
+              preview: content,
+              date: new Date().toISOString(),
+            }),
+          );
           receivedDone = true;
         } else if (event.type === 'error') {
           // Remove the placeholder assistant message on error
@@ -622,7 +732,26 @@ export default function ChatPage() {
   }
 
   return (
-    <main className="flex flex-col h-screen max-h-screen bg-gray-100">
+    <div className="flex h-screen">
+      <SessionHistoryPanel
+        entries={sessions}
+        activeId={sessionId}
+        loading={sessionsLoading}
+        error={sessionsError}
+        hasMore={sessionsHasMore}
+        loadingMore={sessionsLoadingMore}
+        onLoadMore={handleLoadMore}
+        onSelect={handleSessionSelect}
+        onDelete={handleSessionDelete}
+        selectingId={selectingId}
+        deleteMode="confirm"
+        panelTitle={tHistory('chatTitle')}
+        emptyMessage={tHistory('empty')}
+        deleteLabel={tHistory('delete')}
+        announceMessage={announceMessage}
+        operationError={operationError}
+      />
+      <main className="flex flex-col flex-1 h-screen max-h-screen bg-gray-100">
       {/* Header */}
       <header className="bg-white border-b px-6 py-3 flex items-center justify-between shrink-0">
         <h1 className="text-lg font-bold text-gray-900">{t('title')}</h1>
@@ -751,5 +880,6 @@ export default function ChatPage() {
         </button>
       </div>
     </main>
+    </div>
   );
 }

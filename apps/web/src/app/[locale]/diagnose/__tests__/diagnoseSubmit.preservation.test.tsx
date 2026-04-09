@@ -52,6 +52,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
       listAntibiotics: mockListAntibiotics,
       getPrescription: vi.fn(),
       getSession: vi.fn(),
+      listMyConsultations: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),
@@ -130,7 +131,7 @@ describe('Preservation — Diagnose submission behavior (Req 3.3)', () => {
 
           // The condition name should be rendered
           await waitFor(() => {
-            expect(screen.getByText(conditionName)).toBeDefined();
+            expect(screen.getAllByText(conditionName).length).toBeGreaterThanOrEqual(1);
           });
 
           // Probability bar should be rendered
@@ -182,7 +183,7 @@ describe('Preservation — Diagnose submission behavior (Req 3.3)', () => {
 
     // Diagnosis should be rendered
     await waitFor(() => {
-      expect(screen.getByText('Pneumonia')).toBeDefined();
+      expect(screen.getAllByText('Pneumonia').length).toBeGreaterThanOrEqual(1);
     });
 
     // Confidence score should be displayed

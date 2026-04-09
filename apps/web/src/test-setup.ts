@@ -7,3 +7,20 @@ console.error = (...args: unknown[]) => {
   if (msg.includes('not wrapped in act') || msg.includes('Maximum update depth exceeded')) return;
   originalError(...args);
 };
+
+// Provide a default matchMedia mock for jsdom (which doesn't implement it)
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}

@@ -16,14 +16,14 @@ export interface HighlightInfo {
 }
 
 export interface DocumentSource {
-  document_id: string;
+  documentId: string;
   title: string;
   source: string;
   section?: string;
   excerpt?: string;
   page?: number;
   highlight?: HighlightInfo;
-  confidence_score?: number;
+  confidenceScore?: number;
 }
 
 interface CitationChipProps {

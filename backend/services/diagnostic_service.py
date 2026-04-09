@@ -50,11 +50,12 @@ _DIAGNOSIS_SYSTEM_PROMPT_FR = (
     "de la région du patient (Togo, Bénin, Afrique de l'Ouest). "
     "Réponds UNIQUEMENT avec un tableau JSON valide, sans bloc de code markdown, "
     "sans texte avant ou après. "
-    "IMPORTANT : Tous les noms de conditions et symptômes dans le JSON DOIVENT être en FRANÇAIS. "
-    "Ne jamais utiliser l'anglais pour les noms de maladies ou symptômes. "
+    "IMPORTANT : Tous les noms de conditions dans le JSON DOIVENT être en FRANÇAIS, "
+    "suivis du nom anglais entre parenthèses. Les symptômes doivent être en FRANÇAIS uniquement. "
     "Format requis : "
-    '[{"condition": "<nom en français>", "probability": <0.0-1.0>, "icd_code": "<CIM-10>", '
+    '[{"condition": "<nom en français> (<English name>)", "probability": <0.0-1.0>, "icd_code": "<CIM-10>", '
     '"matching_symptoms": ["<symptôme en français>"]}, ...]. '
+    "Exemple de condition : \"Myélite flasque aiguë (Acute Flaccid Myelitis)\". "
     "Inclure au moins 3 diagnostics ordonnés par probabilité décroissante."
 )
 
@@ -66,7 +67,9 @@ _DIAGNOSIS_SYSTEM_PROMPT_EN = (
     "knowledge to complete the diagnosis, prioritizing endemic pathologies of the patient's "
     "region (Togo, Benin, West Africa). "
     "Respond ONLY with a valid JSON array, no markdown code blocks, no text before or after. "
-    "ALL condition names and symptoms in the JSON MUST be in ENGLISH. "
+    "ALL condition names in the JSON MUST be in ENGLISH, "
+    "followed by the local-language name in parentheses when the user locale is not English. "
+    "Symptoms must be in ENGLISH. "
     "Required format: "
     '[{"condition": "<name in English>", "probability": <0.0-1.0>, "icd_code": "<ICD-10>", '
     '"matching_symptoms": ["<symptom in English>"]}, ...]. '

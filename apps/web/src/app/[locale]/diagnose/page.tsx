@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -15,6 +15,8 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { PrescriptionStep } from './PrescriptionStep';
 import { Toast } from '../../../components/Toast';
 import { IMAGES } from '@/lib/images';
+import { SessionHistoryPanel, prependEntry } from '../../../components/SessionHistoryPanel';
+import type { SessionEntry } from '../../../components/SessionHistoryPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,7 +26,7 @@ type PatientMode = 'none' | 'select' | 'oneshot';
 interface StructuredSymptom {
   name: string;
   severity: string;
-  duration_days: number;
+  durationDays: number;
 }
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
@@ -40,7 +42,13 @@ type DiagnoseFormValues = z.infer<typeof diagnoseSchema>;
 function mapSessionToPartialResponse(session: DiagnoseSession): DiagnosisResponse {
   return {
     sessionId: session.id,
-    diagnoses: session.diagnoses,
+    diagnoses: session.diagnoses.map((d) => ({
+      condition: d.condition,
+      probability: d.probability,
+      icdCode: d.icdCode ?? undefined,
+      matchingSymptoms: d.concordantSymptoms,
+      concordantSymptoms: d.concordantSymptoms,
+    })),
     confidenceScore: undefined,
     llmUsed: undefined,
     sources: [],
@@ -56,18 +64,19 @@ function mapSessionToPartialResponse(session: DiagnoseSession): DiagnosisRespons
 export default function DiagnosePage() {
   const t = useTranslations('diagnose');
   const tCommon = useTranslations('common');
+  const tHistory = useTranslations('sessionHistory');
   const { user } = useAuth();
   const locale = useLocale();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
-  }, []);
+    return createApiClient(baseUrl, undefined, () => locale);
+  }, [locale]);
 
   // Symptom input state
   const [inputMode, setInputMode] = useState<InputMode>('freeText');
   const [structuredSymptoms, setStructuredSymptoms] = useState<StructuredSymptom[]>([]);
-  const [newSymptom, setNewSymptom] = useState<StructuredSymptom>({ name: '', severity: 'moderate', duration_days: 1 });
+  const [newSymptom, setNewSymptom] = useState<StructuredSymptom>({ name: '', severity: 'moderate', durationDays: 1 });
 
   // Patient context state
   const [patientMode, setPatientMode] = useState<PatientMode>('none');
@@ -90,6 +99,18 @@ export default function DiagnosePage() {
   const [antibiotics, setAntibiotics] = useState<string[]>([]);
   const [restoredPartial, setRestoredPartial] = useState(false);
 
+  // ─── Consultation history state ─────────────────────────────────────────────
+  const [consultations, setConsultations] = useState<SessionEntry[]>([]);
+  const [consultationsLoading, setConsultationsLoading] = useState(false);
+  const [consultationsError, setConsultationsError] = useState<string | null>(null);
+  const [consultationsHasMore, setConsultationsHasMore] = useState(true);
+  const consultationsPageRef = useRef(1);
+  const [consultationsLoadingMore, setConsultationsLoadingMore] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [selectingId, setSelectingId] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [announceMessage, setAnnounceMessage] = useState<string | null>(null);
+
   // sessionStorage key for persisting diagnose session ID
   const sessionStorageKey = `diagno-pilot-diagnose-session-${user?.id ?? 'anonymous'}`;
 
@@ -97,6 +118,7 @@ export default function DiagnosePage() {
   const {
     register,
     watch,
+    reset: resetForm,
     formState: { errors: formErrors },
   } = useForm<DiagnoseFormValues>({
     resolver: zodResolver(diagnoseSchema),
@@ -173,6 +195,89 @@ export default function DiagnosePage() {
     }
   }, [patientMode, fetchPatients]);
 
+  // ─── Fetch consultations on mount (8.1) ─────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    setConsultationsLoading(true);
+    setConsultationsError(null);
+    apiClient.diagnose.listMyConsultations(1, 20)
+      .then((res) => {
+        if (cancelled) return;
+        const mapped: SessionEntry[] = res.items.map((c) => ({
+          id: c.id,
+          preview: c.diagnoses[0]?.condition ?? '',
+          date: c.createdAt ?? '',
+        }));
+        setConsultations(mapped);
+        setConsultationsHasMore(mapped.length < res.total);
+        consultationsPageRef.current = 1;
+      })
+      .catch(() => {
+        if (!cancelled) setConsultationsError(tHistory('errorFetch'));
+      })
+      .finally(() => {
+        if (!cancelled) setConsultationsLoading(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── Load more consultations (8.1) ──────────────────────────────────────────
+  const handleLoadMore = useCallback(async () => {
+    if (consultationsLoadingMore || !consultationsHasMore) return;
+    setConsultationsLoadingMore(true);
+    try {
+      const nextPage = consultationsPageRef.current + 1;
+      const res = await apiClient.diagnose.listMyConsultations(nextPage, 20);
+      const mapped: SessionEntry[] = res.items.map((c) => ({
+        id: c.id,
+        preview: c.diagnoses[0]?.condition ?? '',
+        date: c.createdAt ?? '',
+      }));
+      setConsultations((prev) => {
+        const existingIds = new Set(prev.map((e) => e.id));
+        const deduped = mapped.filter((e) => !existingIds.has(e.id));
+        return [...prev, ...deduped];
+      });
+      const loadedCount = (consultationsPageRef.current * 20) + mapped.length;
+      setConsultationsHasMore(loadedCount < res.total);
+      consultationsPageRef.current = nextPage;
+    } catch {
+      // Silently fail on load-more — user can scroll again
+    } finally {
+      setConsultationsLoadingMore(false);
+    }
+  }, [consultationsLoadingMore, consultationsHasMore, apiClient]);
+
+  // ─── Consultation select handler (8.2) ──────────────────────────────────────
+  const handleConsultationSelect = useCallback(async (id: string) => {
+    setOperationError(null);
+    setSelectingId(id);
+    try {
+      const session = await apiClient.diagnose.getSession(id);
+      const partial = mapSessionToPartialResponse(session);
+      setResults(partial);
+      sessionStorage.setItem(sessionStorageKey, id);
+      setAnnounceMessage(tHistory('sessionLoaded'));
+    } catch {
+      setOperationError(tHistory('errorLoad'));
+    } finally {
+      setSelectingId(null);
+    }
+  }, [apiClient, sessionStorageKey, tHistory]);
+
+  // ─── Consultation hide handler (8.3) ────────────────────────────────────────
+  const handleConsultationHide = useCallback((id: string) => {
+    setHiddenIds((prev) => new Set(prev).add(id));
+    // If hidden consultation is currently displayed, clear results
+    const currentSessionId = sessionStorage.getItem(sessionStorageKey);
+    if (currentSessionId === id) {
+      setResults(null);
+      sessionStorage.removeItem(sessionStorageKey);
+    }
+    setAnnounceMessage(tHistory('sessionHidden'));
+  }, [sessionStorageKey, tHistory]);
+
   // ─── Determine if submit should be disabled ──────────────────────────────────
 
   function isSubmitDisabled(): boolean {
@@ -188,7 +293,7 @@ export default function DiagnosePage() {
   function addStructuredSymptom() {
     if (!newSymptom.name.trim()) return;
     setStructuredSymptoms((prev) => [...prev, { ...newSymptom }]);
-    setNewSymptom({ name: '', severity: 'moderate', duration_days: 1 });
+    setNewSymptom({ name: '', severity: 'moderate', durationDays: 1 });
   }
 
   function removeSymptom(index: number) {
@@ -200,12 +305,12 @@ export default function DiagnosePage() {
   function buildSymptoms(): Symptom[] {
     if (inputMode === 'freeText') {
       if (!freeTextValue?.trim()) return [];
-      return [{ name: freeTextValue.trim(), severity: 'moderate', duration_days: 0 }];
+      return [{ name: freeTextValue.trim(), severity: 'moderate', durationDays: 0 }];
     }
     return structuredSymptoms.map((s) => ({
       name: s.name,
       severity: s.severity,
-      duration_days: s.duration_days,
+      durationDays: s.durationDays,
     }));
   }
 
@@ -258,6 +363,14 @@ export default function DiagnosePage() {
       // Persist new session ID to sessionStorage
       if (response.sessionId) {
         sessionStorage.setItem(sessionStorageKey, response.sessionId);
+
+        // Prepend new consultation to history list (8.4)
+        const newEntry: SessionEntry = {
+          id: response.sessionId,
+          preview: response.diagnoses[0]?.condition ?? '',
+          date: new Date().toISOString(),
+        };
+        setConsultations((prev) => prependEntry(prev, newEntry));
       }
     } catch {
       setError(t('errorDiagnose'));
@@ -298,10 +411,49 @@ export default function DiagnosePage() {
     return answer;
   }
 
+  // ─── New diagnosis ───────────────────────────────────────────────────────────
+
+  function handleNewDiagnosis() {
+    setResults(null);
+    setRestoredPartial(false);
+    setError('');
+    setShowSuccessToast(false);
+    resetForm({ freeText: '' });
+    setStructuredSymptoms([]);
+    setNewSymptom({ name: '', severity: 'moderate', durationDays: 1 });
+    setInputMode('freeText');
+    sessionStorage.removeItem(sessionStorageKey);
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
+  // Derive activeId from sessionStorage
+  const activeConsultationId = typeof window !== 'undefined' ? sessionStorage.getItem(sessionStorageKey) : null;
+
+  // Filter out hidden entries
+  const visibleConsultations = consultations.filter((e) => !hiddenIds.has(e.id));
+
   return (
-    <main className="min-h-screen p-8 max-w-3xl mx-auto">
+    <div className="flex h-screen">
+      <SessionHistoryPanel
+        entries={visibleConsultations}
+        activeId={activeConsultationId}
+        loading={consultationsLoading}
+        error={consultationsError}
+        hasMore={consultationsHasMore}
+        loadingMore={consultationsLoadingMore}
+        onLoadMore={handleLoadMore}
+        onSelect={handleConsultationSelect}
+        onDelete={handleConsultationHide}
+        selectingId={selectingId}
+        deleteMode="instant"
+        panelTitle={tHistory('diagnoseTitle')}
+        emptyMessage={tHistory('emptyDiagnose')}
+        deleteLabel={tHistory('hide')}
+        announceMessage={announceMessage}
+        operationError={operationError}
+      />
+      <main className="flex-1 min-h-screen p-8 max-w-3xl mx-auto overflow-y-auto">
       {/* Header illustration */}
       <div className="relative w-full h-32 mb-6 rounded-lg overflow-hidden bg-gray-100">
         <Image
@@ -314,7 +466,18 @@ export default function DiagnosePage() {
         />
       </div>
 
-      <h1 className="text-2xl font-bold mb-6">{t('title')}</h1>
+      <h1 className="text-2xl font-bold mb-6 flex items-center justify-between">
+        {t('title')}
+        {results && (
+          <button
+            type="button"
+            onClick={handleNewDiagnosis}
+            className="text-sm font-medium text-blue-600 hover:underline"
+          >
+            + {t('newDiagnosis')}
+          </button>
+        )}
+      </h1>
 
       {showSuccessToast && (
         <Toast
@@ -384,7 +547,7 @@ export default function DiagnosePage() {
                       <span>
                         <span className="font-medium">{s.name}</span>
                         {' — '}
-                        <span className="text-gray-500">{s.severity}, {s.duration_days}j</span>
+                        <span className="text-gray-500">{s.severity}, {s.durationDays}j</span>
                       </span>
                       <button
                         type="button"
@@ -420,8 +583,8 @@ export default function DiagnosePage() {
                 <input
                   type="number"
                   min={0}
-                  value={newSymptom.duration_days}
-                  onChange={(e) => setNewSymptom((p) => ({ ...p, duration_days: parseInt(e.target.value) || 0 }))}
+                  value={newSymptom.durationDays}
+                  onChange={(e) => setNewSymptom((p) => ({ ...p, durationDays: parseInt(e.target.value) || 0 }))}
                   placeholder={t('durationDays')}
                   className="w-24 border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -725,5 +888,6 @@ export default function DiagnosePage() {
         </Link>
       </div>
     </main>
+    </div>
   );
 }

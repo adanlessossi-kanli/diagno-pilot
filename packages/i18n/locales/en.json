@@ -82,6 +82,7 @@
     "title": "Guided Diagnosis",
     "symptoms": "Symptoms",
     "symptomsPlaceholder": "Describe the patient's symptoms...",
+    "newDiagnosis": "New diagnosis",
     "analyze": "Analyze",
     "differential": "Differential diagnoses",
     "probability": "Probability",
@@ -325,5 +326,29 @@
       "MSF": "MSF",
       "PNLP": "PNLP"
     }
+  },
+  "sessionHistory": {
+    "title": "Session History",
+    "chatTitle": "Chat History",
+    "diagnoseTitle": "Diagnosis History",
+    "empty": "No sessions yet.",
+    "emptyDiagnose": "No consultations yet.",
+    "loading": "Loading sessions...",
+    "loadingMore": "Loading more...",
+    "errorFetch": "Error loading sessions.",
+    "errorLoad": "Error loading session.",
+    "errorDelete": "Error deleting session.",
+    "errorHide": "Error hiding consultation.",
+    "delete": "Delete",
+    "hide": "Hide",
+    "confirmDeleteTitle": "Delete session?",
+    "confirmDeleteMessage": "This action cannot be undone.",
+    "cancel": "Cancel",
+    "confirm": "Delete",
+    "collapse": "Collapse session history",
+    "expand": "Expand session history",
+    "sessionLoaded": "Session loaded.",
+    "sessionDeleted": "Session deleted.",
+    "sessionHidden": "Consultation hidden."
   }
 }

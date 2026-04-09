@@ -87,9 +87,9 @@ const mockDiagnoses = [
 
 const mockPrescription = {
   antibiotic: 'Amoxicilline',
-  dose_mg: 500,
+  doseMg: 500,
   frequency: 3,
-  duration_days: 7,
+  durationDays: 7,
   route: 'oral',
 };
 
@@ -156,7 +156,7 @@ describe('DiagnoseScreen — critical prescription alert', () => {
       level: 'critical' as const,
       type: 'allergy',
       message: 'Allergie connue à la pénicilline',
-      affected_drug: 'Amoxicilline',
+      affectedDrug: 'Amoxicilline',
       alternative: 'Azithromycine',
     };
     mockGetPrescription.mockResolvedValue({
@@ -194,7 +194,7 @@ describe('DiagnoseScreen — critical prescription alert', () => {
       level: 'warning' as const,
       type: 'interaction',
       message: 'Interaction modérée',
-      affected_drug: 'Amoxicilline',
+      affectedDrug: 'Amoxicilline',
       alternative: null,
     };
     mockGetPrescription.mockResolvedValue({
@@ -234,7 +234,7 @@ describe('Property 15 — Critical mobile alerts rendered with correct testID', 
     const alertArb = fc.record({
       type: fc.constantFrom('allergy', 'contraindication', 'interaction'),
       message: fc.string({ minLength: 1, maxLength: 80 }),
-      affected_drug: fc.string({ minLength: 1, maxLength: 30 }),
+      affectedDrug: fc.string({ minLength: 1, maxLength: 30 }),
       alternative: fc.option(fc.string({ minLength: 1, maxLength: 30 }), { nil: null }),
     });
 

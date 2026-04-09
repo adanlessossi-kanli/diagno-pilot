@@ -22,11 +22,13 @@ import {
   AuthUserSchema,
   PatientProfileSchema,
   ConsultationSchema,
+  ChatSessionListResponseSchema,
   DifferentialDiagnosisSchema,
   DocumentSourceSchema,
   EvidenceCitationSchema,
   AgentContributionSchema,
 } from '@diagno-pilot/types';
+import type { ChatSessionListResponse } from '@diagno-pilot/types';
 
 // ─── Response types ───────────────────────────────────────────────────────────
 
@@ -396,6 +398,30 @@ export function createApiClient(
     /** REQ-04 — Retrieve the full message history for a session */
     getHistory(sessionId: string, signal?: AbortSignal): Promise<ChatSession> {
       return get<ChatSession>(`/api/v1/chat/history/${encodeURIComponent(sessionId)}`, signal);
+    },
+
+    /** List chat session summaries (paginated) */
+    listSessions(
+      skip?: number,
+      limit?: number,
+      signal?: AbortSignal,
+    ): Promise<ChatSessionListResponse> {
+      const params = new URLSearchParams();
+      if (skip != null) params.set('skip', String(skip));
+      if (limit != null) params.set('limit', String(limit));
+      const qs = params.toString();
+      const path = `/api/v1/chat/sessions${qs ? `?${qs}` : ''}`;
+      return fetch(`${base}${path}`, {
+        method: 'GET',
+        headers: headers(),
+        credentials: 'include',
+        signal,
+      }).then((res) => parseResponse(res, ChatSessionListResponseSchema));
+    },
+
+    /** Delete a chat session by ID */
+    deleteSession(sessionId: string, signal?: AbortSignal): Promise<unknown> {
+      return del(`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}`, signal);
     },
 
     /** REQ-06 — Stream a chat message response via SSE */

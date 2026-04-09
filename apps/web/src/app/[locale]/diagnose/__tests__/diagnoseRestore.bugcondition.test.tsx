@@ -66,6 +66,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
       getSession: mockGetSession,
       getPrescription: mockGetPrescription,
       listAntibiotics: mockListAntibiotics,
+      listMyConsultations: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),
@@ -105,10 +106,10 @@ const mockDiagnosisResponse = {
 
 const mockDiagnoseSession = {
   id: 'diag-session-abc',
-  symptoms: [{ name: 'fever and chills', severity: 'moderate', duration_days: 3 }],
+  symptoms: [{ name: 'fever and chills', severity: 'moderate', durationDays: 3 }],
   diagnoses: [
-    { condition: 'Malaria', probability: 0.85, icd_code: 'B50', concordant_symptoms: ['fever', 'chills'] },
-    { condition: 'Typhoid', probability: 0.6, icd_code: 'A01', concordant_symptoms: ['fever'] },
+    { condition: 'Malaria', probability: 0.85, icdCode: 'B50', concordantSymptoms: ['fever', 'chills'] },
+    { condition: 'Typhoid', probability: 0.6, icdCode: 'A01', concordantSymptoms: ['fever'] },
   ],
   alerts: [],
   createdAt: new Date().toISOString(),

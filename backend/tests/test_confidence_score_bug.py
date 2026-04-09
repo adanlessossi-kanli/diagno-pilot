@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
-from backend.models.document import DocumentSource
 from backend.services.llamaindex_pipeline import LlamaIndexPipeline, StreamEvent
 from backend.services.llm_router import LLMResult, StreamChunk
 

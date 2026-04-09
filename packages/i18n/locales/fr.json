@@ -82,6 +82,7 @@
     "title": "Diagnostic guidé",
     "symptoms": "Symptômes",
     "symptomsPlaceholder": "Décrivez les symptômes du patient...",
+    "newDiagnosis": "Nouveau diagnostic",
     "analyze": "Analyser",
     "differential": "Diagnostics différentiels",
     "probability": "Probabilité",
@@ -325,5 +326,29 @@
       "MSF": "MSF",
       "PNLP": "PNLP"
     }
+  },
+  "sessionHistory": {
+    "title": "Historique des sessions",
+    "chatTitle": "Historique des conversations",
+    "diagnoseTitle": "Historique des diagnostics",
+    "empty": "Aucune session pour le moment.",
+    "emptyDiagnose": "Aucune consultation pour le moment.",
+    "loading": "Chargement des sessions...",
+    "loadingMore": "Chargement en cours...",
+    "errorFetch": "Erreur lors du chargement des sessions.",
+    "errorLoad": "Erreur lors du chargement de la session.",
+    "errorDelete": "Erreur lors de la suppression de la session.",
+    "errorHide": "Erreur lors du masquage de la consultation.",
+    "delete": "Supprimer",
+    "hide": "Masquer",
+    "confirmDeleteTitle": "Supprimer la session ?",
+    "confirmDeleteMessage": "Cette action est irréversible.",
+    "cancel": "Annuler",
+    "confirm": "Supprimer",
+    "collapse": "Réduire l'historique",
+    "expand": "Afficher l'historique",
+    "sessionLoaded": "Session chargée.",
+    "sessionDeleted": "Session supprimée.",
+    "sessionHidden": "Consultation masquée."
   }
 }

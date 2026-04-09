@@ -15,7 +15,7 @@ describe('AlertBanner', () => {
     level: 'critical',
     type: 'allergy',
     message: 'Patient is allergic to penicillin',
-    affected_drug: 'Amoxicillin',
+    affectedDrug: 'Amoxicillin',
   };
 
   it('renders the alert message', () => {
@@ -102,7 +102,7 @@ describe('PatientCard', () => {
 
 describe('SymptomInput', () => {
   const symptoms: Symptom[] = [
-    { name: 'Fever', severity: 'severe', duration_days: 3 },
+    { name: 'Fever', severity: 'severe', durationDays: 3 },
   ];
 
   it('renders existing symptoms', () => {
@@ -138,12 +138,12 @@ describe('SymptomInput', () => {
 describe('PrescriptionCard', () => {
   const rx: Prescription = {
     antibiotic: 'Amoxicillin',
-    dose_mg: 500,
-    dose_per_kg: 25,
+    doseMg: 500,
+    dosePerKg: 25,
     frequency: 'TID',
-    duration_days: 7,
+    durationDays: 7,
     route: 'oral',
-    is_capped_to_adult_dose: false,
+    isCappedToAdultDose: false,
   };
 
   it('renders antibiotic name', () => {
@@ -158,7 +158,7 @@ describe('PrescriptionCard', () => {
   });
 
   it('shows capped badge when is_capped_to_adult_dose is true', () => {
-    render(<PrescriptionCard prescription={{ ...rx, is_capped_to_adult_dose: true }} />);
+    render(<PrescriptionCard prescription={{ ...rx, isCappedToAdultDose: true }} />);
     expect(screen.getByText(/Capped to adult dose/)).toBeTruthy();
   });
 
@@ -172,7 +172,9 @@ describe('PrescriptionCard', () => {
 
 describe('SourceCitation', () => {
   const source: DocumentSource = {
+    documentId: 'doc-001',
     title: 'OMS AFRO Guidelines',
+    source: 'OMS AFRO',
     section: 'Chapter 3 — Antibiotics',
     excerpt: 'Amoxicillin is the first-line treatment for community-acquired pneumonia.',
   };
@@ -189,7 +191,7 @@ describe('SourceCitation', () => {
   });
 
   it('renders without excerpt when not provided', () => {
-    const noExcerpt: DocumentSource = { title: 'MSF Guide', section: 'Malaria', excerpt: '' };
+    const noExcerpt: DocumentSource = { documentId: 'doc-002', title: 'MSF Guide', source: 'MSF', section: 'Malaria', excerpt: '' };
     render(<SourceCitation source={noExcerpt} />);
     expect(screen.getByText('MSF Guide')).toBeTruthy();
   });

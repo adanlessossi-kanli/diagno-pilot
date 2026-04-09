@@ -29,7 +29,7 @@ export function MobileSymptomInput({ symptoms, onAdd, onRemove }: MobileSymptomI
     onAdd({
       name: trimmed,
       severity,
-      duration_days: durationDays ? parseInt(durationDays, 10) : 0,
+      durationDays: durationDays ? parseInt(durationDays, 10) : 0,
     });
     setName('');
     setDurationDays('');
@@ -91,7 +91,7 @@ export function MobileSymptomInput({ symptoms, onAdd, onRemove }: MobileSymptomI
               <Text style={styles.tagText}>
                 {s.name}
                 {s.severity ? ` · ${s.severity}` : ''}
-                {s.duration_days > 0 ? ` · ${s.duration_days}j` : ''}
+                {s.durationDays > 0 ? ` · ${s.durationDays}j` : ''}
               </Text>
               <TouchableOpacity
                 onPress={() => onRemove(i)}
