@@ -17,8 +17,8 @@ export default function DiagnoseHistoryPage() {
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
-  }, []);
+    return createApiClient(baseUrl, undefined, () => locale);
+  }, [locale]);
 
   const [page, setPage] = useState(1);
   const [data, setData] = useState<PaginatedResponse<Consultation> | null>(null);
@@ -91,7 +91,7 @@ export default function DiagnoseHistoryPage() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-gray-500">
-                      {new Date(consultation.createdAt).toLocaleDateString()}
+                      {new Date(consultation.createdAt ?? '').toLocaleDateString()}
                     </span>
                     <Link
                       href={`/${locale}/diagnose/history/${consultation.id}`}

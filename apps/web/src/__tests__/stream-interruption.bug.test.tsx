@@ -83,6 +83,8 @@ vi.mock('@diagno-pilot/api-client', () => ({
     chat: {
       sendMessageStream: vi.fn(() => mockStreamGenerator),
       getHistory: vi.fn().mockRejectedValue(new Error('no history')),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [] }),
+      deleteSession: vi.fn(),
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),
@@ -113,6 +115,26 @@ beforeEach(() => {
   localStorage.clear();
   // jsdom doesn't implement scrollIntoView
   Element.prototype.scrollIntoView = vi.fn();
+
+  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  })));
+
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 afterEach(() => {

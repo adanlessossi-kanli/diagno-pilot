@@ -19,7 +19,7 @@ function makeAlert(level: 'critical' | 'warning' | 'info'): SafetyAlert {
   return {
     level,
     message: `Test ${level} alert`,
-    affected_drug: undefined,
+    affectedDrug: undefined,
   } as unknown as SafetyAlert;
 }
 

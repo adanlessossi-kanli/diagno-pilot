@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, use, useMemo } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { PatientFile, UploadFileResponse } from '@diagno-pilot/api-client';
@@ -37,7 +37,7 @@ function ConsultationCard({
       {/* Summary row */}
       <div className="p-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-xs text-gray-400">{formatDate(consultation.createdAt)}</p>
+          <p className="text-xs text-gray-400">{formatDate(consultation.createdAt ?? undefined)}</p>
 
           {/* Symptoms */}
           {consultation.symptoms.length > 0 && (
@@ -63,7 +63,7 @@ function ConsultationCard({
           {/* Prescription summary */}
           {rx && (
             <p className="text-xs text-gray-500">
-              {rx.antibiotic} — {rx.dose_mg} mg — {rx.frequency} — {rx.duration_days}j
+              {rx.antibiotic} — {rx.doseMg} mg — {rx.frequency} — {rx.durationDays}j
             </p>
           )}
         </div>
@@ -88,7 +88,7 @@ function ConsultationCard({
                 {consultation.symptoms.map((s, i) => (
                   <li key={i} className="text-gray-700">
                     {s.name}
-                    <span className="text-gray-400 ml-1">— {s.severity}, {s.duration_days}j</span>
+                    <span className="text-gray-400 ml-1">— {s.severity}, {s.durationDays}j</span>
                   </li>
                 ))}
               </ul>
@@ -103,9 +103,9 @@ function ConsultationCard({
                 {consultation.diagnoses.map((d, i) => (
                   <li key={i} className="flex items-center gap-2">
                     <span className="text-gray-800">{d.condition}</span>
-                    {d.icd_code && (
+                    {d.icdCode && (
                       <span className="text-xs font-mono bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">
-                        {d.icd_code}
+                        {d.icdCode}
                       </span>
                     )}
                     <span className="text-xs text-gray-400 ml-auto">{formatPercent(d.probability)}</span>
@@ -124,13 +124,13 @@ function ConsultationCard({
                 <span>{rx.antibiotic}</span>
                 <span className="text-gray-500">{t('dose')}</span>
                 <span>
-                  {rx.dose_mg} mg
-                  {rx.dose_per_kg ? ` (${rx.dose_per_kg} mg/kg)` : ''}
+                  {rx.doseMg} mg
+                  {rx.dosePerKg ? ` (${rx.dosePerKg} mg/kg)` : ''}
                 </span>
                 <span className="text-gray-500">{t('frequency')}</span>
                 <span>{rx.frequency}</span>
                 <span className="text-gray-500">{t('duration')}</span>
-                <span>{t('durationDays', { days: rx.duration_days })}</span>
+                <span>{t('durationDays', { days: rx.durationDays })}</span>
                 <span className="text-gray-500">{t('route')}</span>
                 <span>{rx.route}</span>
               </div>
@@ -207,11 +207,12 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
   const tCommon = useTranslations('common');
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const locale = useLocale();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
-  }, []);
+    return createApiClient(baseUrl, undefined, () => locale);
+  }, [locale]);
 
   const [patient, setPatient] = useState<PatientProfile | null>(null);
   const [consultations, setConsultations] = useState<Consultation[]>([]);

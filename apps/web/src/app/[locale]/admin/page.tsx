@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { createApiClient } from '@diagno-pilot/api-client';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -430,15 +430,16 @@ export default function AdminPanelPage() {
   const tCommon = useTranslations('common');
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
+  const locale = useLocale();
 
   // Use createApiClient consistent with the rest of the app; derive base URL for admin fetch calls
   const apiBase = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
     // Instantiate client to follow the same pattern as other pages; admin endpoints
     // are called via fetch directly since they are not yet in the typed client surface.
-    createApiClient(baseUrl);
+    createApiClient(baseUrl, undefined, () => locale);
     return baseUrl;
-  }, []);
+  }, [locale]);
 
   // RBAC guard — redirect non-admins to /
   useEffect(() => {

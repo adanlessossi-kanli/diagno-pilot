@@ -188,8 +188,8 @@ describe('PatientDetailPage — page-level tests', () => {
       {
         id: 'c1',
         createdAt: '2024-01-15T10:00:00Z',
-        symptoms: [{ name: 'fever', severity: 'moderate', duration_days: 2 }],
-        diagnoses: [{ condition: 'Flu', probability: 0.8, icd_code: 'J11' }],
+        symptoms: [{ name: 'fever', severity: 'moderate', durationDays: 2 }],
+        diagnoses: [{ condition: 'Flu', probability: 0.8, icdCode: 'J11' }],
         prescription: null,
         llmUsed: null,
       },
@@ -248,8 +248,8 @@ describe('PatientDetailPage — Property 10: Patient detail page renders all req
         {
           id: 'c1',
           createdAt: '2024-01-15T10:00:00Z',
-          symptoms: [{ name: 'fever', severity: 'moderate', duration_days: 2 }],
-          diagnoses: [{ condition: 'Flu', probability: 0.8, icd_code: 'J11' }],
+          symptoms: [{ name: 'fever', severity: 'moderate', durationDays: 2 }],
+          diagnoses: [{ condition: 'Flu', probability: 0.8, icdCode: 'J11' }],
           prescription: null,
           llmUsed: null,
         },

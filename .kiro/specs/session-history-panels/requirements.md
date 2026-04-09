@@ -46,6 +46,8 @@ Add collapsible side panels to the Chat and Diagnose pages that display previous
 3. WHEN a session is loaded, THE Chat_Page SHALL update the Active_Session identifier to the loaded session's ID
 4. WHEN a session is loaded, THE Chat_Page SHALL persist the loaded session ID to localStorage
 5. THE Session_History_Panel SHALL visually highlight the currently Active_Session entry
+6. WHILE `getHistory` is in flight, THE Session_History_Panel SHALL show a loading indicator on the clicked entry and disable further entry clicks
+7. IF `apiClient.chat.getHistory(sessionId)` returns an error, THEN THE Session_History_Panel SHALL display a localized error message and keep the previous Active_Session unchanged
 
 ### Requirement 3: Chat Session History Panel — Delete Session
 
@@ -86,18 +88,25 @@ Add collapsible side panels to the Chat and Diagnose pages that display previous
 1. WHEN a Consultation entry is clicked, THE Diagnose_Page SHALL call `apiClient.diagnose.getSession(sessionId)` to fetch the full diagnostic session
 2. WHEN the full diagnostic session is loaded, THE Diagnose_Page SHALL display the loaded diagnoses, probabilities, sources, and prescriptions in the results area
 3. THE Session_History_Panel SHALL visually highlight the currently displayed Consultation entry
+4. WHILE `getSession` is in flight, THE Session_History_Panel SHALL show a loading indicator on the clicked entry and disable further entry clicks
+5. IF `apiClient.diagnose.getSession(sessionId)` returns an error, THEN THE Session_History_Panel SHALL display a localized error message and keep the previous displayed consultation unchanged
 
 ### Requirement 6: Diagnose Consultation History Panel — Delete Consultation
 
-**User Story:** As a practitioner, I want to delete a past consultation from the history panel, so that I can remove results I no longer need.
+**User Story:** As a practitioner, I want to hide a past consultation from the history panel, so that I can declutter results I no longer need.
 
 #### Acceptance Criteria
 
-1. THE Session_History_Panel SHALL display a delete button on each Consultation entry
-2. WHEN the delete button is clicked, THE Session_History_Panel SHALL display a confirmation prompt before proceeding
-3. WHEN the user confirms deletion, THE Session_History_Panel SHALL remove the entry from the local displayed list only (client-side removal), since no backend `DELETE /api/v1/diagnose/session/{session_id}` endpoint exists
-4. WHEN the deleted consultation is the currently displayed result, THE Diagnose_Page SHALL clear the results area
-5. THE deleted consultation SHALL reappear in the list on next page load (since it is not deleted server-side) — this is a known limitation documented in the UI via a tooltip or footnote
+1. THE Session_History_Panel SHALL display a hide button (eye-off icon) on each Consultation entry
+2. WHEN the hide button is clicked, THE Session_History_Panel SHALL immediately remove the entry from the displayed list (no confirmation needed — action is reversible on reload)
+3. WHEN the hidden consultation is the currently displayed result, THE Diagnose_Page SHALL clear the results area
+4. THE hidden consultation SHALL reappear in the list on next page load (since no backend `DELETE /api/v1/consultations/{id}` endpoint exists — this is client-side only)
+
+#### Implementation Notes
+
+- Use "hide" semantics (eye-off icon, "Hide" label) instead of "delete" to set correct user expectations — the action is temporary and reversible on reload. No confirmation dialog is needed since the action is non-destructive.
+- Store hidden consultation IDs in a `Set` in component state; filter them out of the rendered list. The set resets on unmount/page navigation.
+- When a backend `DELETE` endpoint is added in the future, this can be upgraded to true deletion with a confirmation prompt (matching the chat panel pattern from Req 3).
 
 ### Requirement 7: Session History Panel — Collapse and Expand
 
@@ -109,8 +118,9 @@ Add collapsible side panels to the Chat and Diagnose pages that display previous
 2. WHEN the Session_History_Panel is collapsed, THE host page (Chat_Page or Diagnose_Page) SHALL expand the main content area to fill the available width
 3. WHEN the toggle button is clicked while the panel is collapsed, THE Session_History_Panel SHALL expand to its full width
 4. THE Session_History_Panel SHALL default to the expanded state on initial page load
-5. THE Session_History_Panel SHALL automatically collapse on viewports narrower than 768px
-6. THE collapse state SHALL NOT persist across page navigations — each page load starts expanded (or auto-collapsed on narrow viewports)
+5. THE Session_History_Panel SHALL automatically collapse on viewports narrower than 768px (matching the app's existing `md:` Tailwind breakpoint used in NavBar)
+6. WHEN the viewport is narrower than 768px, THE toggle button SHALL remain visible and functional — the user MAY manually expand the panel on narrow viewports, and it SHALL render as an overlay on top of the main content (not pushing it aside) to avoid layout breakage. WHEN the panel is expanded as an overlay, clicking the backdrop SHALL collapse the panel (matching the NavBar mobile drawer pattern).
+7. THE collapse state SHALL NOT persist across page navigations — each page load starts expanded (or auto-collapsed on narrow viewports)
 
 ### Requirement 8: Session History Panel — Pagination
 
@@ -130,9 +140,10 @@ Add collapsible side panels to the Chat and Diagnose pages that display previous
 #### Acceptance Criteria
 
 1. THE Session_History_Panel SHALL fetch the session list on initial mount
-2. WHEN the user sends a new chat message (on Chat_Page) or submits a new diagnosis (on Diagnose_Page), THE Session_History_Panel SHALL prepend the new/updated session to the top of the list without re-fetching all sessions
-3. WHEN the user clicks "New Chat" (on Chat_Page), THE Session_History_Panel SHALL prepend the newly created session entry (if the previous session had messages)
-4. WHEN the user deletes a session, THE Session_History_Panel SHALL remove it from the list immediately (optimistic update)
+2. WHEN the `done` SSE event is received after sending a chat message (on Chat_Page), THE Session_History_Panel SHALL upsert the session at the top of the list using the `session_id` from the event and the user message content as preview — if the session already exists in the list, it SHALL be moved to the top with its `updated_at` refreshed; if it is new, it SHALL be prepended
+3. WHEN a new diagnosis is submitted and the response is received (on Diagnose_Page), THE Session_History_Panel SHALL prepend the new consultation to the top of the list using the primary diagnosis condition name as preview
+4. WHEN the user clicks "New Chat" (on Chat_Page) and the previous session had messages, THE Session_History_Panel SHALL keep the previous session in the list (it is already there from AC 2) — no additional prepend is needed since the new empty session has no history entry until a message is sent
+5. WHEN the user deletes a session, THE Session_History_Panel SHALL remove it from the list immediately (optimistic update)
 
 ### Requirement 10: Internationalization
 
@@ -153,3 +164,17 @@ Add collapsible side panels to the Chat and Diagnose pages that display previous
 1. THE Session_History_Panel SHALL not interfere with the existing chat message input, streaming, or patient context functionality on the Chat_Page
 2. THE Session_History_Panel SHALL not interfere with the existing symptom input, diagnosis submission, or prescription functionality on the Diagnose_Page
 3. THE Chat_Page and Diagnose_Page SHALL remain fully functional when the Session_History_Panel is collapsed
+4. THE Session_History_Panel SHALL be visible to all authenticated roles that can access the host page (including `guest` on Chat_Page) — the panel uses the same role-gated endpoints as the host page, so no additional role checks are needed
+
+### Requirement 12: Accessibility
+
+**User Story:** As a practitioner using assistive technology, I want the session history panel to be fully keyboard-navigable and screen-reader friendly, so that I can use it without a mouse.
+
+#### Acceptance Criteria
+
+1. THE Session_History_Panel toggle button SHALL have an `aria-expanded` attribute reflecting the current collapse state and an `aria-label` describing the action (e.g., "Collapse session history" / "Expand session history")
+2. THE session list SHALL be rendered as a `role="listbox"` with each entry as `role="option"`, and the Active_Session entry SHALL have `aria-selected="true"`
+3. THE session list SHALL support arrow-key navigation between entries, with `Enter` to load and `Delete` key to trigger delete/hide
+4. WHEN a session is deleted or hidden, keyboard focus SHALL move to the next entry in the list (or the previous entry if the last item was removed)
+5. WHEN a session is successfully loaded or deleted, THE Session_History_Panel SHALL announce the result via an `aria-live="polite"` region (consistent with the existing `Toast` component pattern)
+6. THE delete confirmation prompt (chat panel) SHALL trap focus within the dialog and return focus to the triggering delete button on cancel

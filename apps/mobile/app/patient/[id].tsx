@@ -90,14 +90,14 @@ export default function PatientDetailScreen() {
             {c.diagnoses.length > 0 && (
               <Text style={styles.consultDetail}>
                 Diagnostic retenu : {c.diagnoses[0].condition}
-                {c.diagnoses[0].icd_code ? ` (${c.diagnoses[0].icd_code})` : ''}
+                {c.diagnoses[0].icdCode ? ` (${c.diagnoses[0].icdCode})` : ''}
               </Text>
             )}
 
             {c.prescription && (
               <Text style={styles.consultDetail}>
-                Prescription : {c.prescription.antibiotic} {c.prescription.dose_mg}mg —{' '}
-                {c.prescription.frequency} × {c.prescription.duration_days}j
+                Prescription : {c.prescription.antibiotic} {c.prescription.doseMg}mg —{' '}
+                {c.prescription.frequency} × {c.prescription.durationDays}j
               </Text>
             )}
 

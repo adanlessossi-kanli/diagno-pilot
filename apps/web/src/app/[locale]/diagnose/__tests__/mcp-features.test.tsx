@@ -46,6 +46,8 @@ vi.mock('@diagno-pilot/api-client', () => ({
       getSymptomsDiagnosis: mockGetSymptomsDiagnosis,
       getPrescription: mockGetPrescription,
       listAntibiotics: mockListAntibiotics,
+      listMyConsultations: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 }),
+      getSession: vi.fn(),
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),
@@ -146,7 +148,7 @@ describe('DiagnosePage — MCP warning banners (Req 16.1)', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Pneumonia')).toBeDefined();
+      expect(screen.getAllByText('Pneumonia').length).toBeGreaterThanOrEqual(1);
     });
 
     expect(screen.queryByTestId('warnings-section')).toBeNull();

@@ -31,11 +31,11 @@ const mockDiagnoses: DiagnosisEntry[] = [
 
 const basePrescription = {
   antibiotic: 'Amoxicillin',
-  dose_mg: 500,
+  doseMg: 500,
   frequency: 'every 8 hours',
-  duration_days: 7,
+  durationDays: 7,
   route: 'oral' as const,
-  is_capped_to_adult_dose: false,
+  isCappedToAdultDose: false,
 };
 
 function makeResponse(overrides: Partial<PrescriptionResponse> = {}): PrescriptionResponse {
@@ -92,7 +92,7 @@ describe('PrescriptionStep', () => {
   it('2. shows pediatric dose per kg when dose_per_kg is set', async () => {
     const onGetPrescription = vi.fn().mockResolvedValue(
       makeResponse({
-        prescription: { ...basePrescription, dose_per_kg: 25 },
+        prescription: { ...basePrescription, dosePerKg: 25 },
       }),
     );
     renderComponent(onGetPrescription);
@@ -107,7 +107,7 @@ describe('PrescriptionStep', () => {
   it('3. shows adult dose cap badge when is_capped_to_adult_dose is true', async () => {
     const onGetPrescription = vi.fn().mockResolvedValue(
       makeResponse({
-        prescription: { ...basePrescription, is_capped_to_adult_dose: true },
+        prescription: { ...basePrescription, isCappedToAdultDose: true },
       }),
     );
     renderComponent(onGetPrescription);

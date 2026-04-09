@@ -44,11 +44,11 @@ const mockConsultations = {
     {
       id: 'c1',
       symptoms: [
-        { name: 'fever', severity: 'moderate', duration_days: 3 },
-        { name: 'cough', severity: 'mild', duration_days: 2 },
+        { name: 'fever', severity: 'moderate', durationDays: 3 },
+        { name: 'cough', severity: 'mild', durationDays: 2 },
       ],
       diagnoses: [
-        { condition: 'Pneumonia', probability: 0.85, concordant_symptoms: ['fever'] },
+        { condition: 'Pneumonia', probability: 0.85, concordantSymptoms: ['fever'] },
       ],
       alerts: [],
       llmUsed: 'gpt-4',
@@ -58,10 +58,10 @@ const mockConsultations = {
     {
       id: 'c2',
       symptoms: [
-        { name: 'headache', severity: 'severe', duration_days: 1 },
+        { name: 'headache', severity: 'severe', durationDays: 1 },
       ],
       diagnoses: [
-        { condition: 'Migraine', probability: 0.7, concordant_symptoms: ['headache'] },
+        { condition: 'Migraine', probability: 0.7, concordantSymptoms: ['headache'] },
       ],
       alerts: [],
       llmUsed: 'gpt-4',

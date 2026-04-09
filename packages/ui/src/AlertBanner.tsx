@@ -51,8 +51,8 @@ export function AlertBanner({ alert, onDismiss }: AlertBannerProps) {
           <strong className="uppercase text-xs tracking-wide font-semibold">
             {alert.level}
           </strong>
-          {alert.affected_drug && (
-            <span className="ml-2 font-semibold">{alert.affected_drug}</span>
+          {alert.affectedDrug && (
+            <span className="ml-2 font-semibold">{alert.affectedDrug}</span>
           )}
           <p className="mt-1 text-sm">{alert.message}</p>
         </div>

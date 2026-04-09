@@ -19,10 +19,10 @@ import type { Symptom } from '@diagno-pilot/types';
 
 const noOp = () => {};
 
-const makeSymptom = (name: string, severity = 'moderate', duration_days = 0): Symptom => ({
+const makeSymptom = (name: string, severity = 'moderate', durationDays = 0): Symptom => ({
   name,
   severity,
-  duration_days,
+  durationDays,
 });
 
 describe('MobileSymptomInput', () => {
@@ -104,7 +104,7 @@ describe('MobileSymptomInput', () => {
     fireEvent.press(screen.getByLabelText('Ajouter le symptôme'));
 
     expect(onAdd).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Douleur', duration_days: 5 })
+      expect.objectContaining({ name: 'Douleur', durationDays: 5 })
     );
   });
 });

@@ -78,6 +78,8 @@ vi.mock('@diagno-pilot/api-client', () => ({
     chat: {
       sendMessageStream: vi.fn(() => mockStreamGenerator),
       getHistory: vi.fn().mockRejectedValue(new Error('no history')),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [] }),
+      deleteSession: vi.fn(),
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),
@@ -141,7 +143,7 @@ async function* abortStream(tokens: string[]): AsyncGenerator<StreamEvent> {
  * Helper to build a minimal DocumentSource for testing.
  */
 function makeSource(title: string): DocumentSource {
-  return { document_id: `doc-${title}`, title, source: 'test' };
+  return { documentId: `doc-${title}`, title, source: 'test' };
 }
 
 /**
@@ -160,6 +162,26 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   Element.prototype.scrollIntoView = vi.fn();
+
+  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  })));
+
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 afterEach(() => {
@@ -182,7 +204,7 @@ describe('Property 2a: Normal `done` event preservation', () => {
    */
   it('done event finalizes message with answer and sources, no interruption indicator (PBT)', async () => {
     const sourceArb = fc.record({
-      document_id: fc.string({ minLength: 1, maxLength: 10 }),
+      documentId: fc.string({ minLength: 1, maxLength: 10 }),
       title: fc.string({ minLength: 1, maxLength: 30 }),
       source: fc.string({ minLength: 1, maxLength: 20 }),
     });
@@ -257,7 +279,8 @@ describe('Property 2a: Normal `done` event preservation', () => {
     expect(last!.textContent).not.toContain('[Response interrupted]');
 
     // Sources panel should be rendered (the button with sources count)
-    const sourcesButton = container.querySelector('button[aria-expanded]');
+    // Scope to the assistant message bubble to avoid matching the panel toggle
+    const sourcesButton = last!.parentElement?.querySelector('button[aria-expanded]');
     expect(sourcesButton).toBeTruthy();
     expect(sourcesButton!.textContent).toContain('Sources');
 

@@ -201,6 +201,8 @@ GET    /api/v1/auth/me
 
 POST   /api/v1/chat/message          → SSE stream (text/event-stream)
 GET    /api/v1/chat/history/{session_id}
+GET    /api/v1/chat/sessions
+DELETE /api/v1/chat/sessions/{session_id}
 
 POST   /api/v1/diagnose/symptoms
 POST   /api/v1/diagnose/prescription

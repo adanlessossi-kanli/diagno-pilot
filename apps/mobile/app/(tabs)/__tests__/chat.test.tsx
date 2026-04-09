@@ -51,7 +51,7 @@ function makeAssistantReply(withSources = true): ChatMessage {
     sources: withSources
       ? [
           {
-            document_id: 'doc-1',
+            documentId: 'doc-1',
             title: 'Guide antibiotiques OMS',
             source: 'oms-guidelines.pdf',
             section: 'Fluoroquinolones',

@@ -46,11 +46,13 @@ const chatRoleArb = fc.constantFrom('user', 'assistant');
 const symptomArb = fc.record({
   name: fc.string({ minLength: 1 }),
   severity: fc.string({ minLength: 1 }),
-  duration_days: fc.integer({ min: 0, max: 365 }),
+  durationDays: fc.integer({ min: 0, max: 365 }),
 });
 
 const documentSourceArb = fc.record({
+  documentId: fc.string(),
   title: fc.string({ minLength: 1 }),
+  source: fc.string(),
   section: fc.string({ minLength: 1 }),
   excerpt: fc.string({ minLength: 1 }),
 });
@@ -58,25 +60,25 @@ const documentSourceArb = fc.record({
 const differentialDiagnosisArb = fc.record({
   condition: fc.string({ minLength: 1 }),
   probability: fc.float({ min: 0, max: 1, noNaN: true }),
-  icd_code: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
-  concordant_symptoms: fc.array(fc.string()),
+  icdCode: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+  concordantSymptoms: fc.array(fc.string()),
 });
 
 const prescriptionArb = fc.record({
   antibiotic: fc.string({ minLength: 1 }),
-  dose_mg: fc.float({ min: 0, max: Math.fround(1e6), noNaN: true, noDefaultInfinity: true }),
-  dose_per_kg: fc.option(fc.float({ min: 0, max: Math.fround(1e4), noNaN: true, noDefaultInfinity: true }), { nil: undefined }),
+  doseMg: fc.float({ min: 0, max: Math.fround(1e6), noNaN: true, noDefaultInfinity: true }),
+  dosePerKg: fc.option(fc.float({ min: 0, max: Math.fround(1e4), noNaN: true, noDefaultInfinity: true }), { nil: undefined }),
   frequency: fc.string({ minLength: 1 }),
-  duration_days: fc.integer({ min: 1, max: 30 }),
+  durationDays: fc.integer({ min: 1, max: 30 }),
   route: routeArb,
-  is_capped_to_adult_dose: fc.boolean(),
+  isCappedToAdultDose: fc.boolean(),
 });
 
 const safetyAlertArb = fc.record({
   level: alertLevelArb,
   type: alertTypeArb,
   message: fc.string({ minLength: 1 }),
-  affected_drug: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+  affectedDrug: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
 });
 
 const patientProfileArb = fc.record({
@@ -114,6 +116,25 @@ const authUserArb = fc.record({
   locale: fc.option(localeArb, { nil: undefined }),
 });
 
+const evidenceCitationArb = fc.record({
+  documentId: fc.string({ minLength: 1 }),
+  title: fc.string({ minLength: 1 }),
+  source: fc.string({ minLength: 1 }),
+  excerpt: fc.string({ minLength: 1 }),
+  page: fc.option(fc.integer({ min: 1, max: 500 }), { nil: undefined }),
+});
+
+const agentContributionArb = fc.record({
+  agentName: fc.string({ minLength: 1 }),
+  confidenceScore: fc.float({ min: 0, max: 1, noNaN: true }),
+  partialDifferential: fc.array(fc.record({
+    condition: fc.string({ minLength: 1 }),
+    probability: fc.float({ min: 0, max: 1, noNaN: true }),
+    icdCode: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
+    matchingSymptoms: fc.array(fc.string()),
+  })),
+});
+
 const consultationArb = fc.record({
   id: fc.string({ minLength: 1 }),
   patientId: fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
@@ -124,6 +145,8 @@ const consultationArb = fc.record({
   llmUsed: fc.string({ minLength: 1 }),
   createdAt: fc.string({ minLength: 1 }),
   isOneShot: fc.boolean(),
+  agentContributions: fc.array(agentContributionArb),
+  evidenceCitations: fc.array(evidenceCitationArb),
 });
 
 // ─── Property 9: Zod schemas accept all valid objects ─────────────────────────
@@ -206,12 +229,12 @@ describe('Property 10: Zod schemas reject invalid objects', () => {
   });
 
   it('SymptomSchema rejects objects with wrong field types', () => {
-    // duration_days must be a number, not a string
+    // durationDays must be a number, not a string
     fc.assert(fc.property(
       fc.record({
         name: fc.string(),
         severity: fc.string(),
-        duration_days: fc.string(),
+        durationDays: fc.string(),
       }),
       (obj) => {
         expect(() => SymptomSchema.parse(obj)).toThrow(ZodError);
@@ -227,7 +250,7 @@ describe('Property 10: Zod schemas reject invalid objects', () => {
           fc.float({ min: Math.fround(1.001), max: Math.fround(1e6), noNaN: true, noDefaultInfinity: true }),
           fc.float({ min: Math.fround(-1e6), max: Math.fround(-0.001), noNaN: true, noDefaultInfinity: true }),
         ),
-        concordant_symptoms: fc.array(fc.string()),
+        concordantSymptoms: fc.array(fc.string()),
       }),
       (obj) => {
         expect(() => DifferentialDiagnosisSchema.parse(obj)).toThrow(ZodError);
@@ -239,11 +262,11 @@ describe('Property 10: Zod schemas reject invalid objects', () => {
     fc.assert(fc.property(
       fc.record({
         antibiotic: fc.string({ minLength: 1 }),
-        dose_mg: fc.float({ min: 0, noNaN: true }),
+        doseMg: fc.float({ min: 0, noNaN: true }),
         frequency: fc.string({ minLength: 1 }),
-        duration_days: fc.integer({ min: 1 }),
+        durationDays: fc.integer({ min: 1 }),
         route: fc.string().filter(s => !['oral', 'IV', 'IM'].includes(s)),
-        is_capped_to_adult_dose: fc.boolean(),
+        isCappedToAdultDose: fc.boolean(),
       }),
       (obj) => {
         expect(() => PrescriptionSchema.parse(obj)).toThrow(ZodError);
@@ -377,11 +400,11 @@ describe('Prescription', () => {
   it('accepts oral route', () => {
     const p: Prescription = {
       antibiotic: 'Amoxicillin',
-      dose_mg: 500,
+      doseMg: 500,
       frequency: 'TID',
-      duration_days: 7,
+      durationDays: 7,
       route: 'oral',
-      is_capped_to_adult_dose: false,
+      isCappedToAdultDose: false,
     };
     expect(p.route).toBe('oral');
   });
@@ -389,12 +412,12 @@ describe('Prescription', () => {
   it('serializes and deserializes without data loss', () => {
     const p: Prescription = {
       antibiotic: 'Amoxicillin',
-      dose_mg: 250,
-      dose_per_kg: 25,
+      doseMg: 250,
+      dosePerKg: 25,
       frequency: 'BID',
-      duration_days: 5,
+      durationDays: 5,
       route: 'oral',
-      is_capped_to_adult_dose: true,
+      isCappedToAdultDose: true,
     };
     const json = JSON.stringify(p);
     const restored: Prescription = JSON.parse(json);
@@ -435,7 +458,7 @@ describe('SafetyAlert', () => {
       level: 'critical',
       type: 'allergy',
       message: 'Patient is allergic to penicillin',
-      affected_drug: 'Amoxicillin',
+      affectedDrug: 'Amoxicillin',
     };
     expect(alert.level).toBe('critical');
   });
@@ -446,8 +469,8 @@ describe('DifferentialDiagnosis', () => {
     const diag: DifferentialDiagnosis = {
       condition: 'Malaria',
       probability: 0.85,
-      icd_code: 'B54',
-      concordant_symptoms: ['fever', 'chills'],
+      icdCode: 'B54',
+      concordantSymptoms: ['fever', 'chills'],
     };
     expect(diag.probability).toBeGreaterThanOrEqual(0);
     expect(diag.probability).toBeLessThanOrEqual(1);
@@ -456,7 +479,7 @@ describe('DifferentialDiagnosis', () => {
 
 describe('Symptom', () => {
   it('constructs and serializes correctly', () => {
-    const symptom: Symptom = { name: 'fever', severity: 'high', duration_days: 3 };
+    const symptom: Symptom = { name: 'fever', severity: 'high', durationDays: 3 };
     const restored: Symptom = JSON.parse(JSON.stringify(symptom));
     expect(restored).toEqual(symptom);
   });
@@ -501,8 +524,8 @@ describe('Consultation', () => {
   it('constructs a one-shot consultation without patientId', () => {
     const consultation: Consultation = {
       id: 'c-001',
-      symptoms: [{ name: 'fever', severity: 'high', duration_days: 2 }],
-      diagnoses: [{ condition: 'Malaria', probability: 0.9, concordant_symptoms: ['fever'] }],
+      symptoms: [{ name: 'fever', severity: 'high', durationDays: 2 }],
+      diagnoses: [{ condition: 'Malaria', probability: 0.9, concordantSymptoms: ['fever'] }],
       alerts: [],
       llmUsed: 'qwen3',
       createdAt: '2024-01-01T08:00:00Z',

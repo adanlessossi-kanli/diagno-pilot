@@ -261,8 +261,8 @@ export default function DocumentsPage() {
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
-  }, []);
+    return createApiClient(baseUrl, undefined, () => locale);
+  }, [locale]);
 
   const [documents, setDocuments] = useState<PatientDocument[]>([]);
   const [loading, setLoading] = useState(true);

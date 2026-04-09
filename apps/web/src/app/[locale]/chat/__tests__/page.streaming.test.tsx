@@ -11,6 +11,8 @@ import type { StreamEvent } from '@diagno-pilot/api-client';
 
 const mockSendMessageStream = vi.fn();
 const mockGetHistory = vi.fn().mockResolvedValue(null);
+const mockListSessions = vi.fn().mockResolvedValue({ sessions: [] });
+const mockDeleteSession = vi.fn();
 const mockListAllPatients = vi.fn().mockResolvedValue([]);
 
 // jsdom doesn't implement scrollIntoView
@@ -37,6 +39,8 @@ vi.mock('@diagno-pilot/api-client', () => ({
     chat: {
       sendMessageStream: mockSendMessageStream,
       getHistory: mockGetHistory,
+      listSessions: mockListSessions,
+      deleteSession: mockDeleteSession,
     },
     patients: {
       listAllPatients: mockListAllPatients,
@@ -63,6 +67,26 @@ function mockStreamFromEvents(events: StreamEvent[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+
+  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn(),
+  })));
+
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 afterEach(() => {
@@ -109,7 +133,7 @@ describe('ChatPage — Streaming behavior', () => {
     });
 
     // User message should also be present
-    expect(screen.getByText('Hello doctor')).toBeDefined();
+    expect(screen.getAllByText('Hello doctor').length).toBeGreaterThanOrEqual(1);
   });
 
   /**
@@ -169,7 +193,7 @@ describe('ChatPage — Streaming behavior', () => {
           session_id: 'sess-1',
           sources: [
             {
-              document_id: 'doc-1',
+              documentId: 'doc-1',
               title: 'WHO Guidelines 2024',
               source: 'who.int',
               section: 'Chapter 3',

@@ -20,7 +20,7 @@ export function SymptomInput({ symptoms, onAdd, onRemove }: SymptomInputProps) {
     onAdd({
       name: trimmed,
       severity: severity.trim() || 'moderate',
-      duration_days: durationDays ? parseInt(durationDays, 10) : 0,
+      durationDays: durationDays ? parseInt(durationDays, 10) : 0,
     });
     setName('');
     setSeverity('');
@@ -106,8 +106,8 @@ export function SymptomInput({ symptoms, onAdd, onRemove }: SymptomInputProps) {
             >
               <span>{s.name}</span>
               {s.severity && <span style={{ color: '#6b7280' }}>· {s.severity}</span>}
-              {s.duration_days > 0 && (
-                <span style={{ color: '#6b7280' }}>· {s.duration_days}d</span>
+              {s.durationDays != null && s.durationDays > 0 && (
+                <span style={{ color: '#6b7280' }}>· {s.durationDays}d</span>
               )}
               <button
                 onClick={() => onRemove(i)}

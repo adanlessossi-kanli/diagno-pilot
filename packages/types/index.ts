@@ -36,8 +36,8 @@ export type AuthUser = z.infer<typeof AuthUserSchema>;
 /** A clinical symptom reported by or observed in the patient (REQ-02) */
 export const SymptomSchema = z.object({
   name: z.string(),
-  severity: z.string(),
-  duration_days: z.number(),
+  severity: z.string().nullable().optional(),
+  durationDays: z.number().nullable().optional(),
 });
 export type Symptom = z.infer<typeof SymptomSchema>;
 
@@ -47,8 +47,9 @@ export const DifferentialDiagnosisSchema = z.object({
   /** Probability score between 0 and 1 */
   probability: z.number().min(0).max(1),
   /** ICD-10 code, when available */
-  icd_code: z.string().optional(),
-  concordant_symptoms: z.array(z.string()),
+  icdCode: z.string().nullable().optional(),
+  concordantSymptoms: z.array(z.string()).optional().default([]),
+  matchingSymptoms: z.array(z.string()).optional().default([]),
 });
 export type DifferentialDiagnosis = z.infer<typeof DifferentialDiagnosisSchema>;
 
@@ -60,7 +61,7 @@ export const HighlightInfoSchema = z.object({
 export type HighlightInfo = z.infer<typeof HighlightInfoSchema>;
 
 export const DocumentSourceSchema = z.object({
-  document_id: z.string().optional().default(''),
+  documentId: z.string().optional().default(''),
   /** Document title or identifier */
   title: z.string(),
   source: z.string().optional().default(''),
@@ -68,22 +69,22 @@ export const DocumentSourceSchema = z.object({
   excerpt: z.string().optional(),
   page: z.number().optional(),
   highlight: HighlightInfoSchema.optional(),
-  confidence_score: z.number().optional(),
+  confidenceScore: z.number().optional(),
 });
 export type DocumentSource = z.infer<typeof DocumentSourceSchema>;
 
 /** Antibiotic prescription with dosing details (REQ-03, REQ-08) */
 export const PrescriptionSchema = z.object({
   antibiotic: z.string(),
-  dose_mg: z.number(),
+  doseMg: z.number(),
   /** Weight-based dose in mg/kg, used for pediatric patients */
-  dose_per_kg: z.number().optional(),
+  dosePerKg: z.number().optional(),
   frequency: z.string(),
-  duration_days: z.number(),
+  durationDays: z.number(),
   /** Route of administration */
   route: z.enum(['oral', 'IV', 'IM']),
   /** True when the calculated dose has been capped to the maximum adult dose */
-  is_capped_to_adult_dose: z.boolean(),
+  isCappedToAdultDose: z.boolean(),
 });
 export type Prescription = z.infer<typeof PrescriptionSchema>;
 
@@ -93,7 +94,7 @@ export const SafetyAlertSchema = z.object({
   /** Category of the alert */
   type: z.enum(['allergy', 'interaction', 'contraindication']),
   message: z.string(),
-  affected_drug: z.string().optional(),
+  affectedDrug: z.string().optional(),
 });
 export type SafetyAlert = z.infer<typeof SafetyAlertSchema>;
 
@@ -139,25 +140,40 @@ export type AgentContribution = z.infer<typeof AgentContributionSchema>;
 export const ConsultationSchema = z.object({
   id: z.string(),
   /** Undefined for one-shot consultations */
-  patientId: z.string().optional(),
+  patientId: z.string().optional().nullable(),
   symptoms: z.array(SymptomSchema),
   diagnoses: z.array(DifferentialDiagnosisSchema),
-  prescription: PrescriptionSchema.optional(),
+  prescription: PrescriptionSchema.optional().nullable(),
   alerts: z.array(SafetyAlertSchema),
   /** Identifier of the LLM that generated the response, e.g. 'qwen3' | 'gpt5' */
-  llmUsed: z.string(),
+  llmUsed: z.string().nullable().optional(),
   /** ISO 8601 timestamp */
-  createdAt: z.string(),
+  createdAt: z.string().nullable().optional(),
   /** True when the consultation was performed without a patient record */
   isOneShot: z.boolean(),
   /** MCP session identifier linking to agent results */
-  mcpSessionId: z.string().optional(),
+  mcpSessionId: z.string().optional().nullable(),
   /** Contributions from each specialist agent */
   agentContributions: z.array(AgentContributionSchema).optional().default([]),
   /** Evidence citations used to produce the diagnosis */
   evidenceCitations: z.array(EvidenceCitationSchema).optional().default([]),
 });
 export type Consultation = z.infer<typeof ConsultationSchema>;
+
+/** Lightweight summary of a chat session returned by GET /api/v1/chat/sessions */
+export const ChatSessionSummarySchema = z.object({
+  sessionId: z.string(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  preview: z.string().nullable(),
+});
+export type ChatSessionSummary = z.infer<typeof ChatSessionSummarySchema>;
+
+/** Response wrapper for the chat sessions list endpoint */
+export const ChatSessionListResponseSchema = z.object({
+  sessions: z.array(ChatSessionSummarySchema),
+});
+export type ChatSessionListResponse = z.infer<typeof ChatSessionListResponseSchema>;
 
 /** A single message in the conversational Q&A interface (REQ-04) */
 export const ChatMessageSchema = z.object({

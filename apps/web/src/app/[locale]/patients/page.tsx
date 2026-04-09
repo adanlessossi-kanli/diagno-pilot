@@ -120,10 +120,11 @@ function CreatePatientModal({
   t: ReturnType<typeof useTranslations<'patients'>>;
   tCommon: ReturnType<typeof useTranslations<'common'>>;
 }) {
+  const locale = useLocale();
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
-  }, []);
+    return createApiClient(baseUrl, undefined, () => locale);
+  }, [locale]);
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState('');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -332,8 +333,8 @@ export default function PatientsPage() {
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-    return createApiClient(baseUrl);
-  }, []);
+    return createApiClient(baseUrl, undefined, () => locale);
+  }, [locale]);
 
   // Lire la page courante depuis le query param URL (?page=N)
   const currentPage = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);

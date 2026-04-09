@@ -91,13 +91,13 @@ describe('diagnose.getSymptomsDiagnosis', () => {
   it('sends POST to /api/v1/diagnose/symptoms with symptoms array', async () => {
     const diagnosisResponse = {
       session_id: 'sess-1',
-      diagnoses: [{ condition: 'Malaria', probability: 0.9, concordant_symptoms: ['fever'] }],
+      diagnoses: [{ condition: 'Malaria', probability: 0.9, concordantSymptoms: ['fever'] }],
       llmUsed: 'qwen3',
       sources: [],
     };
     mockFetch(200, diagnosisResponse);
 
-    const symptoms = [{ name: 'fever', severity: 'high', duration_days: 3 }];
+    const symptoms = [{ name: 'fever', severity: 'high', durationDays: 3 }];
     const result = await client.diagnose.getSymptomsDiagnosis(symptoms);
 
     const fetchMock = getFetchMock();
@@ -113,7 +113,7 @@ describe('diagnose.getSymptomsDiagnosis', () => {
   it('includes patient_profile when provided', async () => {
     mockFetch(200, { session_id: 'sess-2', diagnoses: [], llmUsed: 'qwen3', sources: [] });
 
-    const symptoms = [{ name: 'cough', severity: 'mild', duration_days: 2 }];
+    const symptoms = [{ name: 'cough', severity: 'mild', durationDays: 2 }];
     const profile = {
       allergies: [],
       renalFailure: false,
@@ -553,5 +553,143 @@ describe('Property 13: snake_case normalization before validation', () => {
     const result = normalizeKeys(arr) as Record<string, unknown>[];
     expect(result[0]).toHaveProperty('snakeKey', 1);
     expect(result[1]).toHaveProperty('anotherSnake', 2);
+  });
+});
+
+// ─── chat.listSessions ───────────────────────────────────────────────────────
+
+describe('chat.listSessions', () => {
+  it('sends GET to /api/v1/chat/sessions with skip and limit query params', async () => {
+    const body = {
+      sessions: [
+        { session_id: 's1', created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-02T00:00:00Z', preview: 'Hello' },
+      ],
+    };
+    mockFetch(200, body);
+
+    await client.chat.listSessions(0, 20);
+
+    const fetchMock = getFetchMock();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/chat/sessions?skip=0&limit=20`);
+    expect(init?.method).toBe('GET');
+    expect(init?.credentials).toBe('include');
+  });
+
+  it('omits query params when skip and limit are not provided', async () => {
+    mockFetch(200, { sessions: [] });
+
+    await client.chat.listSessions();
+
+    const [url] = getFetchMock().mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/chat/sessions`);
+  });
+
+  it('normalizes snake_case keys to camelCase via Zod schema', async () => {
+    const body = {
+      sessions: [
+        { session_id: 'abc', created_at: '2024-06-01T10:00:00Z', updated_at: null, preview: 'Test message' },
+      ],
+    };
+    mockFetch(200, body);
+
+    const result = await client.chat.listSessions(0, 10);
+
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0].sessionId).toBe('abc');
+    expect(result.sessions[0].createdAt).toBe('2024-06-01T10:00:00Z');
+    expect(result.sessions[0].updatedAt).toBeNull();
+    expect(result.sessions[0].preview).toBe('Test message');
+    // Ensure snake_case keys are NOT present on the result
+    expect((result.sessions[0] as Record<string, unknown>)['session_id']).toBeUndefined();
+    expect((result.sessions[0] as Record<string, unknown>)['created_at']).toBeUndefined();
+  });
+
+  it('handles empty sessions array', async () => {
+    mockFetch(200, { sessions: [] });
+
+    const result = await client.chat.listSessions(0, 20);
+
+    expect(result.sessions).toEqual([]);
+  });
+
+  it('handles nullable fields correctly', async () => {
+    const body = {
+      sessions: [
+        { session_id: 's1', created_at: null, updated_at: null, preview: null },
+      ],
+    };
+    mockFetch(200, body);
+
+    const result = await client.chat.listSessions();
+
+    expect(result.sessions[0].createdAt).toBeNull();
+    expect(result.sessions[0].updatedAt).toBeNull();
+    expect(result.sessions[0].preview).toBeNull();
+  });
+
+  it('throws ApiError on HTTP error', async () => {
+    mockFetch(500, { detail: 'Internal Server Error' });
+
+    await expect(client.chat.listSessions()).rejects.toMatchObject<Partial<ApiError>>({
+      status: 500,
+      message: 'Internal Server Error',
+    });
+  });
+});
+
+// ─── chat.deleteSession ──────────────────────────────────────────────────────
+
+describe('chat.deleteSession', () => {
+  it('sends DELETE to /api/v1/chat/sessions/{session_id}', async () => {
+    mockFetch(200, { detail: 'Session deleted' });
+
+    await client.chat.deleteSession('sess-123');
+
+    const fetchMock = getFetchMock();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/chat/sessions/sess-123`);
+    expect(init?.method).toBe('DELETE');
+    expect(init?.credentials).toBe('include');
+  });
+
+  it('includes CSRF header via csrfHeaders (X-CSRF-Token present when cookie set)', async () => {
+    // Simulate csrf_token cookie — getCsrfToken reads from document.cookie
+    // In non-jsdom env getCsrfToken returns '' so we mock fetch and check the header pattern
+    mockFetch(200, { detail: 'Session deleted' });
+
+    await client.chat.deleteSession('sess-456');
+
+    const fetchMock = getFetchMock();
+    const [, init] = fetchMock.mock.calls[0];
+    // The del helper uses csrfHeaders() which includes Content-Type
+    expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/json');
+  });
+
+  it('throws ApiError with status 404 when session not found', async () => {
+    mockFetch(404, { detail: 'Session not found' });
+
+    await expect(client.chat.deleteSession('nonexistent')).rejects.toMatchObject<Partial<ApiError>>({
+      status: 404,
+      message: 'Session not found',
+    });
+  });
+
+  it('throws ApiError on server error', async () => {
+    mockFetch(500, { detail: 'Internal Server Error' });
+
+    await expect(client.chat.deleteSession('sess-789')).rejects.toMatchObject<Partial<ApiError>>({
+      status: 500,
+      message: 'Internal Server Error',
+    });
+  });
+
+  it('encodes sessionId in the URL path', async () => {
+    mockFetch(200, { detail: 'Session deleted' });
+
+    await client.chat.deleteSession('id/with/slashes');
+
+    const [url] = getFetchMock().mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/chat/sessions/id%2Fwith%2Fslashes`);
   });
 });

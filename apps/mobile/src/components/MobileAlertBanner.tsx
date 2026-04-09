@@ -45,7 +45,7 @@ export function MobileAlertBanner({ alert, onDismiss }: MobileAlertBannerProps) 
         <View style={styles.body}>
           <Text style={[styles.level, { color: tokens.text }]}>
             {alert.level.toUpperCase()}
-            {alert.affected_drug ? `  ${alert.affected_drug}` : ''}
+            {alert.affectedDrug ? `  ${alert.affectedDrug}` : ''}
           </Text>
           <Text style={[styles.message, { color: tokens.text }]}>{alert.message}</Text>
         </View>

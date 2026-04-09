@@ -42,7 +42,7 @@ const makeAlert = (level: 'critical' | 'warning' | 'info'): SafetyAlert => ({
   level,
   type: 'allergy',
   message: `Test message for ${level}`,
-  affected_drug: undefined,
+  affectedDrug: undefined,
 });
 
 describe('MobileAlertBanner — P11: semantic token and border usage', () => {
