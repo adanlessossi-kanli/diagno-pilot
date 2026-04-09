@@ -9,7 +9,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useLocale } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
-import type { DiagnosisResponse, PrescriptionResponse } from '@diagno-pilot/api-client';
+import type { DiagnosisResponse, DiagnoseSession, PrescriptionResponse } from '@diagno-pilot/api-client';
 import type { PatientProfile, Symptom } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PrescriptionStep } from './PrescriptionStep';
@@ -36,6 +36,22 @@ const diagnoseSchema = z.object({
 type DiagnoseFormValues = z.infer<typeof diagnoseSchema>;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
+
+function mapSessionToPartialResponse(session: DiagnoseSession): DiagnosisResponse {
+  return {
+    sessionId: session.id,
+    diagnoses: session.diagnoses,
+    confidenceScore: undefined,
+    llmUsed: undefined,
+    sources: [],
+    warningsPresent: false,
+    fallbackWarning: undefined,
+    degradedWarning: undefined,
+    parseFailed: false,
+    agentContributions: [],
+    evidenceCitations: [],
+  };
+}
 
 export default function DiagnosePage() {
   const t = useTranslations('diagnose');
@@ -72,6 +88,10 @@ export default function DiagnosePage() {
   const [results, setResults] = useState<DiagnosisResponse | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [antibiotics, setAntibiotics] = useState<string[]>([]);
+  const [restoredPartial, setRestoredPartial] = useState(false);
+
+  // sessionStorage key for persisting diagnose session ID
+  const sessionStorageKey = `diagno-pilot-diagnose-session-${user?.id ?? 'anonymous'}`;
 
   // react-hook-form for free text mode
   const {
@@ -99,6 +119,39 @@ export default function DiagnosePage() {
       .then(setAntibiotics)
       .catch(() => {/* non-critical */});
   }, [apiClient]);
+
+  // Restore partial results from sessionStorage on mount
+  useEffect(() => {
+    const storedSessionId = sessionStorage.getItem(sessionStorageKey);
+    if (!storedSessionId) return;
+
+    let cancelled = false;
+    try {
+      const promise = apiClient.diagnose.getSession(storedSessionId);
+      if (!promise || typeof promise.then !== 'function') {
+        // getSession returned a non-thenable — clear stale key
+        sessionStorage.removeItem(sessionStorageKey);
+        return;
+      }
+      promise
+        .then((session: DiagnoseSession) => {
+          if (cancelled) return;
+          const partial = mapSessionToPartialResponse(session);
+          setResults(partial);
+          setRestoredPartial(true);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          // Session expired or network error — clear and show empty form
+          sessionStorage.removeItem(sessionStorageKey);
+        });
+    } catch {
+      // getSession call failed synchronously — clear and show empty form
+      sessionStorage.removeItem(sessionStorageKey);
+    }
+
+    return () => { cancelled = true; };
+  }, [apiClient, sessionStorageKey]);
 
   // Fetch patients when "select" mode is chosen
   const fetchPatients = useCallback(async () => {
@@ -184,6 +237,7 @@ export default function DiagnosePage() {
     e.preventDefault();
     setError('');
     setResults(null);
+    setRestoredPartial(false);
 
     const symptoms = buildSymptoms();
     if (symptoms.length === 0) {
@@ -191,12 +245,20 @@ export default function DiagnosePage() {
       return;
     }
 
+    // Clear old session ID before new submission
+    sessionStorage.removeItem(sessionStorageKey);
+
     setLoading(true);
     try {
       const patientProfile = buildPatientProfile();
       const response = await apiClient.diagnose.getSymptomsDiagnosis(symptoms, patientProfile);
       setResults(response);
       setShowSuccessToast(true);
+
+      // Persist new session ID to sessionStorage
+      if (response.sessionId) {
+        sessionStorage.setItem(sessionStorageKey, response.sessionId);
+      }
     } catch {
       setError(t('errorDiagnose'));
     } finally {
@@ -493,6 +555,13 @@ export default function DiagnosePage() {
         <div className="mt-8 space-y-4">
           <section className="space-y-4">
             <h2 className="text-xl font-bold">{t('resultsTitle')}</h2>
+
+            {/* Restored partial notice */}
+            {restoredPartial && (
+              <div role="status" data-testid="restored-partial-notice" className="bg-blue-50 border-l-4 border-blue-400 p-3 text-sm text-blue-800">
+                ℹ️ {t('restoredPartial')}
+              </div>
+            )}
 
             {/* Warning banners */}
             {results.warningsPresent && (

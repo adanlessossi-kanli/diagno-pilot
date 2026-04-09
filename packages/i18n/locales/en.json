@@ -146,6 +146,7 @@
       "loading": "Loading history...",
       "errorFetch": "Error loading history."
     },
+    "restoredPartial": "Some details unavailable — showing restored results from a previous session.",
     "viewHistory": "Diagnosis history",
     "prescriptionStep": {
       "title": "Antibiotic Prescription",
@@ -208,7 +209,8 @@
     "excerpt": "Excerpt",
     "retry": "Retry",
     "errorSendRetry": "Error sending message.",
-    "loadingHistory": "Loading history..."
+    "loadingHistory": "Loading history...",
+    "newSessionVerifyFailed": "Could not verify session was saved. Please try again or continue your conversation."
   },
   "alerts": {
     "critical": "Critical alert",
