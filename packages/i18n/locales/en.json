@@ -291,6 +291,7 @@
   },
   "admin": {
     "title": "Administration",
+    "documentsPageTitle": "Query Documents",
     "accessDenied": "Access denied. This page is restricted to administrators.",
     "documents": "Indexed medical documents",
     "noDocuments": "No indexed documents.",

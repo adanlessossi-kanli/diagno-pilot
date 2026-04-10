@@ -156,8 +156,26 @@ class LlamaIndexPipeline:
             source_filter=source_filter,
         )
 
+        # --- Check collection size for degraded warning (O(1) on MongoDB) ---
+        degraded_warning: str | None = None
+        try:
+            doc_count = await self._index._collection.estimated_document_count()
+            if doc_count == 0:
+                degraded_warning = (
+                    "No medical documents indexed — diagnoses are based on "
+                    "LLM general knowledge only."
+                )
+        except Exception as exc:
+            logger.warning("estimated_document_count() failed: %s", exc)
+
         # --- No chunks: still call LLM with medical knowledge ---
         if not chunks:
+            if degraded_warning is None:
+                degraded_warning = (
+                    "No relevant documents found for these symptoms — diagnoses "
+                    "are based on LLM general knowledge only."
+                )
+
             llm_context: list[dict[str, str]] = [
                 {
                     "role": "system",
@@ -185,6 +203,7 @@ class LlamaIndexPipeline:
                 llm_used=self._llm.last_used or "unknown",
                 fallback_used=llm_result.fallback_used,
                 confidence_score=None,
+                degraded_warning=degraded_warning,
             )
             await cache_service.set(
                 cache_key, response.model_dump_json(), ttl=settings.CACHE_TTL_RAG

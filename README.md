@@ -144,6 +144,65 @@ stop.bat         # Windows
 
 ---
 
+## Configuration de l'environnement
+
+### Authentification MongoDB
+
+Le backend se connecte à MongoDB via `MONGODB_URI`. En environnement Docker, cette URI doit inclure les identifiants correspondant à la configuration Docker Compose :
+
+```env
+MONGODB_URI=mongodb://diagno_dev:diagno_dev_pass@mongo:27017/diagno_pilot?authSource=admin
+MONGO_USERNAME=diagno_dev
+MONGO_PASSWORD=diagno_dev_pass
+```
+
+> **Note :** `MONGODB_INITDB_ROOT_USERNAME` n'est exécuté que sur un volume vierge. Si vous migrez depuis une version sans authentification, supprimez le volume avec `docker compose down -v` avant le premier démarrage.
+
+### Authentification Redis
+
+Redis utilise un mot de passe configuré via `REDIS_URL` :
+
+```env
+REDIS_URL=redis://:diagno_redis_dev@redis:6379/0
+REDIS_PASSWORD=diagno_redis_dev
+```
+
+Si Redis est inaccessible ou si l'authentification échoue, l'application continue en mode dégradé (cache désactivé) avec un avertissement dans les logs.
+
+### Configuration des endpoints LLM
+
+Le `LLMRouter` sélectionne le LLM principal selon cet ordre de priorité :
+
+1. `MODEL_CONTAINER_URL` — utilisé si non vide (ex. `http://model:8080/v1` pour un conteneur Docker local)
+2. `LLM_PRIMARY_URL` — utilisé si `MODEL_CONTAINER_URL` est vide (valeur par défaut)
+
+```env
+MODEL_CONTAINER_URL=              # Vide par défaut — mettre l'URL du conteneur modèle si applicable
+LLM_PRIMARY_URL=http://localhost:11434/v1   # URL Ollama / MedicalQwen3
+LLM_FALLBACK_URL=https://api.openai.com/v1  # GPT-5 (fallback)
+LLM_FALLBACK_API_KEY=your_openai_api_key_here
+```
+
+### Mode de diagnostic
+
+Le mode de diagnostic est contrôlé par `DIAGNOSIS_MODE` :
+
+| Valeur | Description |
+|---|---|
+| `rag` (défaut) | Pipeline RAG via LlamaIndex |
+| `mcp` | Multi-agent MCP via JSON-RPC 2.0 |
+| `agent` | AgentPipeline avec agents spécialistes in-process |
+
+Si le mode sélectionné (`mcp` ou `agent`) n'est pas configuré, le système bascule automatiquement sur le mode `rag` avec un avertissement.
+
+### ⚠ Avertissement de sécurité — Clé API compromise
+
+La clé `LLM_FALLBACK_API_KEY` a été précédemment commitée dans le dépôt Git. Cette clé doit être considérée comme **compromise** et doit être **révoquée immédiatement** dans le tableau de bord OpenAI, puis remplacée par une nouvelle clé dans votre fichier `.env`.
+
+Ne commitez jamais de clés API dans le dépôt. Le fichier `.env` est exclu du suivi Git via `.gitignore`.
+
+---
+
 ## Développement local (hors Docker)
 
 ### Backend

@@ -12,6 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from backend.models.consultation import DifferentialDiagnosis, Symptom
 from backend.models.patient import PatientProfile
+from backend.core.config import settings
 from backend.services.diagnostic_parser import DiagnosticParser
 from backend.services.llamaindex_pipeline import LlamaIndexPipeline
 from backend.services.prompt_builder import PromptBuilder
@@ -187,12 +188,23 @@ class DiagnosticOrchestrator:
         Raises:
             HTTPException: Propagated from RAGService if the LLM is unavailable.
         """
-        # Primary path: RAG (LLM-driven diagnosis with optional knowledge base context).
-        # The RAG path always calls the LLM — if the knowledge base has relevant
-        # documents they enrich the context, otherwise the LLM diagnoses from its
-        # own medical knowledge.  MCP and AgentPipeline paths are only used when
-        # explicitly requested via a future configuration flag.
-        result = await self._get_diagnosis_via_rag(symptoms, patient_profile, locale, region)
+        # Route to the appropriate diagnosis path based on DIAGNOSIS_MODE.
+        mode = settings.DIAGNOSIS_MODE
+
+        if mode == "mcp":
+            if self._mcp_host is None:
+                logger.warning("DIAGNOSIS_MODE=mcp but MCP_Host not configured; falling back to RAG")
+                result = await self._get_diagnosis_via_rag(symptoms, patient_profile, locale, region)
+            else:
+                result = await self._get_diagnosis_via_mcp(symptoms, patient_profile, locale, region, user_id=user_id)
+        elif mode == "agent":
+            if self._agent_pipeline is None:
+                logger.warning("DIAGNOSIS_MODE=agent but AgentPipeline not configured; falling back to RAG")
+                result = await self._get_diagnosis_via_rag(symptoms, patient_profile, locale, region)
+            else:
+                result = await self._get_diagnosis_via_agent_pipeline(symptoms, patient_profile, locale, region)
+        else:  # "rag" (default)
+            result = await self._get_diagnosis_via_rag(symptoms, patient_profile, locale, region)
 
         # Add disclaimer when fallback LLM was used — REQ 4.2
         if result.fallback_used:

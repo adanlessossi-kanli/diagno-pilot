@@ -413,6 +413,7 @@ class AgentPipeline:
 # Partial-differential extraction (ported from _base_agent.py)
 # ---------------------------------------------------------------------------
 
+import json  # noqa: E402
 import re  # noqa: E402
 
 _CONDITION_RE = re.compile(
@@ -426,18 +427,38 @@ def _parse_partial_differential(answer: str) -> list[DifferentialDiagnosis]:
     """Extract a partial differential list from the LLM answer text.
 
     Returns a list of :class:`DifferentialDiagnosis` instances.
+    Tries JSON extraction first; falls back to French-keyword regex.
     Falls back to an empty list when nothing can be parsed.
     """
-    results: list[DifferentialDiagnosis] = []
+    # 1. Try JSON extraction first
+    json_match = re.search(r"\[.*\]", answer, re.DOTALL)
+    if json_match:
+        try:
+            raw = json.loads(json_match.group())
+            results = []
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                prob = max(0.0, min(1.0, float(item.get("probability", 0.5))))
+                results.append(DifferentialDiagnosis(
+                    condition=item.get("condition", "Unknown"),
+                    probability=prob,
+                    icd_code=item.get("icd_code"),
+                    matching_symptoms=item.get("matching_symptoms", []),
+                ))
+            if results:
+                return results
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+
+    # 2. Fallback to French-keyword regex
+    results = []
     for match in _CONDITION_RE.finditer(answer):
         condition = match.group(1).strip().rstrip(".")
-        icd_match = _ICD_RE.search(answer[match.start() : match.start() + 120])
-        results.append(
-            DifferentialDiagnosis(
-                condition=condition,
-                probability=0.5,
-                icd_code=icd_match.group(1) if icd_match else None,
-                matching_symptoms=[],
-            )
-        )
+        icd_match = _ICD_RE.search(answer[match.start():match.start() + 120])
+        results.append(DifferentialDiagnosis(
+            condition=condition, probability=0.5,
+            icd_code=icd_match.group(1) if icd_match else None,
+            matching_symptoms=[],
+        ))
     return results

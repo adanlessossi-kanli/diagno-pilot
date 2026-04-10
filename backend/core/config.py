@@ -1,9 +1,16 @@
+import logging
+from typing import Literal
+from urllib.parse import urlparse
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
     ENV: str = "development"
+    DIAGNOSIS_MODE: Literal["rag", "mcp", "agent"] = "rag"
 
     MONGODB_URI: str = "mongodb://localhost:27017/diagno_pilot"
     JWT_SECRET: str = "change_me_in_production_use_a_long_secret_key"
@@ -28,7 +35,7 @@ class Settings(BaseSettings):
     LLM_RETRY_MAX_DELAY: float = 30.0
 
     # Model_Container (local llama.cpp server)
-    MODEL_CONTAINER_URL: str = "http://model:8080/v1"
+    MODEL_CONTAINER_URL: str = ""
     MODEL_CONTAINER_API_KEY: str = ""
     MODEL_GPU_LAYERS: int = 99
     MODEL_CONTEXT_SIZE: int = 4096
@@ -116,7 +123,6 @@ class Settings(BaseSettings):
         # misconfiguration in the logs before any connection is attempted.
         # NOTE: DNS resolution is deferred to a background thread to avoid
         # blocking the event loop or slowing down test instantiation.
-        from urllib.parse import urlparse
         try:
             host = urlparse(self.MONGODB_URI).hostname or ""
             # Docker service names are single-label hostnames (no dots, not localhost/127.x)
@@ -142,6 +148,26 @@ class Settings(BaseSettings):
         except Exception:
             pass  # never block startup from a validation side-effect
 
+        return self
+
+    @model_validator(mode="after")
+    def warn_mongodb_no_credentials(self) -> "Settings":
+        try:
+            parsed = urlparse(self.MONGODB_URI)
+            host = parsed.hostname or ""
+            is_docker_hostname = (
+                host
+                and "." not in host
+                and host not in ("localhost", "127.0.0.1", "::1")
+            )
+            if is_docker_hostname and "@" not in self.MONGODB_URI:
+                logger.warning(
+                    "MONGODB_URI appears to target Docker service '%s' without "
+                    "authentication credentials. Consider adding user:pass@ to the URI.",
+                    host,
+                )
+        except Exception:
+            pass  # never block startup from a validation side-effect
         return self
 
     def get_allowed_origins(self) -> list[str]:
