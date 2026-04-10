@@ -80,7 +80,7 @@ def test_backward_compatibility_existing_llm_vars():
 def test_new_fields_have_sensible_defaults():
     """New Model_Container, LlamaIndex, and HIPAA fields have defaults."""
     s = Settings(ENV="development")
-    assert s.MODEL_CONTAINER_URL == "http://model:8080/v1"
+    assert s.MODEL_CONTAINER_URL == ""
     assert s.MODEL_CONTAINER_API_KEY == ""
     assert s.MODEL_GPU_LAYERS == 99
     assert s.MODEL_CONTEXT_SIZE == 4096

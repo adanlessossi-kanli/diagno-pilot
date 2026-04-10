@@ -137,6 +137,30 @@ async def lifespan(app: FastAPI):
     )
     logger.info("consultations.idempotency_key unique index ensured")
 
+    # --- Req 10: Backfill confidence_score and diagnosis_mode on existing consultations ---
+    try:
+        backfill_cs = await _db["consultations"].update_many(
+            {"confidence_score": {"$exists": False}},
+            {"$set": {"confidence_score": None}},
+        )
+        if backfill_cs.modified_count > 0:
+            logger.info(
+                "Backfilled confidence_score on %d consultations",
+                backfill_cs.modified_count,
+            )
+
+        backfill_dm = await _db["consultations"].update_many(
+            {"diagnosis_mode": {"$exists": False}},
+            {"$set": {"diagnosis_mode": "rag"}},
+        )
+        if backfill_dm.modified_count > 0:
+            logger.info(
+                "Backfilled diagnosis_mode on %d consultations",
+                backfill_dm.modified_count,
+            )
+    except Exception as exc:
+        logger.error("Consultation backfill migration failed: %s", exc)
+
     # Ensure vector search index on document_chunks for RAG (Atlas-only feature)
     try:
         await _db.create_collection("document_chunks")

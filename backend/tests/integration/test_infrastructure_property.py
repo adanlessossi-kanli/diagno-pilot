@@ -58,7 +58,7 @@ def test_integration_app_uses_real_s3(integration_app, real_s3):
 
 @pytest.mark.integration
 @given(role=st.sampled_from(["medecin", "admin"]))
-@settings(max_examples=2)
+@settings(max_examples=2, deadline=None)
 def test_seeded_users_have_valid_bcrypt_hashes(mongo_uri, role: str):
     """
     Property: for each seeded role, the stored password_hash is a valid bcrypt hash

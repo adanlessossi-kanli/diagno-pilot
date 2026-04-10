@@ -7,6 +7,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from backend.core.auth import require_role
+from backend.core.config import settings
 from backend.core.database import db
 from backend.core.db_metrics import timed_db_op
 from backend.core.rate_limit import limiter
@@ -45,6 +46,7 @@ class DiagnoseResponse(BaseModel):
     agent_contributions: list[dict] = []
     evidence_citations: list[dict] = []
     parse_failed: bool = False
+    diagnosis_mode: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +107,7 @@ async def diagnose_symptoms(
                     agent_contributions=existing.get("agent_contributions", []),
                     evidence_citations=existing.get("evidence_citations", []),
                     parse_failed=existing.get("parse_failed", False),
+                    diagnosis_mode=existing.get("diagnosis_mode"),
                 )
 
         result = await diagnostic_service.get_differential_diagnosis(
@@ -137,7 +140,7 @@ async def diagnose_symptoms(
             "degraded_warning": result.degraded_warning,
             "warnings_present": warnings_present,
             "mcp_session_id": result.session_id,
-            "confidence_score": result.confidence_score if result.session_id else None,
+            "confidence_score": result.confidence_score,
             "agent_contributions": [
                 c.model_dump() if hasattr(c, "model_dump") else c
                 for c in result.agent_contributions
@@ -147,6 +150,7 @@ async def diagnose_symptoms(
                 for c in result.evidence_citations
             ],
             "parse_failed": result.parse_failed,
+            "diagnosis_mode": settings.DIAGNOSIS_MODE,
         }
 
         if body.idempotency_key:
@@ -168,7 +172,7 @@ async def diagnose_symptoms(
             degraded_warning=result.degraded_warning,
             warnings_present=warnings_present,
             mcp_session_id=result.session_id,
-            confidence_score=result.confidence_score if result.session_id else None,
+            confidence_score=result.confidence_score,
             agent_contributions=[
                 c.model_dump() if hasattr(c, "model_dump") else c
                 for c in result.agent_contributions
@@ -178,6 +182,7 @@ async def diagnose_symptoms(
                 for c in result.evidence_citations
             ],
             parse_failed=result.parse_failed,
+            diagnosis_mode=settings.DIAGNOSIS_MODE,
         )
 
     except HTTPException:
@@ -206,6 +211,17 @@ async def get_diagnosis_session(
         query["user_id"] = ObjectId(str(current_user["_id"]))
     async with timed_db_op("consultations", "find_one"):
         doc = await database["consultations"].find_one(query)
+
+    # Fallback: try lookup by _id (ObjectId) for consultation list compatibility
+    if doc is None:
+        try:
+            oid_query: dict = {"_id": ObjectId(session_id)}
+            if current_user.get("role") != "admin":
+                oid_query["user_id"] = ObjectId(str(current_user["_id"]))
+            async with timed_db_op("consultations", "find_one"):
+                doc = await database["consultations"].find_one(oid_query)
+        except Exception:
+            pass  # session_id is not a valid ObjectId — that's fine
 
     if doc is None:
         raise HTTPException(

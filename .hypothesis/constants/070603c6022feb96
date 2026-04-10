@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\agent_pipeline.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.5, 1.0, 120, '$in', '$regex', ', ', '.', 'ALL', 'BJ', 'CHU Abomey-Calavi', 'CHU Lomé', 'CHU|MSF', 'OMS AFRO / MSF', 'TG', 'Unknown', '\\[.*\\]', 'agent', 'agent_invocation', 'agent_pipeline', 'condition', 'confidence_score', 'document_id', 'duration_seconds', 'endpoint', 'epidemiology', 'error', 'excerpt', 'guideline', 'icd_code', 'insuffisance rénale', 'lab', 'matching_symptoms', 'metadata.source', 'page', 'probability', 'protocol', 'query_hash', 'source', 'source_filter', 'symptomatology', 'synthesis', 'system', 'title', 'treatment', '{symptoms}']

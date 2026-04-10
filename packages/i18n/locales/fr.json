@@ -291,6 +291,7 @@
   },
   "admin": {
     "title": "Administration",
+    "documentsPageTitle": "Questionner documents",
     "accessDenied": "Accès refusé. Cette page est réservée aux administrateurs.",
     "documents": "Documents médicaux indexés",
     "noDocuments": "Aucun document indexé.",

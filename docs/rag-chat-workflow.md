@@ -154,6 +154,61 @@ The `ChatService.get_history()` method accepts an optional `user_id` parameter t
 
 ---
 
+## Diagnosis Mode Routing
+
+The `DIAGNOSIS_MODE` environment variable selects which diagnosis path the `DiagnosticOrchestrator` uses. When the selected dependency (MCP_Host or AgentPipeline) is not configured, the system falls back to the RAG path with a logged warning.
+
+```mermaid
+flowchart TD
+    A[POST /api/v1/diagnose/symptoms] --> B[Diagnose Router]
+    B --> C[DiagnosticOrchestrator]
+    C --> D{DIAGNOSIS_MODE}
+    D -->|rag| E[RAG Path: LlamaIndexPipeline]
+    D -->|mcp| F{MCP_Host configured?}
+    D -->|agent| G{AgentPipeline configured?}
+
+    F -->|yes| H[MCP Path: MCP_Host + Synthesis_Agent]
+    F -->|no| I[⚠ Warning logged — fallback to RAG]
+    I --> E
+
+    G -->|yes| J[Agent Path: AgentPipeline]
+    G -->|no| K[⚠ Warning logged — fallback to RAG]
+    K --> E
+
+    E --> L[DiagnosticParser.parse]
+    H --> M[Synthesis_Agent.synthesize]
+    J --> N[_parse_partial_differential]
+
+    L --> O[DiagnosticResult]
+    M --> O
+    N --> O
+
+    O --> P[Diagnose Router Response<br/>includes diagnosis_mode field]
+```
+
+Valid values for `DIAGNOSIS_MODE`: `rag` (default), `mcp`, `agent`.
+
+---
+
+## LLM URL Priority
+
+The `LLMRouter` selects the primary LLM endpoint using the following priority:
+
+1. `MODEL_CONTAINER_URL` — used when set to a non-empty value (e.g. `http://model:8080/v1` for a local Docker model container)
+2. `LLM_PRIMARY_URL` — used when `MODEL_CONTAINER_URL` is empty (default)
+
+`MODEL_CONTAINER_URL` defaults to an empty string (`""`). Existing Docker Compose deployments that rely on a local model container must explicitly set `MODEL_CONTAINER_URL` in their `.env` file.
+
+```mermaid
+flowchart LR
+    A{MODEL_CONTAINER_URL<br/>non-empty?} -->|yes| B[Use MODEL_CONTAINER_URL]
+    A -->|no| C{LLM_PRIMARY_URL set?}
+    C -->|yes| D[Use LLM_PRIMARY_URL]
+    C -->|no| E[No primary LLM available]
+```
+
+---
+
 ## LLM Router — Resilience Detail
 
 ```mermaid

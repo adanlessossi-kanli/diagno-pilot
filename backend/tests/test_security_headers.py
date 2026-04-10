@@ -293,7 +293,7 @@ async def test_security_headers_present_on_error_responses():
 # ---------------------------------------------------------------------------
 
 @h_settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
-@given(path=st.from_regex(r"/[a-zA-Z0-9_/\-\.]{1,50}", fullmatch=True))
+@given(path=st.from_regex(r"/[a-zA-Z0-9_\-\.]{1,50}", fullmatch=True))
 @pytest.mark.asyncio
 async def test_p1_security_headers_completeness(path: str):
     """

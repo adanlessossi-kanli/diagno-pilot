@@ -325,7 +325,7 @@ export default function DocumentsPage() {
 
   return (
     <main className="min-h-screen p-8 max-w-5xl mx-auto space-y-8">
-      <h1 className="text-2xl font-bold">{t('title')}</h1>
+      <h1 className="text-2xl font-bold">{t('documentsPageTitle')}</h1>
 
       {/* Upload form */}
       <UploadForm onUploaded={handleUploaded} t={t} tCommon={tCommon} apiClient={apiClient} />

@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\core\config.py
+# hypothesis_version: 6.151.9
+
+[0.3, 0.75, 1.0, 30.0, 300, 512, 3600, 4096, 86400, '*', ',', '.', '.env', '127.0.0.1', '::1', '@', 'HS256', 'INFO', 'REDIS_URL', 'Settings', 'after', 'development', 'diagno-pilot-files', 'env_file', 'extra', 'ignore', 'json', 'localhost', 'memory://', 'production', 'secret', 'us-east-1', 'v1']

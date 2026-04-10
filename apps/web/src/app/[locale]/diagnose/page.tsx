@@ -761,6 +761,7 @@ export default function DiagnosePage() {
               <p className="text-xs text-gray-500">{t('llmUsed')}: {results.llmUsed}</p>
             )}
 
+            {!results.parseFailed && (
             <div className="space-y-3">
               {results.diagnoses.map((diag, i) => {
                 const pct = diag.probability;
@@ -816,6 +817,7 @@ export default function DiagnosePage() {
                 );
               })}
             </div>
+            )}
 
             {/* Evidence citations */}
             {results.evidenceCitations && results.evidenceCitations.length > 0 && (
@@ -866,7 +868,7 @@ export default function DiagnosePage() {
           </section>
 
           {/* ── Step 3: Prescription ── */}
-          {results.diagnoses.length > 0 && (
+          {!results.parseFailed && results.diagnoses.length > 0 && (
             <PrescriptionStep
               diagnoses={results.diagnoses}
               antibiotics={antibiotics}

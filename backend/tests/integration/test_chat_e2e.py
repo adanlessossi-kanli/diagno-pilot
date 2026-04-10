@@ -6,6 +6,7 @@ Validates: Requirements 6.1, 6.2, 6.3, 6.4
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 import httpx
@@ -17,6 +18,29 @@ from httpx import AsyncClient, ASGITransport
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from motor.motor_asyncio import AsyncIOMotorDatabase
+
+
+def _parse_sse(body: str) -> list[dict]:
+    """Parse raw SSE text into a list of {event, data} dicts."""
+    events = []
+    current_event = None
+    current_data = None
+
+    for line in body.splitlines():
+        if line.startswith("event:"):
+            current_event = line[len("event:"):].strip()
+        elif line.startswith("data:"):
+            current_data = line[len("data:"):].strip()
+        elif line == "" and current_event is not None and current_data is not None:
+            events.append({"event": current_event, "data": current_data})
+            current_event = None
+            current_data = None
+
+    # Handle trailing event without final blank line
+    if current_event is not None and current_data is not None:
+        events.append({"event": current_event, "data": current_data})
+
+    return events
 
 # ---------------------------------------------------------------------------
 # LLM stub constants
@@ -32,6 +56,14 @@ _STUB_EMBEDDING_RESPONSE = {
     "data": [{"embedding": [0.0] * 1536}]
 }
 
+# SSE streaming response for chat/completions (used by generate_stream)
+_STUB_CHAT_STREAM_BODY = (
+    'data: {"choices": [{"delta": {"content": "Voici une "}}]}\n\n'
+    'data: {"choices": [{"delta": {"content": "réponse médicale "}}]}\n\n'
+    'data: {"choices": [{"delta": {"content": "de test."}}]}\n\n'
+    "data: [DONE]\n\n"
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,8 +75,13 @@ def _mock_llm_endpoints(router=None):
     r.post(f"{_LLM_BASE_URL}/embeddings").mock(
         return_value=httpx.Response(200, json=_STUB_EMBEDDING_RESPONSE)
     )
+    # The chat endpoint is called with stream=True, so return SSE-formatted text
     r.post(f"{_LLM_BASE_URL}/chat/completions").mock(
-        return_value=httpx.Response(200, json=_STUB_CHAT_RESPONSE)
+        return_value=httpx.Response(
+            200,
+            content=_STUB_CHAT_STREAM_BODY.encode(),
+            headers={"content-type": "text/event-stream"},
+        )
     )
 
 
@@ -120,7 +157,16 @@ async def test_chat_message_returns_answer_and_sources(
             json={"message": "Quels sont les symptômes du paludisme?", "session_id": None},
         )
     assert resp.status_code == 200, f"chat message failed: {resp.text}"
-    body = resp.json()
+
+    # The endpoint returns an SSE stream, not plain JSON.
+    # Parse the SSE events and extract the "done" event payload.
+    sse_events = _parse_sse(resp.text)
+    done_events = [e for e in sse_events if e["event"] == "done"]
+    assert len(done_events) == 1, (
+        f"Expected exactly 1 'done' SSE event, got {len(done_events)}. "
+        f"All events: {sse_events}"
+    )
+    body = json.loads(done_events[0]["data"])
 
     assert isinstance(body["answer"], str) and len(body["answer"]) > 0, (
         f"Expected non-empty answer string, got: {body['answer']!r}"
