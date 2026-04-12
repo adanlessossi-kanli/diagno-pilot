@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup, fireEvent, act } from '@testing-library/react';
 import React from 'react';
 import {
   SessionHistoryPanel,
@@ -23,6 +23,12 @@ beforeEach(() => {
     disconnect: vi.fn(),
   }));
   vi.stubGlobal('IntersectionObserver', mockObserver);
+
+  // Mock requestAnimationFrame to fire synchronously (jsdom doesn't run rAF callbacks reliably)
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+    cb(0);
+    return 0;
+  });
 
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -419,13 +425,16 @@ describe('Feature: session-history-panels, Property 9: Focus moves to correct en
             ...entries.slice(deletionIndex + 1),
           ];
 
-          rerender(
-            <SessionHistoryPanel
-              {...defaultProps}
-              entries={entriesAfterDeletion}
-              deleteMode="instant"
-            />,
-          );
+          // Wrap rerender in act() so the rAF-based state update is flushed
+          act(() => {
+            rerender(
+              <SessionHistoryPanel
+                {...defaultProps}
+                entries={entriesAfterDeletion}
+                deleteMode="instant"
+              />,
+            );
+          });
 
           // After deletion, the new length is n - 1
           const newLength = n - 1;

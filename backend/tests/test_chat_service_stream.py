@@ -1,16 +1,17 @@
 """Unit tests for ChatService.send_message_stream().
 
 Validates: Requirements 5.1, 5.2, 5.3, 5.4
+
+Updated for LLM-only ChatService (no RAG). Mocks now use StreamChunk
+from LLMRouter instead of StreamEvent from LlamaIndexPipeline.
 """
 from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-
-from backend.models.document import DocumentSource
 from backend.services.chat_service import ChatService
-from backend.services.llamaindex_pipeline import StreamEvent
+from backend.services.llm_router import StreamChunk
 
 
 # ---------------------------------------------------------------------------
@@ -31,16 +32,24 @@ def _make_mock_db():
     return mock_db, mock_collection
 
 
-def _make_rag_mock(events: list[StreamEvent]):
-    """Return a mock LlamaIndexPipeline whose query_stream yields *events*."""
-    mock_rag = MagicMock()
+def _make_llm_mock(tokens: list[str], llm_used: str = "test-model", error: str | None = None):
+    """Return a mock LLMRouter whose generate_stream yields StreamChunks.
 
-    async def fake_query_stream(**kwargs):
-        for e in events:
-            yield e
+    Args:
+        tokens: List of token strings to yield.
+        llm_used: Model name to include in chunks.
+        error: If set, yield an error chunk after the tokens.
+    """
+    mock_llm = MagicMock()
 
-    mock_rag.query_stream = fake_query_stream
-    return mock_rag
+    async def fake_generate_stream(prompt: str, context: list[dict]):
+        for t in tokens:
+            yield StreamChunk(token=t, llm_used=llm_used)
+        if error:
+            yield StreamChunk(error=error, llm_used=llm_used)
+
+    mock_llm.generate_stream = fake_generate_stream
+    return mock_llm
 
 
 # ---------------------------------------------------------------------------
@@ -52,20 +61,9 @@ def test_new_session_created_when_session_id_is_none():
 
     Validates: Requirement 5.3
     """
-    source = DocumentSource(
-        document_id="doc1", title="T", source="SRC", section=None,
-        excerpt=None, page=None,
-    )
-    events = [
-        StreamEvent(type="token", content="Hello"),
-        StreamEvent(
-            type="done", answer="Hello", sources=[source],
-            llm_used="test-model", fallback_used=False,
-        ),
-    ]
     mock_db, mock_col = _make_mock_db()
-    mock_rag = _make_rag_mock(events)
-    service = ChatService(db=mock_db, rag_service=mock_rag)
+    mock_llm = _make_llm_mock(["Hello"])
+    service = ChatService(db=mock_db, llm_router=mock_llm)
 
     async def run():
         collected = []
@@ -85,8 +83,11 @@ def test_new_session_created_when_session_id_is_none():
     sid = filter_arg["session_id"]
     assert isinstance(sid, str) and len(sid) > 0
 
-    # Events forwarded correctly
+    # Events forwarded correctly (token + done emitted by ChatService)
     assert [e.type for e in collected] == ["token", "done"]
+    # Sources should always be empty (LLM-only, no RAG)
+    done_event = [e for e in collected if e.type == "done"][0]
+    assert done_event.sources == []
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +95,7 @@ def test_new_session_created_when_session_id_is_none():
 # ---------------------------------------------------------------------------
 
 def test_history_loaded_and_capped_at_20():
-    """Session history is loaded and capped at 20 messages before querying RAG.
+    """Session history is loaded and capped at 20 messages before querying LLM.
 
     Validates: Requirement 5.1
     """
@@ -106,17 +107,17 @@ def test_history_loaded_and_capped_at_20():
     mock_db, mock_col = _make_mock_db()
     mock_col.find_one = AsyncMock(return_value={"messages": messages})
 
-    captured_kwargs: dict = {}
+    captured_args: dict = {}
 
-    async def capturing_query_stream(**kwargs):
-        captured_kwargs.update(kwargs)
-        yield StreamEvent(type="token", content="ok")
-        yield StreamEvent(type="done", answer="ok", sources=[], llm_used="m")
+    async def capturing_generate_stream(prompt: str, context: list[dict]):
+        captured_args["prompt"] = prompt
+        captured_args["context"] = context
+        yield StreamChunk(token="ok", llm_used="m")
 
-    mock_rag = MagicMock()
-    mock_rag.query_stream = capturing_query_stream
+    mock_llm = MagicMock()
+    mock_llm.generate_stream = capturing_generate_stream
 
-    service = ChatService(db=mock_db, rag_service=mock_rag)
+    service = ChatService(db=mock_db, llm_router=mock_llm)
 
     async def run():
         collected = []
@@ -128,12 +129,12 @@ def test_history_loaded_and_capped_at_20():
 
     _run(run())
 
-    # History passed to RAG should be capped at 20
-    history = captured_kwargs.get("session_history", [])
-    assert len(history) == 20
+    # Context passed to LLM should be capped at 20 messages
+    context = captured_args.get("context", [])
+    assert len(context) == 20
     # Should be the last 20 messages
-    assert history[0]["content"] == "msg-10"
-    assert history[-1]["content"] == "msg-29"
+    assert context[0]["content"] == "msg-10"
+    assert context[-1]["content"] == "msg-29"
 
 
 # ---------------------------------------------------------------------------
@@ -141,17 +142,13 @@ def test_history_loaded_and_capped_at_20():
 # ---------------------------------------------------------------------------
 
 def test_mid_stream_error_persists_user_turn_only():
-    """On error event, only the user turn is persisted (no assistant turn).
+    """On error chunk, only the user turn is persisted (no assistant turn).
 
     Validates: Requirement 5.4
     """
-    events = [
-        StreamEvent(type="token", content="partial"),
-        StreamEvent(type="error", error="LLM failed", retryable=True),
-    ]
     mock_db, mock_col = _make_mock_db()
-    mock_rag = _make_rag_mock(events)
-    service = ChatService(db=mock_db, rag_service=mock_rag)
+    mock_llm = _make_llm_mock(["partial"], error="LLM failed")
+    service = ChatService(db=mock_db, llm_router=mock_llm)
 
     async def run():
         collected = []
@@ -163,7 +160,7 @@ def test_mid_stream_error_persists_user_turn_only():
 
     collected = _run(run())
 
-    # Both events forwarded
+    # Token + error events forwarded
     assert [e.type for e in collected] == ["token", "error"]
 
     # Exactly one DB write (user turn only)
@@ -182,25 +179,13 @@ def test_mid_stream_error_persists_user_turn_only():
 # ---------------------------------------------------------------------------
 
 def test_successful_stream_persists_both_turns():
-    """On done event, both user and assistant turns are persisted.
+    """On successful stream, both user and assistant turns are persisted.
 
     Validates: Requirement 5.2
     """
-    source = DocumentSource(
-        document_id="d1", title="Title", source="SRC",
-        section=None, excerpt=None, page=None,
-    )
-    events = [
-        StreamEvent(type="token", content="The "),
-        StreamEvent(type="token", content="answer"),
-        StreamEvent(
-            type="done", answer="The answer", sources=[source],
-            llm_used="model-x", fallback_used=False,
-        ),
-    ]
     mock_db, mock_col = _make_mock_db()
-    mock_rag = _make_rag_mock(events)
-    service = ChatService(db=mock_db, rag_service=mock_rag)
+    mock_llm = _make_llm_mock(["The ", "answer"], llm_used="model-x")
+    service = ChatService(db=mock_db, llm_router=mock_llm)
 
     async def run():
         collected = []
@@ -212,7 +197,7 @@ def test_successful_stream_persists_both_turns():
 
     collected = _run(run())
 
-    # All three events forwarded
+    # Two token events + done event
     assert [e.type for e in collected] == ["token", "token", "done"]
 
     # Exactly one DB write with both turns
@@ -228,4 +213,5 @@ def test_successful_stream_persists_both_turns():
     assistant_turn = pushed[1]
     assert assistant_turn["role"] == "assistant"
     assert assistant_turn["content"] == "The answer"
-    assert len(assistant_turn["sources"]) == 1
+    # Sources always empty in LLM-only mode (no RAG)
+    assert assistant_turn["sources"] == []

@@ -106,12 +106,12 @@ def _setup_chat_service(integration_app, real_db):
         api_key="test-key",
     )
     index_manager = IndexManager(db=real_db)
-    pipeline = LlamaIndexPipeline(
+    _pipeline = LlamaIndexPipeline(
         index_manager=index_manager,
         llm_router=llm_router,
         embedder=embedder,
     )
-    chat_service = ChatService(db=real_db, rag_service=pipeline)
+    chat_service = ChatService(db=real_db, llm_router=llm_router)
 
     # Override the FastAPI dependency so the router uses our test service
     integration_app.dependency_overrides[get_chat_service] = lambda: chat_service

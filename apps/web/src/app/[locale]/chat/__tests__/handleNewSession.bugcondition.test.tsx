@@ -54,6 +54,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
       getHistory: mockGetHistory,
       listSessions: mockListSessions,
       deleteSession: mockDeleteSession,
+      submitFeedback: vi.fn(),
     },
     patients: {
       listAllPatients: vi.fn().mockResolvedValue([]),
@@ -152,8 +153,9 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
    *   getHistory is never called, messages are cleared immediately.
    */
   it('calls getHistory to verify session before clearing when messages exist', async () => {
+    // Mount won't call getHistory (no stored session in localStorage),
+    // so the first mock value is consumed by the verification call
     mockGetHistory
-      .mockResolvedValueOnce(null) // initial session restore on mount
       .mockResolvedValueOnce({ messages: [{ id: '1', role: 'user', content: 'fever', timestamp: new Date().toISOString() }] }); // verification call
 
     await renderChatWithMessages();
@@ -164,11 +166,10 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
       fireEvent.click(newChatBtn);
     });
 
-    // EXPECTED: getHistory was called a second time (first call is on mount for session restore)
-    // On unfixed code, getHistory is only called once (on mount), never for verification
+    // EXPECTED: getHistory was called for verification (mount call may or may not happen
+    // depending on whether localStorage had a stored session — here it doesn't, so only 1 call)
     await waitFor(() => {
-      // Filter out the initial mount call — we want at least 2 calls total
-      expect(mockGetHistory.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(mockGetHistory.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -182,14 +183,13 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
    */
   it('clears messages only after getHistory confirms session exists', async () => {
     mockGetHistory
-      .mockResolvedValueOnce(null) // mount
       .mockResolvedValueOnce({ messages: [{ id: '1', role: 'user', content: 'fever', timestamp: new Date().toISOString() }] }); // verification
 
     await renderChatWithMessages();
 
-    // Verify messages are visible before clicking New Chat
-    expect(screen.getByText('Patient has fever')).toBeDefined();
-    expect(screen.getByText('Response from assistant')).toBeDefined();
+    // Verify messages are visible before clicking New Chat (may appear in session panel too)
+    expect(screen.getAllByText('Patient has fever').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Response from assistant').length).toBeGreaterThanOrEqual(1);
 
     const newChatBtn = screen.getByRole('button', { name: /newSession/i });
     await act(async () => {
@@ -198,12 +198,13 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
 
     // EXPECTED: getHistory was called for verification
     await waitFor(() => {
-      expect(mockGetHistory.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(mockGetHistory.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
 
-    // After verification succeeds, messages should be cleared
+    // After verification succeeds, chat messages should be cleared.
+    // The assistant response should no longer appear anywhere in the DOM.
     await waitFor(() => {
-      expect(screen.queryByText('Patient has fever')).toBeNull();
+      expect(screen.queryByText('Response from assistant')).toBeNull();
     });
   });
 
@@ -218,12 +219,11 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
    */
   it('shows error and preserves messages when getHistory fails', async () => {
     mockGetHistory
-      .mockResolvedValueOnce(null) // mount
       .mockRejectedValueOnce({ status: 404, message: 'Not found' }); // verification fails
 
     await renderChatWithMessages();
 
-    expect(screen.getByText('Patient has fever')).toBeDefined();
+    expect(screen.getAllByText('Patient has fever').length).toBeGreaterThanOrEqual(1);
 
     const newChatBtn = screen.getByRole('button', { name: /newSession/i });
     await act(async () => {
@@ -232,7 +232,7 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
 
     // EXPECTED: getHistory was called for verification
     await waitFor(() => {
-      expect(mockGetHistory.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(mockGetHistory.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
 
     // EXPECTED: error is displayed
@@ -241,9 +241,8 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
       expect(alerts.length).toBeGreaterThan(0);
     });
 
-    // EXPECTED: messages are preserved (not cleared)
-    expect(screen.getByText('Patient has fever')).toBeDefined();
-    expect(screen.getByText('Response from assistant')).toBeDefined();
+    // EXPECTED: messages are preserved (not cleared) — assistant response still visible
+    expect(screen.getAllByText('Response from assistant').length).toBeGreaterThanOrEqual(1);
   });
 
   /**
@@ -258,16 +257,19 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
   it('disables New Chat button while verifying session', async () => {
     // Make getHistory hang (never resolve) to test the loading state
     let resolveVerification!: (value: unknown) => void;
+    // Mount won't call getHistory (no stored session), so the first mock is for verification
     mockGetHistory
-      .mockResolvedValueOnce(null) // mount
       .mockImplementationOnce(() => new Promise((resolve) => { resolveVerification = resolve; }));
 
     await renderChatWithMessages();
 
     const newChatBtn = screen.getByRole('button', { name: /newSession/i });
 
+    // Click fires the async handler; flush microtasks so setVerifying(true) is applied
     await act(async () => {
       fireEvent.click(newChatBtn);
+      // Allow the async handleNewSession to reach setVerifying(true)
+      await new Promise((r) => setTimeout(r, 0));
     });
 
     // EXPECTED: button is disabled while verification is in flight
@@ -276,7 +278,9 @@ describe('Bug Condition — Chat data loss on "New Chat" (non-streaming)', () =>
     });
 
     // Resolve the verification to clean up
-    resolveVerification({ messages: [] });
+    await act(async () => {
+      resolveVerification({ messages: [] });
+    });
   });
 });
 

@@ -104,6 +104,40 @@ export interface PatientDocument {
   chunkCount?: number;
 }
 
+export interface DocumentDownloadResponse {
+  url: string;
+  expiresIn: number;
+  filename: string;
+  contentDisposition: string;
+}
+
+export interface DocumentChatSessionSummary {
+  sessionId: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  preview: string | null;
+}
+
+export interface DocumentChatSessionListResponse {
+  sessions: DocumentChatSessionSummary[];
+}
+
+export interface DocumentChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources: DocumentSource[];
+  timestamp: string;
+}
+
+export interface DocumentChatHistoryResponse {
+  sessionId: string;
+  messages: DocumentChatMessage[];
+  totalMessages: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
 export interface UploadDocumentResponse {
   id: string;
   title: string;
@@ -424,6 +458,15 @@ export function createApiClient(
       return del(`/api/v1/chat/sessions/${encodeURIComponent(sessionId)}`, signal);
     },
 
+    /** REQ 13.2 — Submit Topic Guard false-refusal feedback */
+    submitFeedback(
+      question: string,
+      response: string,
+      signal?: AbortSignal,
+    ): Promise<{ detail: string }> {
+      return post<{ detail: string }>('/api/v1/chat/feedback', { question, response }, signal);
+    },
+
     /** REQ-06 — Stream a chat message response via SSE */
     async *sendMessageStream(
       sessionId: string,
@@ -621,6 +664,85 @@ export function createApiClient(
     /** REQ-05 — Delete an indexed document by ID */
     deleteDocument(id: string, signal?: AbortSignal): Promise<void> {
       return del<void>(`/api/v1/documents/${encodeURIComponent(id)}`, signal);
+    },
+
+    /** REQ 5.2, 5.4 — Stream a document chat message response via SSE */
+    async *chatStream(
+      sessionId: string,
+      message: string,
+      signal?: AbortSignal,
+    ): AsyncGenerator<StreamEvent> {
+      const res = await fetch(`${base}/api/v1/documents/chat`, {
+        method: 'POST',
+        headers: csrfHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({
+          session_id: sessionId,
+          message,
+        }),
+        signal,
+      });
+
+      if (!res.ok) {
+        const detail = await res.json().catch(() => undefined);
+        const err: ApiError = {
+          status: res.status,
+          message: (detail as { detail?: string })?.detail ?? res.statusText,
+          detail,
+        };
+        throw err;
+      }
+
+      if (!res.body) {
+        throw new Error('Response body is null — streaming not supported');
+      }
+
+      yield* parseSSEStream(res.body);
+    },
+
+    /** REQ 7.5 — List the user's document chat sessions */
+    listChatSessions(
+      skip?: number,
+      limit?: number,
+      signal?: AbortSignal,
+    ): Promise<DocumentChatSessionListResponse> {
+      const params = new URLSearchParams();
+      if (skip != null) params.set('skip', String(skip));
+      if (limit != null) params.set('limit', String(limit));
+      const qs = params.toString();
+      const path = `/api/v1/documents/chat/sessions${qs ? `?${qs}` : ''}`;
+      return fetch(`${base}${path}`, {
+        method: 'GET',
+        headers: headers(),
+        credentials: 'include',
+        signal,
+      }).then((res) => parseResponse<DocumentChatSessionListResponse>(res));
+    },
+
+    /** REQ 7.5 — Get paginated message history for a document chat session */
+    getChatHistory(
+      sessionId: string,
+      signal?: AbortSignal,
+    ): Promise<DocumentChatHistoryResponse | null> {
+      return fetch(`${base}/api/v1/documents/chat/history/${encodeURIComponent(sessionId)}`, {
+        method: 'GET',
+        headers: headers(),
+        credentials: 'include',
+        signal,
+      }).then(async (res) => {
+        if (res.status === 404) return null;
+        return parseResponse<DocumentChatHistoryResponse>(res);
+      });
+    },
+
+    /** REQ 7.5 — Delete a document chat session */
+    deleteChatSession(sessionId: string, signal?: AbortSignal): Promise<void> {
+      return del<void>(`/api/v1/documents/chat/sessions/${encodeURIComponent(sessionId)}`, signal);
+    },
+
+    /** REQ 11.2 — Get a presigned download URL for a document */
+    getDownloadUrl(documentId: string, signal?: AbortSignal): Promise<DocumentDownloadResponse> {
+      return get<DocumentDownloadResponse>(`/api/v1/documents/${encodeURIComponent(documentId)}/download`, signal);
     },
   };
 

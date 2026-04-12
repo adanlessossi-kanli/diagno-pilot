@@ -1,4 +1,4 @@
-"""ChatService — multi-turn RAG conversational assistant (REQ-04)."""
+"""ChatService — LLM-only medical Q&A assistant with Topic Guard (no RAG)."""
 from __future__ import annotations
 
 import logging
@@ -11,9 +11,26 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from backend.core.db_metrics import timed_db_op
 from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
-from backend.services.llamaindex_pipeline import LlamaIndexPipeline, StreamEvent
+from backend.services.llamaindex_pipeline import StreamEvent
+from backend.services.llm_router import LLMRouter
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# System prompt — Topic Guard + language detection
+# ---------------------------------------------------------------------------
+
+ASSISTANT_QA_SYSTEM_PROMPT = (
+    "You are a specialized medical assistant. "
+    "You ONLY answer questions about: tropical diseases, infectious diseases, "
+    "general clinical medicine, nutrition, mental health, and medical ethics. "
+    "For any question outside these domains (sports, politics, cooking, entertainment, etc.), "
+    "you MUST politely decline, explaining that you are specialized in tropical and clinical medicine. "
+    "ALWAYS prefix your refusal response with the exact marker '[TOPIC_GUARD_REFUSAL]' "
+    "followed by a line break, then the refusal message. "
+    "Detect the language of the user's message and respond in that same language. "
+    "If ambiguous, use the provided locale language."
+)
 
 
 class ChatMessage:
@@ -45,13 +62,13 @@ class ChatMessage:
 
 
 class ChatService:
-    """Manages multi-turn chat sessions backed by MongoDB and RAGService."""
+    """Q&A chat — LLM-only, no RAG retrieval."""
 
     COLLECTION = "chat_sessions"
 
-    def __init__(self, db: AsyncIOMotorDatabase, rag_service: LlamaIndexPipeline) -> None:
+    def __init__(self, db: AsyncIOMotorDatabase, llm_router: LLMRouter) -> None:
         self._db = db
-        self._rag = rag_service
+        self._llm = llm_router
 
     # ------------------------------------------------------------------
     # Public API
@@ -67,10 +84,11 @@ class ChatService:
         """Stream assistant tokens for a user message, yielding StreamEvents.
 
         Creates a new session if *session_id* is None.
-        Persists both turns after the ``done`` event; on mid-stream error
+        Calls LLMRouter directly (no RAG retrieval).
+        Persists both turns after completion; on mid-stream error
         only the user turn is persisted.
 
-        Requirements: 5.1, 5.2, 5.3, 5.4.
+        Requirements: 1.1, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6.
         """
         session_id = session_id or str(uuid.uuid4())
 
@@ -87,25 +105,51 @@ class ChatService:
             "timestamp": now,
         }
 
+        # Build context list from session history for LLMRouter
+        context: list[dict] = [
+            {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+            for msg in history
+        ]
+
+        # Build the full prompt: system prompt + patient context + user message
+        prompt_parts = [ASSISTANT_QA_SYSTEM_PROMPT]
+        if patient_context:
+            prompt_parts.append(
+                f"\nPatient context: {patient_context.model_dump_json()}"
+            )
+        prompt_parts.append(f"\nUser: {user_message}")
+        prompt = "\n".join(prompt_parts)
+
         assembled_answer = ""
-        done_event: StreamEvent | None = None
+        last_llm_used = ""
+        last_fallback_used = False
         had_error = False
 
-        async for event in self._rag.query_stream(
-            question=user_message,
-            context=patient_context,
-            top_k=5,
-            session_history=history,
-        ):
-            if event.type == "token":
-                assembled_answer += event.content or ""
-                yield event
-            elif event.type == "done":
-                done_event = event
-                yield event
-            elif event.type == "error":
-                had_error = True
-                yield event
+        try:
+            async for chunk in self._llm.generate_stream(prompt, context):
+                if chunk.error:
+                    had_error = True
+                    yield StreamEvent(
+                        type="error",
+                        error=chunk.error,
+                        retryable=True,
+                    )
+                elif chunk.token:
+                    assembled_answer += chunk.token
+                    last_llm_used = chunk.llm_used
+                    last_fallback_used = chunk.fallback_used
+                    yield StreamEvent(
+                        type="token",
+                        content=chunk.token,
+                    )
+        except Exception as exc:
+            had_error = True
+            logger.exception("LLM stream failed: %s", exc)
+            yield StreamEvent(
+                type="error",
+                error=str(exc),
+                retryable=True,
+            )
 
         # --- Persist turns to MongoDB ---
         if had_error:
@@ -128,13 +172,21 @@ class ChatService:
                     )
             except Exception:
                 logger.exception("Failed to persist user turn after stream error")
-        elif done_event is not None:
-            # Successful stream: persist both user and assistant turns
+        else:
+            # Successful stream: emit done event and persist both turns
+            yield StreamEvent(
+                type="done",
+                answer=assembled_answer,
+                sources=[],
+                llm_used=last_llm_used,
+                fallback_used=last_fallback_used,
+            )
+
             assistant_turn = {
                 "id": str(uuid.uuid4()),
                 "role": "assistant",
                 "content": assembled_answer,
-                "sources": [s.model_dump() for s in (done_event.sources or [])],
+                "sources": [],
                 "timestamp": now,
             }
             try:

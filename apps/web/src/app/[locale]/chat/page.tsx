@@ -4,9 +4,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { StreamEvent } from '@diagno-pilot/api-client';
-import type { ChatMessage, PatientProfile, DocumentSource } from '@diagno-pilot/types';
+import type { ChatMessage, PatientProfile } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
-import { CitationChip } from '../../../components/CitationChip';
 import { SessionHistoryPanel, upsertEntry, removeEntry } from '../../../components/SessionHistoryPanel';
 import type { SessionEntry } from '../../../components/SessionHistoryPanel';
 
@@ -18,6 +17,7 @@ type PatientMode = 'none' | 'select' | 'oneshot';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SESSION_STORAGE_KEY = 'diagno-pilot-chat-session';
+const TOPIC_GUARD_MARKER = '[TOPIC_GUARD_REFUSAL]';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,43 +50,84 @@ function isRetryableError(err: unknown): boolean {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SourcesPanel({ sources }: { sources: DocumentSource[] }) {
-  const t = useTranslations('chat');
-  const [open, setOpen] = useState(false);
+/**
+ * Strips the [TOPIC_GUARD_REFUSAL] marker from content and returns
+ * whether the message is a Topic Guard refusal.
+ */
+function parseTopicGuardRefusal(content: string): { isRefusal: boolean; displayContent: string } {
+  if (content.startsWith(TOPIC_GUARD_MARKER)) {
+    const stripped = content.slice(TOPIC_GUARD_MARKER.length).replace(/^\n/, '');
+    return { isRefusal: true, displayContent: stripped };
+  }
+  return { isRefusal: false, displayContent: content };
+}
 
-  const filtered = sources.filter(s => s.confidenceScore == null || s.confidenceScore >= 0.3);
+function FeedbackButton({
+  question,
+  response,
+  apiClient,
+}: {
+  question: string;
+  response: string;
+  apiClient: ReturnType<typeof createApiClient>;
+}) {
+  const tGuard = useTranslations('topicGuard');
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [feedbackError, setFeedbackError] = useState(false);
 
-  if (filtered.length === 0) return null;
+  async function handleFeedback() {
+    if (sent || sending) return;
+    setSending(true);
+    setFeedbackError(false);
+    try {
+      await apiClient.chat.submitFeedback(question, response);
+      setSent(true);
+    } catch {
+      setFeedbackError(true);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (sent) {
+    return <p className="text-xs text-green-600 mt-1 px-1">{tGuard('feedbackSent')}</p>;
+  }
 
   return (
-    <div className="mt-2">
+    <div className="mt-1 px-1">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-        aria-expanded={open}
+        onClick={() => void handleFeedback()}
+        disabled={sending}
+        className="text-xs text-orange-600 hover:text-orange-800 hover:underline disabled:opacity-50"
+        data-testid="topic-guard-feedback-btn"
       >
-        <span>{t('sources')} ({filtered.length})</span>
-        <span aria-hidden="true">{open ? '▲' : '▼'}</span>
+        {sending ? '…' : tGuard('feedbackButton')}
       </button>
-      {open && (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {filtered.map((src, i) => (
-            <CitationChip
-              key={`${src.documentId}-${i}`}
-              index={i + 1}
-              source={src}
-            />
-          ))}
-        </div>
+      {feedbackError && (
+        <p className="text-xs text-red-500 mt-0.5">{tGuard('feedbackError')}</p>
       )}
     </div>
   );
 }
 
-function MessageBubble({ message, isStreaming }: { message: LocalChatMessage; isStreaming?: boolean }) {
+function MessageBubble({
+  message,
+  isStreaming,
+  previousUserMessage,
+  apiClient,
+}: {
+  message: LocalChatMessage;
+  isStreaming?: boolean;
+  previousUserMessage?: string;
+  apiClient: ReturnType<typeof createApiClient>;
+}) {
   const isUser = message.role === 'user';
-  const t = useTranslations('chat');
+
+  const { isRefusal, displayContent } = isUser
+    ? { isRefusal: false, displayContent: message.content }
+    : parseTopicGuardRefusal(message.content);
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -98,7 +139,7 @@ function MessageBubble({ message, isStreaming }: { message: LocalChatMessage; is
               : 'bg-white border border-gray-200 text-gray-900 rounded-bl-sm'
           }`}
         >
-          {message.content}
+          {displayContent}
           {isStreaming && (
             <span
               className="streaming-cursor"
@@ -106,13 +147,12 @@ function MessageBubble({ message, isStreaming }: { message: LocalChatMessage; is
             />
           )}
         </div>
-        {!isUser && message.sources && message.sources.length > 0 && (
-          <div className="px-1">
-            <SourcesPanel sources={message.sources} />
-          </div>
-        )}
-        {!isUser && message.interrupted === true && (!message.sources || message.sources.length === 0) && (
-          <p className="text-xs text-gray-500 italic mt-1 px-1">{t('sourcesUnavailable')}</p>
+        {!isUser && isRefusal && previousUserMessage && (
+          <FeedbackButton
+            question={previousUserMessage}
+            response={message.content}
+            apiClient={apiClient}
+          />
         )}
         <p className={`text-xs text-gray-400 mt-1 px-1 ${isUser ? 'text-right' : 'text-left'}`}>
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -809,10 +849,20 @@ export default function ChatPage() {
             <p className="text-xs text-gray-500 italic">{t('loadingHistory')}</p>
           </div>
         )}
-        {messages.map((msg) => {
+        {messages.map((msg, idx) => {
           const isStreamingMsg = streaming && msg.role === 'assistant' && msg === messages[messages.length - 1] && msg.content !== '';
+          // Find the previous user message for Topic Guard feedback
+          const previousUserMessage = msg.role === 'assistant'
+            ? messages.slice(0, idx).reverse().find((m) => m.role === 'user')?.content
+            : undefined;
           return (
-            <MessageBubble key={msg.id} message={msg} isStreaming={isStreamingMsg} />
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              isStreaming={isStreamingMsg}
+              previousUserMessage={previousUserMessage}
+              apiClient={apiClient}
+            />
           );
         })}
         {loading && !streaming && <ThinkingBubble key="thinking" />}

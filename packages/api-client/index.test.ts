@@ -693,3 +693,309 @@ describe('chat.deleteSession', () => {
     expect(url).toBe(`${BASE_URL}/api/v1/chat/sessions/id%2Fwith%2Fslashes`);
   });
 });
+
+
+// ─── documents.listChatSessions ──────────────────────────────────────────────
+
+describe('documents.listChatSessions', () => {
+  it('sends GET to /api/v1/documents/chat/sessions with skip and limit', async () => {
+    const body = {
+      sessions: [
+        { session_id: 'ds1', created_at: '2026-04-10T10:00:00Z', updated_at: '2026-04-10T10:05:00Z', preview: 'Paludisme' },
+      ],
+    };
+    mockFetch(200, body);
+
+    await client.documents.listChatSessions(0, 20);
+
+    const fetchMock = getFetchMock();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/chat/sessions?skip=0&limit=20`);
+    expect(init?.method).toBe('GET');
+    expect(init?.credentials).toBe('include');
+  });
+
+  it('omits query params when skip and limit are not provided', async () => {
+    mockFetch(200, { sessions: [] });
+
+    await client.documents.listChatSessions();
+
+    const [url] = getFetchMock().mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/chat/sessions`);
+  });
+
+  it('returns parsed sessions', async () => {
+    const body = {
+      sessions: [
+        { session_id: 'ds1', created_at: '2026-04-10T10:00:00Z', updated_at: null, preview: 'Test' },
+      ],
+    };
+    mockFetch(200, body);
+
+    const result = await client.documents.listChatSessions(0, 10);
+
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0].session_id).toBe('ds1');
+  });
+
+  it('handles empty sessions array', async () => {
+    mockFetch(200, { sessions: [] });
+
+    const result = await client.documents.listChatSessions();
+
+    expect(result.sessions).toEqual([]);
+  });
+
+  it('throws ApiError on HTTP error', async () => {
+    mockFetch(500, { detail: 'Internal Server Error' });
+
+    await expect(client.documents.listChatSessions()).rejects.toMatchObject<Partial<ApiError>>({
+      status: 500,
+      message: 'Internal Server Error',
+    });
+  });
+});
+
+// ─── documents.getChatHistory ────────────────────────────────────────────────
+
+describe('documents.getChatHistory', () => {
+  it('sends GET to /api/v1/documents/chat/history/{sessionId}', async () => {
+    const body = {
+      session_id: 'ds1',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello', sources: [], timestamp: '2026-04-10T10:00:00Z' },
+      ],
+      total_messages: 1,
+      created_at: '2026-04-10T10:00:00Z',
+      updated_at: '2026-04-10T10:00:05Z',
+    };
+    mockFetch(200, body);
+
+    const result = await client.documents.getChatHistory('ds1');
+
+    const fetchMock = getFetchMock();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/chat/history/ds1`);
+    expect(init?.method).toBe('GET');
+    expect(init?.credentials).toBe('include');
+    expect(result).not.toBeNull();
+    expect(result!.session_id).toBe('ds1');
+    expect(result!.messages).toHaveLength(1);
+  });
+
+  it('returns null on 404', async () => {
+    mockFetch(404, { detail: 'Not found' });
+
+    const result = await client.documents.getChatHistory('nonexistent');
+
+    expect(result).toBeNull();
+  });
+
+  it('encodes sessionId in the URL path', async () => {
+    mockFetch(200, { session_id: 'a/b', messages: [], total_messages: 0 });
+
+    await client.documents.getChatHistory('a/b');
+
+    const [url] = getFetchMock().mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/chat/history/a%2Fb`);
+  });
+
+  it('throws ApiError on server error', async () => {
+    mockFetch(500, { detail: 'Internal Server Error' });
+
+    await expect(client.documents.getChatHistory('ds1')).rejects.toMatchObject<Partial<ApiError>>({
+      status: 500,
+      message: 'Internal Server Error',
+    });
+  });
+});
+
+// ─── documents.deleteChatSession ─────────────────────────────────────────────
+
+describe('documents.deleteChatSession', () => {
+  it('sends DELETE to /api/v1/documents/chat/sessions/{sessionId}', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+
+    await client.documents.deleteChatSession('ds1');
+
+    const fetchMock = getFetchMock();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/chat/sessions/ds1`);
+    expect(init?.method).toBe('DELETE');
+    expect(init?.credentials).toBe('include');
+  });
+
+  it('encodes sessionId in the URL path', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+
+    await client.documents.deleteChatSession('id/with/slashes');
+
+    const [url] = getFetchMock().mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/chat/sessions/id%2Fwith%2Fslashes`);
+  });
+
+  it('throws ApiError on 404', async () => {
+    mockFetch(404, { detail: 'Session not found' });
+
+    await expect(client.documents.deleteChatSession('nonexistent')).rejects.toMatchObject<Partial<ApiError>>({
+      status: 404,
+      message: 'Session not found',
+    });
+  });
+});
+
+// ─── documents.getDownloadUrl ────────────────────────────────────────────────
+
+describe('documents.getDownloadUrl', () => {
+  it('sends GET to /api/v1/documents/{id}/download', async () => {
+    const body = {
+      url: 'https://s3.amazonaws.com/presigned',
+      expires_in: 900,
+      filename: 'protocol.pdf',
+      content_disposition: 'attachment',
+    };
+    mockFetch(200, body);
+
+    const result = await client.documents.getDownloadUrl('doc-123');
+
+    const fetchMock = getFetchMock();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/doc-123/download`);
+    expect(init?.method).toBe('GET');
+    expect(init?.credentials).toBe('include');
+    expect(result.url).toBe('https://s3.amazonaws.com/presigned');
+    expect(result.filename).toBe('protocol.pdf');
+  });
+
+  it('encodes documentId in the URL path', async () => {
+    mockFetch(200, { url: 'https://s3.example.com', expires_in: 900, filename: 'f.pdf', content_disposition: 'attachment' });
+
+    await client.documents.getDownloadUrl('id/special');
+
+    const [url] = getFetchMock().mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/id%2Fspecial/download`);
+  });
+
+  it('throws ApiError on 404', async () => {
+    mockFetch(404, { detail: 'Document not found' });
+
+    await expect(client.documents.getDownloadUrl('nonexistent')).rejects.toMatchObject<Partial<ApiError>>({
+      status: 404,
+      message: 'Document not found',
+    });
+  });
+});
+
+// ─── documents.chatStream ────────────────────────────────────────────────────
+
+describe('documents.chatStream', () => {
+  /** Encode SSE text as a ReadableStream<Uint8Array>. */
+  function sseStream(text: string): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    return new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(text));
+        controller.close();
+      },
+    });
+  }
+
+  function mockSSEResponse(sseText: string, status = 200): Response {
+    return new Response(sseStream(sseText), {
+      status,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }
+
+  async function collectEvents(gen: AsyncGenerator<StreamEvent>): Promise<StreamEvent[]> {
+    const events: StreamEvent[] = [];
+    for await (const event of gen) {
+      events.push(event);
+    }
+    return events;
+  }
+
+  it('yields token events followed by a done event', async () => {
+    const sse = [
+      'event: token\ndata: {"content":"Le protocole"}\n\n',
+      'event: token\ndata: {"content":" recommandé"}\n\n',
+      'event: done\ndata: {"answer":"Le protocole recommandé","session_id":"ds1","sources":[{"document_id":"abc","title":"Proto","source":"CHU","section":"Traitement","excerpt":"text","page":12,"highlight":{"bbox":[72,450,540,480],"page":12},"confidence_score":0.87}],"llm_used":"qwen3","fallback_warning":null,"warnings_present":false}\n\n',
+    ].join('');
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockSSEResponse(sse)));
+
+    const events = await collectEvents(client.documents.chatStream('ds1', 'Quel protocole?'));
+
+    expect(events).toHaveLength(3);
+    expect(events[0]).toEqual({ type: 'token', content: 'Le protocole' });
+    expect(events[1]).toEqual({ type: 'token', content: ' recommandé' });
+    expect(events[2]).toMatchObject({
+      type: 'done',
+      answer: 'Le protocole recommandé',
+      session_id: 'ds1',
+    });
+    // Verify sources are included in done event
+    const doneEvent = events[2] as Extract<StreamEvent, { type: 'done' }>;
+    expect(doneEvent.sources).toHaveLength(1);
+  });
+
+  it('sends POST with correct body shape', async () => {
+    const sse = 'event: done\ndata: {"answer":"ok","session_id":"ds1","sources":[],"llm_used":"qwen3","fallback_warning":null,"warnings_present":false}\n\n';
+    const fetchSpy = vi.fn().mockResolvedValue(mockSSEResponse(sse));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await collectEvents(client.documents.chatStream('ds1', 'test question'));
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe(`${BASE_URL}/api/v1/documents/chat`);
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
+    const body = JSON.parse(init.body);
+    expect(body.session_id).toBe('ds1');
+    expect(body.message).toBe('test question');
+  });
+
+  it('yields error event and stops iteration', async () => {
+    const sse = [
+      'event: token\ndata: {"content":"partial"}\n\n',
+      'event: error\ndata: {"error":"RAG retrieval failure","retryable":true}\n\n',
+    ].join('');
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockSSEResponse(sse)));
+
+    const events = await collectEvents(client.documents.chatStream('ds1', 'query'));
+
+    expect(events).toHaveLength(2);
+    expect(events[1]).toEqual({ type: 'error', error: 'RAG retrieval failure', retryable: true });
+  });
+
+  it('throws ApiError on non-2xx HTTP response', async () => {
+    const errorResponse = new Response(JSON.stringify({ detail: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(errorResponse));
+
+    await expect(
+      collectEvents(client.documents.chatStream('ds1', 'query')),
+    ).rejects.toMatchObject({
+      status: 403,
+      message: 'Forbidden',
+    });
+  });
+
+  it('passes AbortSignal to fetch', async () => {
+    const controller = new AbortController();
+    const sse = 'event: done\ndata: {"answer":"ok","session_id":"ds1","sources":[],"llm_used":"qwen3","fallback_warning":null,"warnings_present":false}\n\n';
+    const fetchSpy = vi.fn().mockResolvedValue(mockSSEResponse(sse));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await collectEvents(client.documents.chatStream('ds1', 'hi', controller.signal));
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+});

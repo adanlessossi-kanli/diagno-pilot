@@ -243,10 +243,15 @@ async def lifespan(app: FastAPI):
     )
     logger.info("DiagnosticService singleton initialised (with AgentPipeline + MCP_Host)")
 
-    # Singleton ChatService — reuses the same LLMRouter and EmbeddingModel
+    # Singleton ChatService — LLM-only Q&A with Topic Guard (no RAG)
     from backend.services.chat_service import ChatService
-    app.state.chat_service = ChatService(db=database, rag_service=llamaindex_pipeline)
-    logger.info("ChatService singleton initialised")
+    app.state.chat_service = ChatService(db=database, llm_router=llm_router)
+    logger.info("ChatService singleton initialised (LLM-only, no RAG)")
+
+    # Singleton DocumentChatService — RAG-powered document chat (REQ 7.1)
+    from backend.services.document_chat_service import DocumentChatService
+    app.state.doc_chat_service = DocumentChatService(db=database, rag_service=llamaindex_pipeline)
+    logger.info("DocumentChatService singleton initialised (RAG via LlamaIndexPipeline)")
 
     # Detect unmigrated chunks at startup — REQ 6.1
     from backend.services.document_service import DocumentService

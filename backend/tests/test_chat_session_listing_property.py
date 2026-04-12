@@ -132,7 +132,7 @@ def test_session_listing_invariants(
     mock_collection.find = MagicMock(side_effect=_find_side_effect)
     mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
-    service = ChatService(db=mock_db, rag_service=AsyncMock())
+    service = ChatService(db=mock_db, llm_router=AsyncMock())
 
     result = asyncio.run(service.list_sessions(user_id=user_id, skip=skip, limit=limit))
 

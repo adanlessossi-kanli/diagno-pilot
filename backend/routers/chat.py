@@ -2,13 +2,16 @@
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
-from backend.core.auth import require_role
+from backend.core.auth import get_current_user, require_role
+from backend.core.database import db
 from backend.core.rate_limit import limiter
+from backend.models.document_chat import TopicGuardFeedbackRequest
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
 
@@ -221,3 +224,21 @@ async def delete_chat_session(
         )
 
     return {"detail": "Session deleted"}
+
+
+@router.post("/feedback")
+@limiter.limit("30/minute")
+async def submit_topic_guard_feedback(
+    request: Request,
+    body: TopicGuardFeedbackRequest,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """POST /api/v1/chat/feedback — Record topic guard false refusal feedback."""
+    database = db.get_db()
+    await database["topic_guard_feedback"].insert_one({
+        "question": body.question,
+        "response": body.response,
+        "user_id": str(current_user["_id"]),
+        "timestamp": datetime.now(timezone.utc),
+    })
+    return {"detail": "Feedback recorded"}

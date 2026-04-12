@@ -3,8 +3,8 @@ Property test — History cap invariant (Property 1).
 
 Feature: chat-diagnosis-improvements, Property 1: History cap invariant
 
-For any chat session with N messages (where N >= 0), the session_history
-passed to LlamaIndexPipeline.query_stream() SHALL contain at most 20 messages,
+For any chat session with N messages (where N >= 0), the context list
+passed to LLMRouter.generate_stream() SHALL contain at most 20 messages,
 and those 20 messages SHALL be the most recent ones from the session.
 
 **Validates: Requirements 1.4**
@@ -18,7 +18,7 @@ from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
 from backend.services.chat_service import ChatService
-from backend.services.llamaindex_pipeline import StreamEvent
+from backend.services.llm_router import StreamChunk
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ _messages_strategy = st.lists(_message_dict, min_size=0, max_size=60)
 @given(messages=_messages_strategy)
 @h_settings(max_examples=100)
 def test_history_cap_invariant(messages: list[dict]) -> None:
-    """session_history passed to the pipeline has at most 20 messages
+    """Context passed to LLMRouter.generate_stream has at most 20 messages
     and they are the most recent ones from the stored session."""
 
     # --- Arrange: mock DB to return the generated messages ---------------
@@ -62,18 +62,17 @@ def test_history_cap_invariant(messages: list[dict]) -> None:
     mock_collection.update_one = AsyncMock(return_value=None)
     mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
-    # --- Arrange: mock RAG pipeline to capture session_history -----------
-    captured_history: list[list[dict]] = []
+    # --- Arrange: mock LLMRouter to capture context ----------------------
+    captured_context: list[list[dict]] = []
 
-    async def _capture_query_stream(**kwargs):
-        captured_history.append(kwargs.get("session_history", []))
-        yield StreamEvent(type="token", content="ok")
-        yield StreamEvent(type="done", answer="ok", sources=[], llm_used="mock")
+    async def _capture_generate_stream(prompt: str, context: list[dict]):
+        captured_context.append(context)
+        yield StreamChunk(token="ok", llm_used="mock")
 
-    mock_rag = MagicMock()
-    mock_rag.query_stream = MagicMock(side_effect=_capture_query_stream)
+    mock_llm = MagicMock()
+    mock_llm.generate_stream = _capture_generate_stream
 
-    service = ChatService(db=mock_db, rag_service=mock_rag)
+    service = ChatService(db=mock_db, llm_router=mock_llm)
 
     # --- Act: send a message on an existing session ----------------------
     async def _run():
@@ -86,16 +85,20 @@ def test_history_cap_invariant(messages: list[dict]) -> None:
     asyncio.run(_run())
 
     # --- Assert ----------------------------------------------------------
-    assert len(captured_history) == 1, "query_stream() should be called exactly once"
-    history_passed = captured_history[0]
+    assert len(captured_context) == 1, "generate_stream() should be called exactly once"
+    context_passed = captured_context[0]
 
     # Property: at most 20 messages
-    assert len(history_passed) <= 20, (
-        f"Expected at most 20 messages in session_history, got {len(history_passed)}"
+    assert len(context_passed) <= 20, (
+        f"Expected at most 20 messages in context, got {len(context_passed)}"
     )
 
-    # Property: they are the most recent ones
-    expected = messages[-20:] if len(messages) > 20 else messages
-    assert history_passed == expected, (
-        "session_history must be the most recent messages from the session"
+    # Property: they are the most recent ones (mapped to role/content dicts)
+    expected_messages = messages[-20:] if len(messages) > 20 else messages
+    expected_context = [
+        {"role": m.get("role", "user"), "content": m.get("content", "")}
+        for m in expected_messages
+    ]
+    assert context_passed == expected_context, (
+        "context must be the most recent messages from the session"
     )

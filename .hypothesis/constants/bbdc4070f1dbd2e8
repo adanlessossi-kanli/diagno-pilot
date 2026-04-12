@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\scripts\migrate_redesign.py
+# hypothesis_version: 6.151.9
+
+[5000, '/', '?', 'MONGODB_URI', '__main__', 'chat_sessions', 'diagno_pilot', 'session_id', 'session_id_1', 'timestamp', 'topic_guard_feedback', 'updated_at', 'user_id']

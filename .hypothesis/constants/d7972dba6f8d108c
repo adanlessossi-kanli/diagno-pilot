@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\documents.py
+# hypothesis_version: 6.151.9
+
+[100, 200, 900, '*', '.', '/', '/chat', '/chat/sessions', '/documents', '/upload', '/{document_id}', '/{document_id}/view', '60/minute', 'Bucket', 'Key', '_', '_id', 'admin', 'answer', 'attachment', 'content', 'created_at', 'data', 'delete_document', 'documents', 'done', 'error', 'event', 'fallback_warning', 'get_object', 'infirmière', 'llm_used', 'medecin', 'messages', 'rag', 'retryable', 'role', 's3_key', 'session_id', 'sources', 'token', 'total_messages', 'updated_at', 'upload_document', 'warnings_present']

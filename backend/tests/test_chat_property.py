@@ -1,10 +1,13 @@
 """
 Tests de propriété pour ChatService — Diagno-Pilot
 
-**Validates: Requirements REQ-04**
+**Validates: Requirements 1.4 (assistant-qa-and-documents-redesign)**
 
-Propriété 8 : Toute réponse du chat RAG contient au moins une source citée
-(document + section).
+Propriété : Toute réponse du chat Q&A (LLM-only, sans RAG) contient
+un tableau de sources vide (`sources: []`).
+
+Note: L'ancienne propriété 8 (au moins une source citée) s'applique
+désormais au DocumentChatService (RAG), pas au ChatService Q&A.
 """
 from __future__ import annotations
 
@@ -14,31 +17,15 @@ from unittest.mock import AsyncMock, MagicMock
 from hypothesis import given, settings as h_settings
 from hypothesis import strategies as st
 
-from backend.models.document import DocumentSource
 from backend.models.patient import PatientProfile
 from backend.services.chat_service import ChatService
-from backend.services.llamaindex_pipeline import StreamEvent
+from backend.services.llm_router import StreamChunk
 
 # ---------------------------------------------------------------------------
 # Strategies
 # ---------------------------------------------------------------------------
 
 message_strategy = st.text(min_size=1, max_size=200).filter(str.strip)
-
-source_strategy = st.builds(
-    DocumentSource,
-    document_id=st.uuids().map(str),
-    title=st.text(min_size=1, max_size=80).filter(str.strip),
-    source=st.sampled_from(["CHU_LOME", "OMS_AFRO", "MSF", "PNLP", "CHU_ABOMEY"]),
-    section=st.one_of(
-        st.none(),
-        st.text(min_size=1, max_size=50).filter(str.strip),
-    ),
-    excerpt=st.one_of(st.none(), st.text(min_size=1, max_size=200)),
-    page=st.one_of(st.none(), st.integers(min_value=1, max_value=500)),
-)
-
-sources_strategy = st.lists(source_strategy, min_size=1, max_size=5)
 
 patient_context_strategy = st.one_of(
     st.none(),
@@ -57,50 +44,42 @@ answer_strategy = st.text(min_size=1, max_size=500).filter(str.strip)
 
 
 # ---------------------------------------------------------------------------
-# Property 8 : every RAG chat response contains at least one cited source
+# Property: Q&A chat always returns empty sources (LLM-only, no RAG)
 # ---------------------------------------------------------------------------
 
 @given(
     message=message_strategy,
-    sources=sources_strategy,
     answer=answer_strategy,
     patient_context=patient_context_strategy,
 )
 @h_settings(max_examples=100)
-def test_chat_response_always_contains_at_least_one_source(
+def test_chat_response_always_contains_empty_sources(
     message: str,
-    sources: list[DocumentSource],
     answer: str,
     patient_context: PatientProfile | None,
 ):
     """
-    **Validates: Requirements REQ-04**
+    **Validates: Requirements 1.4**
 
     For any user message, ChatService.send_message_stream must yield a done
-    StreamEvent that contains at least one DocumentSource with a non-empty
-    document_id and a non-empty source field.
+    StreamEvent that contains an empty sources array, since the Q&A chat
+    no longer uses RAG.
     """
-    # Build a mock RAGService that yields streaming events
-    async def _fake_query_stream(**kwargs):
-        yield StreamEvent(type="token", content=answer)
-        yield StreamEvent(
-            type="done",
-            answer=answer,
-            sources=sources,
-            llm_used="mock",
-        )
+    mock_llm = MagicMock()
 
-    mock_rag = MagicMock()
-    mock_rag.query_stream = MagicMock(side_effect=_fake_query_stream)
+    async def _fake_generate_stream(prompt: str, context: list[dict]):
+        for word in answer.split():
+            yield StreamChunk(token=word + " ", llm_used="mock")
 
-    # Build a mock DB that accepts upserts without hitting MongoDB
+    mock_llm.generate_stream = _fake_generate_stream
+
     mock_db = MagicMock()
     mock_collection = AsyncMock()
     mock_collection.update_one = AsyncMock(return_value=None)
     mock_collection.find_one = AsyncMock(return_value=None)
     mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
-    service = ChatService(db=mock_db, rag_service=mock_rag)
+    service = ChatService(db=mock_db, llm_router=mock_llm)
 
     async def _collect():
         done_event = None
@@ -117,17 +96,7 @@ def test_chat_response_always_contains_at_least_one_source(
 
     assert done_event is not None, "Expected a done event from send_message_stream"
 
-    # Property: at least one source must be present
-    assert len(done_event.sources) >= 1, (
-        f"Expected at least 1 source in done event, got {len(done_event.sources)}"
+    # Property: sources must be empty (LLM-only, no RAG)
+    assert done_event.sources == [], (
+        f"Expected empty sources in done event, got {done_event.sources!r}"
     )
-
-    for src in done_event.sources:
-        # Each source must have a non-empty document_id
-        assert src.document_id and src.document_id.strip(), (
-            f"DocumentSource.document_id must be non-empty, got {src.document_id!r}"
-        )
-        # Each source must have a non-empty source field
-        assert src.source and src.source.strip(), (
-            f"DocumentSource.source must be non-empty, got {src.source!r}"
-        )

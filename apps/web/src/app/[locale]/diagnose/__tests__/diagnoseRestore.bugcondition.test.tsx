@@ -128,7 +128,7 @@ async function renderAndSubmit() {
   });
 
   await waitFor(() => {
-    expect(screen.getByText('Malaria')).toBeDefined();
+    expect(screen.getAllByText('Malaria').length).toBeGreaterThanOrEqual(1);
   });
 
   return { unmount };
@@ -189,8 +189,8 @@ describe('Bug Condition — Diagnose data loss on navigation', () => {
     const { unmount } = await renderAndSubmit();
 
     // Verify results are displayed
-    expect(screen.getByText('Malaria')).toBeDefined();
-    expect(screen.getByText('Typhoid')).toBeDefined();
+    expect(screen.getAllByText('Malaria').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Typhoid').length).toBeGreaterThanOrEqual(1);
 
     // Simulate navigation away (unmount)
     unmount();
@@ -211,7 +211,7 @@ describe('Bug Condition — Diagnose data loss on navigation', () => {
 
     // EXPECTED: restored diagnoses are displayed
     await waitFor(() => {
-      expect(screen.getByText('Malaria')).toBeDefined();
+      expect(screen.getAllByText('Malaria').length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -228,7 +228,7 @@ describe('Bug Condition — Diagnose data loss on navigation', () => {
     const { unmount } = await renderAndSubmit();
 
     // Verify results are displayed after submission
-    expect(screen.getByText('Malaria')).toBeDefined();
+    expect(screen.getAllByText('Malaria').length).toBeGreaterThanOrEqual(1);
 
     // EXPECTED: sessionStorage was written
     const storedBeforeUnmount = sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -249,8 +249,8 @@ describe('Bug Condition — Diagnose data loss on navigation', () => {
 
     // EXPECTED: diagnoses from the restored session are displayed
     await waitFor(() => {
-      expect(screen.getByText('Malaria')).toBeDefined();
-      expect(screen.getByText('Typhoid')).toBeDefined();
+      expect(screen.getAllByText('Malaria').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Typhoid').length).toBeGreaterThanOrEqual(1);
     });
   });
 

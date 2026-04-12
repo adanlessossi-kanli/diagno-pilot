@@ -8,9 +8,6 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
     backoff_config:
       max_period: 5m
-    queue_config:
-      capacity: 10000
-      max_shards: 10
     # ~10 MB buffer
     batchsize: 1048576
     batchwait: 1s
