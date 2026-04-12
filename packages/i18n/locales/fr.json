@@ -350,6 +350,45 @@
     "expand": "Afficher l'historique",
     "sessionLoaded": "Session chargée.",
     "sessionDeleted": "Session supprimée.",
-    "sessionHidden": "Consultation masquée."
+    "sessionHidden": "Consultation masquée.",
+    "migratedEmpty": "Les conversations précédentes ne sont plus disponibles. Démarrez une nouvelle conversation."
+  },
+  "documentChat": {
+    "title": "Chat Documents",
+    "placeholder": "Posez une question sur les documents...",
+    "send": "Envoyer",
+    "newSession": "Nouvelle session",
+    "thinking": "Recherche dans les documents...",
+    "noDocuments": "Aucun document indexé. Importez des documents pour commencer à discuter.",
+    "errorSend": "Erreur lors de l'envoi du message. Veuillez réessayer.",
+    "errorSendRetry": "Erreur lors de l'envoi du message.",
+    "retry": "Réessayer",
+    "loadingHistory": "Chargement de l'historique...",
+    "sources": "Sources",
+    "noInfoFound": "Aucune information pertinente trouvée dans les documents indexés."
+  },
+  "documentSidebar": {
+    "uploadTitle": "Importer un document",
+    "documentTitle": "Titre du document",
+    "documentSource": "Source",
+    "selectSource": "Sélectionner une source",
+    "documentFile": "Fichier (PDF, DOCX, TXT, CSV)",
+    "upload": "Importer",
+    "uploading": "Import en cours...",
+    "uploadSuccess": "Document importé avec succès.",
+    "errorUpload": "Erreur lors de l'import du document.",
+    "documents": "Documents indexés",
+    "noDocuments": "Aucun document indexé.",
+    "loadingDocuments": "Chargement des documents...",
+    "errorFetch": "Erreur lors du chargement des documents.",
+    "errorDelete": "Erreur lors de la suppression du document.",
+    "confirmDelete": "Supprimer ce document ?",
+    "download": "Télécharger",
+    "errorDownload": "Erreur lors du téléchargement du document."
+  },
+  "topicGuard": {
+    "feedbackButton": "C'est une question médicale",
+    "feedbackSent": "Merci pour votre retour.",
+    "feedbackError": "Erreur lors de l'envoi du retour."
   }
 }

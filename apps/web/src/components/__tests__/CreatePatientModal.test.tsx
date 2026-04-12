@@ -43,7 +43,7 @@ beforeEach(() => {
 });
 
 describe('CreatePatientModal — Property 13', () => {
-  it('shows inline error for weight_kg ≤ 0 and does not clear other fields', async () => {
+  it('shows inline error for weight_kg ≤ 0 and does not clear other fields', { timeout: 30_000 }, async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.oneof(

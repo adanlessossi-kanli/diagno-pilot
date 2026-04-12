@@ -46,6 +46,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
       getHistory: mockGetHistory,
       listSessions: mockListSessions,
       deleteSession: mockDeleteSession,
+      submitFeedback: vi.fn(),
     },
     patients: {
       listAllPatients: mockListAllPatients,
@@ -207,11 +208,11 @@ describe('Preservation — SSE streaming behavior (Req 3.2, 3.4, 3.5, 3.6)', () 
     // User message should be present
     expect(screen.getAllByText('Test message').length).toBeGreaterThanOrEqual(1);
 
-    // Sources button should be visible
-    await waitFor(() => {
-      const sourcesBtn = screen.getByRole('button', { name: /sources/i });
-      expect(sourcesBtn).toBeDefined();
-    });
+    // Sources button should NOT be visible (Q&A no longer renders sources)
+    const sourcesButtons = screen.queryAllByRole('button').filter((btn) =>
+      btn.textContent?.toLowerCase().includes('sources'),
+    );
+    expect(sourcesButtons.length).toBe(0);
 
     // Streaming cursor should be gone after done
     const cursor = document.querySelector('.streaming-cursor');

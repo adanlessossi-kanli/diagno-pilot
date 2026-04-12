@@ -41,6 +41,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
       getHistory: mockGetHistory,
       listSessions: mockListSessions,
       deleteSession: mockDeleteSession,
+      submitFeedback: vi.fn(),
     },
     patients: {
       listAllPatients: mockListAllPatients,
@@ -180,10 +181,10 @@ describe('ChatPage — Streaming behavior', () => {
   });
 
   /**
-   * Validates: Requirement 7.3
-   * Done event finalizes message with sources.
+   * Validates: Requirement 7.3 (updated for Q&A redesign — sources no longer rendered)
+   * Done event finalizes message content. Sources array is ignored in Q&A chat.
    */
-  it('finalizes message with sources on done event', async () => {
+  it('finalizes message content on done event (sources ignored)', async () => {
     mockSendMessageStream.mockImplementation(
       mockStreamFromEvents([
         { type: 'token', content: 'Take medication.' },
@@ -217,12 +218,16 @@ describe('ChatPage — Streaming behavior', () => {
       fireEvent.click(screen.getByRole('button', { name: /send/i }));
     });
 
-    // After done, sources panel should be visible
+    // After done, message content should be finalized but no sources UI rendered
     await waitFor(() => {
       expect(screen.getByText('Take medication.')).toBeDefined();
-      const sourcesBtn = screen.getByRole('button', { name: /sources/i });
-      expect(sourcesBtn).toBeDefined();
     });
+
+    // Sources panel should NOT be visible (Q&A no longer renders sources)
+    const sourcesButtons = screen.queryAllByRole('button').filter((btn) =>
+      btn.textContent?.toLowerCase().includes('sources'),
+    );
+    expect(sourcesButtons.length).toBe(0);
   });
 
   /**

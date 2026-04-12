@@ -9,7 +9,8 @@ Application web et mobile d'aide au diagnostic des maladies infectieuses et à l
 - **Mode guidé** — saisie des symptômes, diagnostic différentiel (≥3 diagnostics avec score de probabilité et code CIM-10), prescription antibiotique adaptée au profil patient
 - **Calcul pédiatrique** — dose au poids (mg/kg), plafonnement à la dose adulte, ajustements rénaux/hépatiques
 - **Alertes de sécurité** — allergies, interactions médicamenteuses, contre-indications par âge ; alertes critiques bloquantes avec alternative thérapeutique
-- **Chat Q&A RAG** — assistant conversationnel multi-tours avec citation des sources (CHU Lomé/Abomey-Calavi, OMS AFRO, MSF, PNLP)
+- **Chat Q&A médical** — assistant conversationnel multi-tours alimenté exclusivement par le LLM médical (pas de RAG, pas de citations de sources), avec Topic Guard restreignant les réponses aux maladies tropicales, infectieuses, médecine clinique, nutrition, santé mentale et éthique médicale. Mécanisme de feedback intégré pour signaler les refus erronés.
+- **Chat Documents RAG** — chat contextuel sur la page Documents utilisant le pipeline RAG LlamaIndex pour interroger les documents médicaux indexés, avec citations cliquables renvoyant au passage source dans le PDF (surbrillance bbox). Historique des sessions, gestion multi-tours, et barre latérale pour l'upload/liste/téléchargement des documents.
 - **Dossier patient** — profils persistés, historique des consultations, upload de fichiers cliniques (labo, imagerie, PDF, CSV) vers S3
 - **Administration** — indexation de documents médicaux, gestion des utilisateurs
 - **Audit & traçabilité** — journal d'audit complet pour toutes les actions sensibles
@@ -125,7 +126,15 @@ python -m backend.scripts.migrate_consultations_add_mcp_fields
 
 > Ce script ajoute les champs MCP (`mcp_session_id`, `agent_contributions`, `evidence_citations`) aux consultations existantes et crée les index nécessaires. Idempotent — peut être relancé sans risque.
 
-### 6. Migration des volumes MongoDB existants
+### 6. Migration de la refonte Assistant Q&A et Documents
+
+```bash
+python -m backend.scripts.migrate_redesign
+```
+
+> **⚠ Attention : cette migration supprime définitivement toutes les sessions de chat Q&A existantes.** Les sessions ne peuvent pas être restaurées. Elle crée également les index pour les collections `document_chat_sessions` et `topic_guard_feedback`. Idempotent — peut être relancée sans risque.
+
+### 7. Migration des volumes MongoDB existants
 
 Si vous mettez à jour depuis une version sans authentification MongoDB, supprimez le volume existant avant le premier démarrage :
 
@@ -135,7 +144,7 @@ docker compose down -v
 
 > **Attention :** `MONGODB_INITDB_ROOT_USERNAME` n'est exécuté que sur un volume vierge. Sans cette étape, MongoDB démarrera sans authentification et les services ne pourront pas se connecter.
 
-### 7. Arrêter l'application
+### 8. Arrêter l'application
 
 ```bash
 ./stop.sh        # Linux/macOS
@@ -279,6 +288,14 @@ POST   /api/v1/documents/upload
 GET    /api/v1/documents
 DELETE /api/v1/documents/{id}
 
+POST   /api/v1/documents/chat            → SSE stream (text/event-stream) — Chat Documents RAG
+GET    /api/v1/documents/chat/sessions
+GET    /api/v1/documents/chat/history/{id}
+DELETE /api/v1/documents/chat/sessions/{id}
+GET    /api/v1/documents/{id}/download
+
+POST   /api/v1/chat/feedback              → Feedback Topic Guard
+
 POST   /api/v1/files/upload
 GET    /api/v1/files/{file_id}
 
@@ -293,10 +310,10 @@ La documentation interactive complète est disponible sur http://localhost:8000/
 
 | Rôle | Accès |
 |---|---|
-| `medecin` | Mode guidé, chat, dossiers patients |
-| `infirmière` | Mode guidé, chat, historique des diagnostics |
-| `pharmacien` | Chat, consultation des prescriptions |
-| `admin` | Tout + gestion documents et utilisateurs |
+| `medecin` | Mode guidé, chat Q&A, chat documents, dossiers patients |
+| `infirmière` | Mode guidé, chat Q&A, chat documents, historique des diagnostics |
+| `pharmacien` | Chat Q&A, consultation des prescriptions |
+| `admin` | Tout + gestion documents, chat documents et utilisateurs |
 
 ---
 

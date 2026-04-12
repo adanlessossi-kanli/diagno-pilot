@@ -85,8 +85,21 @@ async def seed(users_col=None):
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(seed())
-    except Exception as exc:
-        print(f"[seed] ERROR: {exc}", file=sys.stderr)
-        sys.exit(1)
+    import time
+
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            asyncio.run(seed())
+            break
+        except Exception as exc:
+            msg = str(exc)
+            # Transient replica-set key errors during startup — retry
+            if "KeyNotFound" in msg and attempt < max_retries:
+                wait = attempt * 3
+                print(f"[seed] Transient error (attempt {attempt}/{max_retries}): {msg}")
+                print(f"[seed] Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                print(f"[seed] ERROR: {exc}", file=sys.stderr)
+                sys.exit(1)

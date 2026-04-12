@@ -24,6 +24,7 @@ import * as path from 'path';
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'fr',
 }));
 
 vi.mock('next/link', () => ({

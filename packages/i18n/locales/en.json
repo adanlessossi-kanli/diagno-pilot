@@ -350,6 +350,45 @@
     "expand": "Expand session history",
     "sessionLoaded": "Session loaded.",
     "sessionDeleted": "Session deleted.",
-    "sessionHidden": "Consultation hidden."
+    "sessionHidden": "Consultation hidden.",
+    "migratedEmpty": "Previous conversations are no longer available. Start a new conversation."
+  },
+  "documentChat": {
+    "title": "Document Chat",
+    "placeholder": "Ask a question about the documents...",
+    "send": "Send",
+    "newSession": "New session",
+    "thinking": "Searching documents...",
+    "noDocuments": "No documents indexed. Upload documents to start chatting.",
+    "errorSend": "Error sending message. Please try again.",
+    "errorSendRetry": "Error sending message.",
+    "retry": "Retry",
+    "loadingHistory": "Loading history...",
+    "sources": "Sources",
+    "noInfoFound": "No relevant information found in the indexed documents."
+  },
+  "documentSidebar": {
+    "uploadTitle": "Upload Document",
+    "documentTitle": "Document title",
+    "documentSource": "Source",
+    "selectSource": "Select a source",
+    "documentFile": "File (PDF, DOCX, TXT, CSV)",
+    "upload": "Upload",
+    "uploading": "Uploading...",
+    "uploadSuccess": "Document uploaded successfully.",
+    "errorUpload": "Error uploading document.",
+    "documents": "Indexed Documents",
+    "noDocuments": "No documents indexed.",
+    "loadingDocuments": "Loading documents...",
+    "errorFetch": "Error loading documents.",
+    "errorDelete": "Error deleting document.",
+    "confirmDelete": "Delete this document?",
+    "download": "Download",
+    "errorDownload": "Error downloading document."
+  },
+  "topicGuard": {
+    "feedbackButton": "This is a medical question",
+    "feedbackSent": "Thank you for your feedback.",
+    "feedbackError": "Error sending feedback."
   }
 }

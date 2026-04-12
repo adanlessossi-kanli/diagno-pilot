@@ -29,6 +29,7 @@ vi.mock('@diagno-pilot/api-client', () => ({
       getHistory: mockGetHistory,
       deleteSession: mockDeleteSession,
       sendMessageStream: mockSendMessageStream,
+      submitFeedback: vi.fn(),
     },
     patients: {
       listAllPatients: mockListAllPatients,

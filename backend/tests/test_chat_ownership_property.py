@@ -68,7 +68,7 @@ def test_owner_can_access_own_session(owner_id: str, role: str, session_id: str)
     mock_collection.find_one = MagicMock(side_effect=_find_one_side_effect)
     mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
-    service = ChatService(db=mock_db, rag_service=AsyncMock())
+    service = ChatService(db=mock_db, llm_router=AsyncMock())
 
     # Owner requests their own session
     user_id_filter = _compute_user_id_filter(owner_id, role)
@@ -113,7 +113,7 @@ def test_non_owner_non_admin_denied(
     mock_collection.find_one = MagicMock(side_effect=_find_one_side_effect)
     mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
-    service = ChatService(db=mock_db, rag_service=AsyncMock())
+    service = ChatService(db=mock_db, llm_router=AsyncMock())
 
     user_id_filter = _compute_user_id_filter(requester_id, requester_role)
     result = asyncio.run(service.get_history(session_id, user_id=user_id_filter))
@@ -157,7 +157,7 @@ def test_admin_can_access_any_session(
     mock_collection.find_one = MagicMock(side_effect=_find_one_side_effect)
     mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
-    service = ChatService(db=mock_db, rag_service=AsyncMock())
+    service = ChatService(db=mock_db, llm_router=AsyncMock())
 
     # Admin: user_id_filter is None
     user_id_filter = _compute_user_id_filter(admin_id, "admin")
@@ -200,7 +200,7 @@ def test_delete_ownership_enforcement(
     mock_collection.delete_one = MagicMock(side_effect=_delete_one_side_effect)
     mock_db.__getitem__ = MagicMock(return_value=mock_collection)
 
-    service = ChatService(db=mock_db, rag_service=AsyncMock())
+    service = ChatService(db=mock_db, llm_router=AsyncMock())
 
     user_id_filter = _compute_user_id_filter(requester_id, requester_role)
     deleted = asyncio.run(service.delete_session(session_id, user_id=user_id_filter))

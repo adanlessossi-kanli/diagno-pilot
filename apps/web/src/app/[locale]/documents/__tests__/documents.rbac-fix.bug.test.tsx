@@ -1,17 +1,11 @@
 /**
- * Bug condition exploration tests — RBAC Fix bugfix spec (Documents page)
+ * RBAC tests — Documents page access control
  *
- * These tests assert the EXPECTED (correct) behavior and will FAIL on unfixed
- * code, proving each bug exists. DO NOT fix the code when these fail.
+ * After the assistant-qa-and-documents-redesign, the Documents page allows
+ * access to admin, medecin, AND infirmière (Req 12.1). Unauthorized roles
+ * (pharmacien, guest) are redirected to the home page.
  *
- * **Validates: Requirements 1.2, 2.2**
- *
- * Bugs confirmed by this file:
- *   - Bug 3: Documents page accessible to infirmière without redirect
- *
- * Expected counterexamples (on unfixed code):
- *   - infirmière navigates to /documents → page renders without redirect
- *   - router.push is NOT called for infirmière (no role guard)
+ * **Validates: Requirements 12.1, 12.2**
  */
 
 import fc from 'fast-check';
@@ -40,6 +34,11 @@ vi.mock('@diagno-pilot/api-client', () => ({
       listDocuments: vi.fn().mockResolvedValue([]),
       deleteDocument: vi.fn().mockResolvedValue(undefined),
       uploadDocument: vi.fn().mockResolvedValue({}),
+      listChatSessions: vi.fn().mockResolvedValue({ sessions: [] }),
+      getChatHistory: vi.fn().mockResolvedValue(null),
+      deleteChatSession: vi.fn().mockResolvedValue(undefined),
+      chatStream: vi.fn(),
+      getDownloadUrl: vi.fn().mockResolvedValue({ url: '', filename: '', expires_in: 900, content_disposition: 'attachment' }),
     },
   }),
 }));
@@ -70,59 +69,25 @@ beforeEach(() => {
   mockPush.mockClear();
   mockAuthValue.user = null;
   mockAuthValue.isLoading = false;
+  // Stub scrollIntoView for jsdom (used by DocumentChat)
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
-// ─── Bug 3: Documents page accessible to infirmière without redirect ──────────
+// ─── Unauthorized roles are redirected ────────────────────────────────────────
 
-describe('Bug 3 — Documents page redirects infirmière', () => {
+describe('Documents page — unauthorized roles are redirected', () => {
   /**
-   * **Validates: Requirements 1.2, 2.2**
-   * Documents page MUST redirect infirmière to home page.
-   * EXPECTED TO FAIL on unfixed code — page renders without redirect for infirmière.
-   * Counterexample: router.push is NOT called when role='infirmière'.
+   * **Validates: Requirements 12.1, 12.2**
+   * Unauthorized roles (pharmacien, guest) MUST be redirected from the documents page.
    */
-  it('infirmière navigating to /documents triggers router.push (redirect)', async () => {
-    await renderDocumentsPage('infirmière');
-    // BUG 3: router.push is NOT called on unfixed code (no role guard)
+  it('pharmacien is redirected from documents page', async () => {
+    await renderDocumentsPage('pharmacien');
     expect(mockPush).toHaveBeenCalled();
   });
 
-  it('infirmière is redirected away from documents page (not to login)', async () => {
-    await renderDocumentsPage('infirmière');
-    // BUG 3: router.push is NOT called on unfixed code
-    // When fixed, should redirect to home (not login)
-    const calls = mockPush.mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    // Should redirect to home, not login
-    const redirectTarget = calls[0]?.[0] as string;
-    expect(redirectTarget).not.toContain('/login');
-  });
-});
-
-// ─── Property: all unauthorized roles trigger redirect on documents page ──────
-
-describe('Property — unauthorized roles are redirected from documents page', () => {
-  /**
-   * **Validates: Requirements 1.2, 2.2**
-   * For all unauthorized roles ['infirmière', 'guest'],
-   * the documents page MUST redirect.
-   *
-   * EXPECTED TO FAIL on unfixed code — no role guard exists.
-   * Counterexample: role='infirmière' → router.push not called.
-   */
-  it('infirmière is redirected from documents page (property test)', async () => {
-    await fc.assert(
-      fc.asyncProperty(fc.constant('infirmière'), async (role) => {
-        cleanup();
-        mockPush.mockClear();
-        await renderDocumentsPage(role);
-        const wasRedirected = mockPush.mock.calls.length > 0;
-        cleanup();
-        // BUG 3: wasRedirected is false on unfixed code
-        return wasRedirected;
-      }),
-      { numRuns: 3 },
-    );
+  it('guest is redirected from documents page', async () => {
+    await renderDocumentsPage('guest');
+    expect(mockPush).toHaveBeenCalled();
   });
 
   it('guest is redirected from documents page (property test)', async () => {
@@ -133,21 +98,41 @@ describe('Property — unauthorized roles are redirected from documents page', (
         await renderDocumentsPage(role);
         const wasRedirected = mockPush.mock.calls.length > 0;
         cleanup();
-        // BUG 3: wasRedirected is false on unfixed code for guest too
         return wasRedirected;
       }),
       { numRuns: 3 },
     );
   });
+});
 
-  it('authorized roles (admin, medecin) are NOT redirected from documents page', async () => {
-    for (const role of ['admin', 'medecin']) {
+// ─── Authorized roles are NOT redirected ──────────────────────────────────────
+
+describe('Documents page — authorized roles are NOT redirected', () => {
+  /**
+   * **Validates: Requirements 12.1, 12.2**
+   * Authorized roles (admin, medecin, infirmière) MUST NOT be redirected.
+   */
+  it('authorized roles (admin, medecin, infirmière) are NOT redirected from documents page', async () => {
+    for (const role of ['admin', 'medecin', 'infirmière']) {
       cleanup();
       mockPush.mockClear();
       await renderDocumentsPage(role);
-      // admin and medecin should NOT be redirected
       expect(mockPush).not.toHaveBeenCalled();
       cleanup();
     }
+  });
+
+  it('infirmière is NOT redirected from documents page (property test)', async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.constant('infirmière'), async (role) => {
+        cleanup();
+        mockPush.mockClear();
+        await renderDocumentsPage(role);
+        const wasNotRedirected = mockPush.mock.calls.length === 0;
+        cleanup();
+        return wasNotRedirected;
+      }),
+      { numRuns: 3 },
+    );
   });
 });

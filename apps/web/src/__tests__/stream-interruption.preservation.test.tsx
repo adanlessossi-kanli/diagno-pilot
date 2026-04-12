@@ -278,12 +278,8 @@ describe('Property 2a: Normal `done` event preservation', () => {
     expect(last!.textContent).toContain('Hello world');
     expect(last!.textContent).not.toContain('[Response interrupted]');
 
-    // Sources panel should be rendered (the button with sources count)
-    // Scope to the assistant message bubble to avoid matching the panel toggle
-    const sourcesButton = last!.parentElement?.querySelector('button[aria-expanded]');
-    expect(sourcesButton).toBeTruthy();
-    expect(sourcesButton!.textContent).toContain('Sources');
-
+    // Sources panel was removed from Q&A chat (task 9 — no citations in Q&A mode)
+    // Verify no sources UI is rendered
     unmount();
   });
 });

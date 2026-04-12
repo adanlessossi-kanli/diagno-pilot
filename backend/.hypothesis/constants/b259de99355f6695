@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\routers\chat.py
+# hypothesis_version: 6.151.9
+
+[100, 200, 4000, '/chat', '/feedback', '/message', '/sessions', '30/minute', '60/minute', 'Feedback recorded', 'Session deleted', '_id', 'admin', 'answer', 'before', 'chat', 'content', 'created_at', 'data', 'detail', 'done', 'error', 'event', 'fallback_warning', 'guest', 'infirmière', 'llm_used', 'medecin', 'message', 'messages', 'patient_context', 'question', 'response', 'retryable', 'role', 'session_id', 'sources', 'timestamp', 'token', 'topic_guard_feedback', 'total_messages', 'updated_at', 'user_id', 'warnings_present']
