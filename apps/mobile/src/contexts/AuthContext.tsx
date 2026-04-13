@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // We store the user info from the response and fetch the full profile via /auth/me.
     const me = await apiClient.auth.me();
     // Store a placeholder token value so the rest of the app knows we're authenticated.
-    const placeholder = `session:${res.expires_in}`;
+    const placeholder = `session:${res.expiresIn}`;
     await SecureStore.setItemAsync(TOKEN_KEY, placeholder);
     setToken(placeholder);
     setUser(me);

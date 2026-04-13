@@ -81,6 +81,7 @@ export default function SignupPage() {
               type="text"
               autoComplete="name"
               required
+              autoFocus
               aria-required="true"
               value={fullName}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFullName(e.target.value)}

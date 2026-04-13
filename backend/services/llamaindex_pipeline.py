@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -53,6 +54,23 @@ class StreamEvent:
 # ---------------------------------------------------------------------------
 
 NO_CONTEXT_MESSAGE = "Information non disponible dans la base de connaissances."
+
+# Model-specific markers that may leak into streamed output (e.g. MedicalQwen3
+# reasoning tokens).  Imported from chat_service to keep a single source of truth.
+
+_MODEL_MARKER_RE = re.compile(
+    r"\[RESEARCH_ANSWER\]"
+    r"|\[/RESEARCH_ANSWER\]"
+    r"|<\|research_answer\|>"
+    r"|<\|/research_answer\|>"
+    r"|\[STOP\]"
+    r"|<\|stop\|>"
+)
+
+
+def _strip_model_markers(text: str) -> str:
+    """Remove model-specific reasoning markers from *text*."""
+    return _MODEL_MARKER_RE.sub("", text)
 
 GROUNDING_SYSTEM_PROMPT = (
     "Tu es un assistant médical spécialisé en maladies tropicales et médecine générale. "
@@ -198,7 +216,7 @@ class LlamaIndexPipeline:
             llm_result = await self._llm.generate(question, llm_context)
 
             response = RAGResponse(
-                answer=llm_result.answer,
+                answer=_strip_model_markers(llm_result.answer).strip(),
                 sources=[],
                 llm_used=self._llm.last_used or "unknown",
                 fallback_used=llm_result.fallback_used,
@@ -272,7 +290,7 @@ class LlamaIndexPipeline:
         )
 
         response = RAGResponse(
-            answer=llm_result.answer,
+            answer=_strip_model_markers(llm_result.answer).strip(),
             sources=sources,
             llm_used=self._llm.last_used or "unknown",
             fallback_used=llm_result.fallback_used,
@@ -433,10 +451,12 @@ class LlamaIndexPipeline:
                     )
                     return
                 if chunk.token is not None:
-                    accumulated += chunk.token
-                    fallback_used = chunk.fallback_used
-                    llm_used = chunk.llm_used
-                    yield StreamEvent(type="token", content=chunk.token)
+                    cleaned = _strip_model_markers(chunk.token)
+                    if cleaned:
+                        accumulated += cleaned
+                        fallback_used = chunk.fallback_used
+                        llm_used = chunk.llm_used
+                        yield StreamEvent(type="token", content=cleaned)
         except HTTPException as exc:
             detail = exc.detail if isinstance(exc.detail, dict) else {"error": str(exc.detail)}
             yield StreamEvent(
@@ -447,6 +467,7 @@ class LlamaIndexPipeline:
             return
 
         # --- Cache the assembled response ---
+        accumulated = _strip_model_markers(accumulated).strip()
         response = RAGResponse(
             answer=accumulated,
             sources=sources,

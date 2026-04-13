@@ -72,7 +72,7 @@ describe('CreatePatientModal — Property 13', () => {
           await waitFor(() => {
             const alerts = screen.queryAllByRole('alert');
             const weightError = alerts.find(
-              (el) => el.textContent === 'Le poids doit être un nombre positif'
+              (el) => el.textContent === 'weightPositive'
             );
             if (!weightError) throw new Error('Weight error not found yet');
           }, { timeout: 1000 });
@@ -80,7 +80,7 @@ describe('CreatePatientModal — Property 13', () => {
           // Assert the error message is visible
           const alerts = screen.queryAllByRole('alert');
           const weightError = alerts.find(
-            (el) => el.textContent === 'Le poids doit être un nombre positif'
+            (el) => el.textContent === 'weightPositive'
           );
           if (!weightError) return false;
 

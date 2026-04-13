@@ -114,7 +114,7 @@ describe('DiagnoseScreen — symptom submission', () => {
     fireEvent.press(addButton);
 
     // Submit
-    const submitButton = screen.getByText(/obtenir les diagnostics/i);
+    const submitButton = screen.getByText('diagnose.getDiagnoses');
     await act(async () => {
       fireEvent.press(submitButton);
     });
@@ -139,7 +139,7 @@ describe('DiagnoseScreen — symptom submission', () => {
     const addButton = screen.getByLabelText('Ajouter le symptôme');
     fireEvent.press(addButton);
 
-    const submitButton = screen.getByText(/obtenir les diagnostics/i);
+    const submitButton = screen.getByText('diagnose.getDiagnoses');
     await act(async () => {
       fireEvent.press(submitButton);
     });
@@ -172,7 +172,7 @@ describe('DiagnoseScreen — critical prescription alert', () => {
     const addButton = screen.getByLabelText('Ajouter le symptôme');
     fireEvent.press(addButton);
 
-    const submitButton = screen.getByText(/obtenir les diagnostics/i);
+    const submitButton = screen.getByText('diagnose.getDiagnoses');
     await act(async () => {
       fireEvent.press(submitButton);
     });
@@ -209,9 +209,9 @@ describe('DiagnoseScreen — critical prescription alert', () => {
     const addButton = screen.getByLabelText('Ajouter le symptôme');
     fireEvent.press(addButton);
 
-    const submitButton = screen.getByText(/obtenir les diagnostics/i);
+    const submitButton2 = screen.getByText('diagnose.getDiagnoses');
     await act(async () => {
-      fireEvent.press(submitButton);
+      fireEvent.press(submitButton2);
     });
 
     await waitFor(() => expect(screen.getByText('Pneumonie')).toBeTruthy());
@@ -254,7 +254,7 @@ describe('Property 15 — Critical mobile alerts rendered with correct testID', 
         const addButton = screen.getByLabelText('Ajouter le symptôme');
         fireEvent.press(addButton);
 
-        const submitButton = screen.getByText(/obtenir les diagnostics/i);
+        const submitButton = screen.getByText('diagnose.getDiagnoses');
         await act(async () => {
           fireEvent.press(submitButton);
         });

@@ -6,6 +6,7 @@ import { routing } from '../../i18n/routing';
 import { AuthProvider } from '../../contexts/AuthContext';
 import NavBar from '../../components/NavBar';
 import Footer from '../../components/Footer';
+import OfflineBanner from '../../components/OfflineBanner';
 import '../globals.css';
 
 export const metadata: Metadata = {
@@ -32,6 +33,7 @@ export default async function LocaleLayout({ children, params }: LocaleLayoutPro
     <html lang={locale}>
       <body className="font-sans bg-gray-50">
         <NextIntlClientProvider messages={messages}>
+          <OfflineBanner />
           <AuthProvider locale={locale}>
             <NavBar locale={locale} />
             <div className="max-w-[1280px] mx-auto px-4 pt-6">

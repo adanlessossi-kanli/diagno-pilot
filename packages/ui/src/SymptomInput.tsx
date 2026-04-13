@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Symptom } from '@diagno-pilot/types';
+import { colors, spacing, radius, typography } from './tokens';
 
 // REQ-02: Symptom input for guided diagnosis mode
 
@@ -8,6 +9,24 @@ export interface SymptomInputProps {
   onAdd: (symptom: Symptom) => void;
   onRemove: (index: number) => void;
 }
+
+const inputStyle: React.CSSProperties = {
+  padding: `${spacing[2]}px ${spacing[3]}px`,
+  border: `1px solid ${colors.neutral[200]}`,
+  borderRadius: `${radius.sm}px`,
+  fontSize: `${typography.sm}px`,
+  outline: 'none',
+  flex: 1,
+  minWidth: '120px',
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: `${typography.xs}px`,
+  fontWeight: 500,
+  color: colors.neutral[500],
+  marginBottom: `${spacing[1]}px`,
+  display: 'block',
+};
 
 export function SymptomInput({ symptoms, onAdd, onRemove }: SymptomInputProps) {
   const [name, setName] = useState('');
@@ -36,52 +55,65 @@ export function SymptomInput({ symptoms, onAdd, onRemove }: SymptomInputProps) {
       <div
         style={{
           display: 'flex',
-          gap: '8px',
+          gap: `${spacing[2]}px`,
           flexWrap: 'wrap',
-          marginBottom: '12px',
+          marginBottom: `${spacing[3]}px`,
+          alignItems: 'flex-end',
         }}
       >
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Symptom name"
-          aria-label="Symptom name"
-          style={inputStyle}
-        />
-        <select
-          value={severity}
-          onChange={(e) => setSeverity(e.target.value)}
-          aria-label="Severity"
-          style={{ ...inputStyle, maxWidth: '140px' }}
-        >
-          <option value="">Severity…</option>
-          <option value="mild">Mild</option>
-          <option value="moderate">Moderate</option>
-          <option value="severe">Severe</option>
-        </select>
-        <input
-          type="number"
-          value={durationDays}
-          onChange={(e) => setDurationDays(e.target.value)}
-          placeholder="Days"
-          aria-label="Duration in days"
-          min={0}
-          style={{ ...inputStyle, maxWidth: '80px' }}
-        />
+        <div style={{ flex: 1, minWidth: '120px' }}>
+          <label htmlFor="symptom-name" style={labelStyle}>Symptom name</label>
+          <input
+            id="symptom-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Symptom name"
+            aria-label="Symptom name"
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ minWidth: '120px', maxWidth: '140px' }}>
+          <label htmlFor="symptom-severity" style={labelStyle}>Severity</label>
+          <select
+            id="symptom-severity"
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value)}
+            aria-label="Severity"
+            style={{ ...inputStyle, maxWidth: '140px' }}
+          >
+            <option value="">Severity…</option>
+            <option value="mild">Mild</option>
+            <option value="moderate">Moderate</option>
+            <option value="severe">Severe</option>
+          </select>
+        </div>
+        <div style={{ minWidth: '80px', maxWidth: '80px' }}>
+          <label htmlFor="symptom-duration" style={labelStyle}>Duration (days)</label>
+          <input
+            id="symptom-duration"
+            type="number"
+            value={durationDays}
+            onChange={(e) => setDurationDays(e.target.value)}
+            placeholder="Days"
+            aria-label="Duration in days"
+            min={0}
+            style={{ ...inputStyle, maxWidth: '80px' }}
+          />
+        </div>
         <button
           onClick={handleAdd}
           disabled={!name.trim()}
           style={{
-            padding: '8px 16px',
-            backgroundColor: '#2563eb',
+            padding: `${spacing[2]}px ${spacing[4]}px`,
+            backgroundColor: colors.primary[600],
             color: '#fff',
             border: 'none',
-            borderRadius: '4px',
+            borderRadius: `${radius.sm}px`,
             cursor: name.trim() ? 'pointer' : 'not-allowed',
             opacity: name.trim() ? 1 : 0.5,
-            fontSize: '14px',
+            fontSize: `${typography.sm}px`,
           }}
         >
           Add
@@ -89,25 +121,25 @@ export function SymptomInput({ symptoms, onAdd, onRemove }: SymptomInputProps) {
       </div>
 
       {symptoms.length > 0 && (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: `${spacing[2]}px` }}>
           {symptoms.map((s, i) => (
             <li
               key={i}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                backgroundColor: '#f3f4f6',
-                borderRadius: '16px',
-                padding: '4px 12px',
-                fontSize: '13px',
-                color: '#374151',
+                gap: `${spacing[1] + 2}px`,
+                backgroundColor: colors.neutral[100],
+                borderRadius: `${radius.xl}px`,
+                padding: `${spacing[1]}px ${spacing[3]}px`,
+                fontSize: `${typography.xs + 1}px`,
+                color: colors.neutral[700],
               }}
             >
               <span>{s.name}</span>
-              {s.severity && <span style={{ color: '#6b7280' }}>· {s.severity}</span>}
+              {s.severity && <span style={{ color: colors.neutral[500] }}>· {s.severity}</span>}
               {s.durationDays != null && s.durationDays > 0 && (
-                <span style={{ color: '#6b7280' }}>· {s.durationDays}d</span>
+                <span style={{ color: colors.neutral[500] }}>· {s.durationDays}d</span>
               )}
               <button
                 onClick={() => onRemove(i)}
@@ -116,10 +148,10 @@ export function SymptomInput({ symptoms, onAdd, onRemove }: SymptomInputProps) {
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  fontSize: '14px',
+                  fontSize: `${typography.sm}px`,
                   lineHeight: 1,
-                  color: '#9ca3af',
-                  padding: '0 0 0 4px',
+                  color: colors.neutral[400],
+                  padding: `0 0 0 ${spacing[1]}px`,
                 }}
               >
                 ×
@@ -131,13 +163,3 @@ export function SymptomInput({ symptoms, onAdd, onRemove }: SymptomInputProps) {
     </div>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  padding: '8px 12px',
-  border: '1px solid #d1d5db',
-  borderRadius: '4px',
-  fontSize: '14px',
-  outline: 'none',
-  flex: 1,
-  minWidth: '120px',
-};

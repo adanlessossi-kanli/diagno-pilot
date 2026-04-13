@@ -13,8 +13,13 @@ import Pagination from '../../../components/Pagination';
 import { Toast } from '../../../components/Toast';
 import SkeletonLoader from '../../../components/SkeletonLoader';
 import EmptyState from '../../../components/EmptyState';
+import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { IMAGES } from '@/lib/images';
 import { buttonVariants } from '@diagno-pilot/ui';
+import BackToTop from '../../../components/BackToTop';
+import { buildErrorMessage } from '../../../utils/errorMessages';
+import { useRequestTimeout } from '../../../hooks/useRequestTimeout';
+import { filterPatientsByName } from '../../../utils/filterPatients';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,23 +44,25 @@ interface CreateFormState {
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
-const createPatientSchema = z.object({
-  fullName: z.string().min(1, 'Le nom est obligatoire'),
-  dateOfBirth: z.string().optional(),
-  weightKg: z
-    .string()
-    .optional()
-    .refine(
-      (val) => !val || parseFloat(val) > 0,
-      { message: 'Le poids doit être un nombre positif' }
-    ),
-  allergies: z.string().optional(),
-  renalFailure: z.boolean(),
-  hepaticFailure: z.boolean(),
-  currentMedications: z.string().optional(),
-});
+function createPatientSchema(t: ReturnType<typeof useTranslations<'patients'>>) {
+  return z.object({
+    fullName: z.string().min(1, t('nameRequired')),
+    dateOfBirth: z.string().optional(),
+    weightKg: z
+      .string()
+      .optional()
+      .refine(
+        (val) => !val || parseFloat(val) > 0,
+        { message: t('weightPositive') }
+      ),
+    allergies: z.string().optional(),
+    renalFailure: z.boolean(),
+    hepaticFailure: z.boolean(),
+    currentMedications: z.string().optional(),
+  });
+}
 
-type CreatePatientFormValues = z.infer<typeof createPatientSchema>;
+type CreatePatientFormValues = z.infer<ReturnType<typeof createPatientSchema>>;
 
 const EMPTY_FORM: CreatePatientFormValues = {
   fullName: '',
@@ -128,16 +135,42 @@ function CreatePatientModal({
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState('');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+
+  const schema = useMemo(() => createPatientSchema(t), [t]);
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<CreatePatientFormValues>({
-    resolver: zodResolver(createPatientSchema),
+    resolver: zodResolver(schema),
     mode: 'onChange',
     defaultValues: EMPTY_FORM,
   });
+
+  function handleClose() {
+    if (isDirty && !submitting) {
+      setShowUnsavedDialog(true);
+    } else {
+      onClose();
+    }
+  }
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !submitting) {
+        e.preventDefault();
+        if (isDirty) {
+          setShowUnsavedDialog(true);
+        } else {
+          onClose();
+        }
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isDirty, submitting, onClose]);
 
   async function onSubmit(data: CreatePatientFormValues) {
     setApiError('');
@@ -177,6 +210,7 @@ function CreatePatientModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
+      onClick={handleClose}
     >
       {showSuccessToast && (
         <Toast
@@ -186,13 +220,22 @@ function CreatePatientModal({
         />
       )}
 
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {submitting && (
+          <div className="absolute inset-0 bg-white/60 flex items-center justify-center rounded-xl z-10" data-testid="spinner-overlay">
+            <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          </div>
+        )}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 id="modal-title" className="text-lg font-bold">{t('createTitle')}</h2>
           <button
             type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            onClick={handleClose}
+            disabled={submitting}
+            className="text-gray-400 hover:text-gray-600 text-xl leading-none disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label={tCommon('cancel')}
           >
             ✕
@@ -208,7 +251,9 @@ function CreatePatientModal({
             <input
               type="text"
               {...register('fullName')}
-              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              autoFocus
+              disabled={submitting}
+              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
             {errors.fullName && (
               <p role="alert" className="text-xs text-red-600 mt-1">{errors.fullName.message}</p>
@@ -222,7 +267,8 @@ function CreatePatientModal({
               <input
                 type="date"
                 {...register('dateOfBirth')}
-                className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={submitting}
+                className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
             <div>
@@ -232,7 +278,8 @@ function CreatePatientModal({
                 min={0}
                 step={0.1}
                 {...register('weightKg')}
-                className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={submitting}
+                className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               />
               {errors.weightKg && (
                 <p role="alert" className="text-xs text-red-600 mt-1">{errors.weightKg.message}</p>
@@ -247,7 +294,8 @@ function CreatePatientModal({
               type="text"
               {...register('allergies')}
               placeholder={t('allergiesPlaceholder')}
-              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={submitting}
+              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -258,7 +306,8 @@ function CreatePatientModal({
               type="text"
               {...register('currentMedications')}
               placeholder={t('medicationsPlaceholder')}
-              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={submitting}
+              className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -270,7 +319,8 @@ function CreatePatientModal({
                 <input
                   type="checkbox"
                   {...register('renalFailure')}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  disabled={submitting}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 {t('renalFailure')}
               </label>
@@ -278,7 +328,8 @@ function CreatePatientModal({
                 <input
                   type="checkbox"
                   {...register('hepaticFailure')}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  disabled={submitting}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 {t('hepaticFailure')}
               </label>
@@ -296,7 +347,8 @@ function CreatePatientModal({
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
+              disabled={submitting}
               className={buttonVariants.secondary}
             >
               {tCommon('cancel')}
@@ -317,6 +369,19 @@ function CreatePatientModal({
           </div>
         </form>
       </div>
+
+      <ConfirmDialog
+        open={showUnsavedDialog}
+        title={t('unsavedChanges')}
+        message={t('unsavedChangesMessage')}
+        confirmLabel={tCommon('confirm')}
+        cancelLabel={tCommon('cancel')}
+        onConfirm={() => {
+          setShowUnsavedDialog(false);
+          onClose();
+        }}
+        onCancel={() => setShowUnsavedDialog(false)}
+      />
     </div>
   );
 }
@@ -326,10 +391,12 @@ function CreatePatientModal({
 export default function PatientsPage() {
   const t = useTranslations('patients');
   const tCommon = useTranslations('common');
+  const tErrors = useTranslations('errors');
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const locale = useLocale();
+  const { startTimer, clearTimer, isWarning, isAborted } = useRequestTimeout();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -344,6 +411,12 @@ export default function PatientsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredPatients = useMemo(
+    () => filterPatientsByName(patients, searchQuery),
+    [patients, searchQuery]
+  );
 
   // Auth guard
   useEffect(() => {
@@ -355,16 +428,22 @@ export default function PatientsPage() {
   const fetchPatients = useCallback(async (page: number) => {
     setLoading(true);
     setError('');
+    const controller = new AbortController();
+    startTimer(controller);
     try {
       const result = await apiClient.patients.listPatients(page, PAGE_SIZE);
       setPatients(result.items);
       setTotal(result.total);
     } catch {
-      setError(t('errorFetch'));
+      const { descriptionKey, actionKey } = buildErrorMessage('network');
+      const descKey = descriptionKey.replace('errors.', '') as Parameters<typeof tErrors>[0];
+      const actKey = actionKey.replace('errors.', '') as Parameters<typeof tErrors>[0];
+      setError(`${tErrors(descKey)} ${tErrors(actKey)}`);
     } finally {
+      clearTimer();
       setLoading(false);
     }
-  }, [t, apiClient]);
+  }, [apiClient, tErrors, startTimer, clearTimer]);
 
   useEffect(() => {
     if (user) {
@@ -404,7 +483,7 @@ export default function PatientsPage() {
               href={`/${locale}/create-nurse`}
               className={buttonVariants.secondary}
             >
-              + Créer une infirmière
+              + {t('createNurse')}
             </a>
           )}
           <button
@@ -416,6 +495,20 @@ export default function PatientsPage() {
           </button>
         </div>
       </div>
+
+      {/* Search */}
+      {!loading && patients.length > 0 && (
+        <div className="mb-4">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('search')}
+            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label={t('search')}
+          />
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
@@ -429,19 +522,35 @@ export default function PatientsPage() {
         </p>
       )}
 
+      {/* Timeout warning */}
+      {isWarning && !isAborted && (
+        <p role="status" className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-4">
+          {tErrors('timeout')} {tErrors('timeoutAction')}
+        </p>
+      )}
+
+      {/* Auto-cancel notice */}
+      {isAborted && (
+        <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2 mb-4">
+          {tErrors('autoCancel')}
+        </p>
+      )}
+
       {/* Patient list */}
       {!loading && !error && (
         patients.length === 0 ? (
           <EmptyState
             title={t('noPatients')}
-            description="Créez votre premier dossier patient pour commencer."
+            description={t('emptyDescription')}
             action={{ label: t('new'), onClick: () => setShowModal(true) }}
             image={IMAGES.patientsEmpty}
           />
+        ) : filteredPatients.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-8">{tCommon('noResults')}</p>
         ) : (
           <>
             <div className="space-y-3">
-              {patients.map((p) => (
+              {filteredPatients.map((p) => (
                 <PatientCard
                   key={p.id}
                   patient={p}
@@ -468,6 +577,7 @@ export default function PatientsPage() {
           tCommon={tCommon}
         />
       )}
+      <BackToTop />
     </main>
   );
 }

@@ -11,9 +11,10 @@ const levelClasses: Record<string, string> = {
 
 function AlertIcon({ level }: { level: string }) {
   if (level === 'critical') {
+    // Octagon / stop icon — visually distinct from the warning triangle
     return (
-      <svg aria-hidden="true" className="w-4 h-4 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+      <svg aria-hidden="true" className="w-4 h-4 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor" data-icon="octagon">
+        <path fillRule="evenodd" d="M6.28 2h7.44l4.28 4.28v7.44L13.72 18H6.28L2 13.72V6.28L6.28 2zm.44 2L4 6.72v6.56L6.72 16h6.56L16 13.28V6.72L13.28 4H6.72zM10 5.75a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5a.75.75 0 01.75-.75zM10 14a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
       </svg>
     );
   }

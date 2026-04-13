@@ -156,7 +156,7 @@ describe('DiagnosePage — MCP warning banners (Req 16.1)', () => {
 });
 
 describe('DiagnosePage — Confidence score display (Req 16.2)', () => {
-  it('displays the global confidence score as a percentage', async () => {
+  it('does not display the global confidence score on the diagnose page', async () => {
     mockGetSymptomsDiagnosis.mockResolvedValue(mcpResponse);
 
     const { default: DiagnosePage } = await import('../page');
@@ -170,10 +170,10 @@ describe('DiagnosePage — Confidence score display (Req 16.2)', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('78%')).toBeDefined();
+      expect(screen.getAllByText('Pneumonia').length).toBeGreaterThanOrEqual(1);
     });
 
-    expect(screen.getByText('confidenceScore:')).toBeDefined();
+    expect(screen.queryByTestId('confidence-score')).toBeNull();
   });
 });
 

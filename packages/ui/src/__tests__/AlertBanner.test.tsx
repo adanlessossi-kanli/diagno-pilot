@@ -83,3 +83,44 @@ describe('P7: Alert banner semantic token usage (web)', () => {
     );
   });
 });
+
+// ─── Distinct icon tests (Req 5.6) ───────────────────────────────────────────
+
+describe('AlertBanner — distinct icons for critical vs warning', () => {
+  it('critical level renders an octagon icon (data-icon="octagon")', () => {
+    const { container } = render(<AlertBanner alert={makeAlert('critical')} />);
+    const svg = container.querySelector('svg[data-icon="octagon"]');
+    expect(svg).not.toBeNull();
+  });
+
+  it('warning level does NOT render an octagon icon', () => {
+    const { container } = render(<AlertBanner alert={makeAlert('warning')} />);
+    const svg = container.querySelector('svg[data-icon="octagon"]');
+    expect(svg).toBeNull();
+  });
+
+  it('critical and warning levels render different SVG path data', () => {
+    const { container: criticalContainer } = render(<AlertBanner alert={makeAlert('critical')} />);
+    const { container: warningContainer } = render(<AlertBanner alert={makeAlert('warning')} />);
+
+    const criticalPath = criticalContainer.querySelector('svg path')?.getAttribute('d') ?? '';
+    const warningPath = warningContainer.querySelector('svg path')?.getAttribute('d') ?? '';
+
+    expect(criticalPath).not.toBe('');
+    expect(warningPath).not.toBe('');
+    expect(criticalPath).not.toBe(warningPath);
+  });
+
+  it('info level renders a circle info icon (different from both critical and warning)', () => {
+    const { container: infoContainer } = render(<AlertBanner alert={makeAlert('info')} />);
+    const { container: criticalContainer } = render(<AlertBanner alert={makeAlert('critical')} />);
+    const { container: warningContainer } = render(<AlertBanner alert={makeAlert('warning')} />);
+
+    const infoPath = infoContainer.querySelector('svg path')?.getAttribute('d') ?? '';
+    const criticalPath = criticalContainer.querySelector('svg path')?.getAttribute('d') ?? '';
+    const warningPath = warningContainer.querySelector('svg path')?.getAttribute('d') ?? '';
+
+    expect(infoPath).not.toBe(criticalPath);
+    expect(infoPath).not.toBe(warningPath);
+  });
+});

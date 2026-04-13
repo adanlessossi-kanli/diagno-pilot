@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
+import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { Toast } from '../Toast';
 
@@ -73,6 +73,45 @@ describe('Toast — unit tests', () => {
     });
 
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Dismiss button tests (Req 5.4, 5.5) ─────────────────────────────────────
+
+describe('Toast — dismiss button', () => {
+  it('renders a dismiss button', () => {
+    const { container } = render(<Toast message="Hello" />);
+    const btn = container.querySelector('button[aria-label="Dismiss"]');
+    expect(btn).not.toBeNull();
+  });
+
+  it('hides toast and calls onClose when dismiss button is clicked', () => {
+    const onClose = vi.fn();
+    const { container } = render(<Toast message="Hello" onClose={onClose} />);
+    const btn = container.querySelector('button[aria-label="Dismiss"]') as HTMLElement;
+
+    fireEvent.click(btn);
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('dismiss button hides toast before auto-dismiss timer', () => {
+    const onClose = vi.fn();
+    const { container } = render(<Toast message="Hello" duration={5000} onClose={onClose} />);
+
+    // Toast is visible
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    // Click dismiss at 1s (well before 5s auto-dismiss)
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    const btn = container.querySelector('button[aria-label="Dismiss"]') as HTMLElement;
+    fireEvent.click(btn);
+
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 

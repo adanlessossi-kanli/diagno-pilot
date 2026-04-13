@@ -12,13 +12,16 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { useI18n } from '../../src/contexts/I18nContext';
 import { MobileSourceCitation } from '../../src/components/MobileSourceCitation';
+import { formatCharCount } from '../../src/utils/formatCharCount';
 import type { ChatMessage } from '@diagno-pilot/types';
 
 let sessionId = `mobile-${Date.now()}`;
 
 export default function ChatScreen() {
   const { apiClient } = useAuth();
+  const { t } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,11 +43,13 @@ export default function ChatScreen() {
 
     try {
       let answer = '';
+      let sources: ChatMessage['sources'] = [];
       for await (const event of apiClient.chat.sendMessageStream(sessionId, text)) {
         if (event.type === 'token') {
           answer += event.content;
         } else if (event.type === 'done') {
           answer = event.answer;
+          sources = event.sources;
         } else if (event.type === 'error') {
           throw new Error(event.error);
         }
@@ -54,13 +59,14 @@ export default function ChatScreen() {
         role: 'assistant',
         content: answer,
         timestamp: new Date().toISOString(),
+        sources,
       };
       setMessages((prev) => [...prev, reply]);
     } catch {
       const errMsg: ChatMessage = {
         id: `e-${Date.now()}`,
         role: 'assistant',
-        content: 'Désolé, une erreur est survenue. Veuillez réessayer.',
+        content: t('chat.error'),
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errMsg]);
@@ -79,7 +85,7 @@ export default function ChatScreen() {
         </Text>
         {item.sources && item.sources.length > 0 && (
           <View style={styles.sources}>
-            <Text style={styles.sourcesLabel}>Sources :</Text>
+            <Text style={styles.sourcesLabel}>{t('chat.sources')}</Text>
             {item.sources.map((s, i) => (
               <MobileSourceCitation key={`${s.title}-${i}`} source={s} />
             ))}
@@ -108,7 +114,7 @@ export default function ChatScreen() {
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>💬</Text>
             <Text style={styles.emptyText}>
-              Posez une question sur les antibiotiques ou les maladies infectieuses.
+              {t('chat.emptyStatePrompt')}
             </Text>
           </View>
         }
@@ -119,7 +125,7 @@ export default function ChatScreen() {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="Votre question…"
+          placeholder={t('chat.placeholder')}
           multiline
           maxLength={1000}
           accessibilityLabel="Message"
@@ -131,7 +137,7 @@ export default function ChatScreen() {
           onPress={sendMessage}
           disabled={!input.trim() || loading}
           accessibilityRole="button"
-          accessibilityLabel="Envoyer"
+          accessibilityLabel={t('chat.send')}
         >
           {loading ? (
             <ActivityIndicator color="#fff" size="small" />
@@ -139,6 +145,7 @@ export default function ChatScreen() {
             <Text style={styles.sendIcon}>➤</Text>
           )}
         </TouchableOpacity>
+        <Text style={styles.charCount}>{formatCharCount(input.length, 1000)}</Text>
       </View>
     </KeyboardAvoidingView>
   );
@@ -161,7 +168,7 @@ const styles = StyleSheet.create({
   timestamp: { fontSize: 10, color: '#9ca3af', marginTop: 4, alignSelf: 'flex-end' },
   inputRow: {
     flexDirection: 'row', alignItems: 'flex-end',
-    padding: 10, backgroundColor: '#fff',
+    padding: 10, paddingBottom: 24, backgroundColor: '#fff',
     borderTopWidth: 1, borderTopColor: '#e5e7eb',
   },
   input: {
@@ -175,4 +182,5 @@ const styles = StyleSheet.create({
   },
   sendDisabled: { opacity: 0.5 },
   sendIcon: { color: '#fff', fontSize: 16 },
+  charCount: { fontSize: 11, color: '#9ca3af', position: 'absolute' as const, bottom: 4, left: 24 },
 });

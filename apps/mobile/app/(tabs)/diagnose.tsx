@@ -19,6 +19,13 @@ import type { Symptom, Prescription, SafetyAlert } from '@diagno-pilot/types';
 import type { DiagnosisResponse } from '@diagno-pilot/api-client';
 import { getProbabilityColor } from '../../src/utils/probabilityColor';
 
+/** Returns a localized text label for a probability value (Req 7.3). */
+function getProbabilityLabel(p: number, t: (key: string) => string): string {
+  if (p >= 0.7) return t('diagnose.probabilityHigh');
+  if (p >= 0.4) return t('diagnose.probabilityMedium');
+  return t('diagnose.probabilityLow');
+}
+
 type Step = 'symptoms' | 'differential' | 'prescription';
 type DiagnosisEntry = DiagnosisResponse['diagnoses'][number];
 
@@ -36,7 +43,7 @@ interface PersistedState {
 
 export default function DiagnoseScreen() {
   const { apiClient } = useAuth();
-  const { locale } = useI18n();
+  const { t } = useI18n();
   const [step, setStep] = useState<Step>('symptoms');
   const [symptoms, setSymptoms] = useState<Symptom[]>([]);
   const [diagnoses, setDiagnoses] = useState<DiagnosisEntry[]>([]);
@@ -51,8 +58,6 @@ export default function DiagnoseScreen() {
   const [prescriptionError, setPrescriptionError] = useState(false);
   // Track the last diagnosis that failed prescription fetch for retry
   const lastPrescriptionDiagnosis = useRef<DiagnosisEntry | null>(null);
-
-  const isFrench = locale.startsWith('fr');
 
   // REQ-8.5: Restore persisted state on mount
   useEffect(() => {
@@ -152,7 +157,7 @@ export default function DiagnoseScreen() {
               <Text style={[styles.stepNum, step === s && styles.stepNumActive]}>{i + 1}</Text>
             </View>
             <Text style={[styles.stepLabel, step === s && styles.stepLabelActive]}>
-              {s === 'symptoms' ? 'Symptômes' : s === 'differential' ? 'Diagnostic' : 'Prescription'}
+              {s === 'symptoms' ? t('diagnose.stepSymptoms') : s === 'differential' ? t('diagnose.stepDiagnosis') : t('diagnose.stepPrescription')}
             </Text>
           </View>
         ))}
@@ -161,7 +166,7 @@ export default function DiagnoseScreen() {
       {/* Step 1: Symptoms */}
       {step === 'symptoms' && (
         <View>
-          <Text style={styles.sectionTitle}>Saisir les symptômes</Text>
+          <Text style={styles.sectionTitle}>{t('diagnose.enterSymptoms')}</Text>
           <MobileSymptomInput
             symptoms={symptoms}
             onAdd={(s) => setSymptoms((prev) => [...prev, s])}
@@ -172,17 +177,15 @@ export default function DiagnoseScreen() {
           {diagnosisError && (
             <View style={styles.errorBanner} accessibilityRole="alert">
               <Text style={styles.errorText}>
-                {isFrench
-                  ? "Impossible d'obtenir les diagnostics. Vérifiez votre connexion."
-                  : 'Unable to get diagnoses. Check your connection.'}
+                {t('diagnose.errorDiagnosis')}
               </Text>
               <TouchableOpacity
                 style={styles.retryButton}
                 onPress={handleGetDiagnoses}
                 accessibilityRole="button"
-                accessibilityLabel={isFrench ? 'Réessayer' : 'Retry'}
+                accessibilityLabel={t('diagnose.retry')}
               >
-                <Text style={styles.retryButtonText}>{isFrench ? 'Réessayer' : 'Retry'}</Text>
+                <Text style={styles.retryButtonText}>{t('diagnose.retry')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -196,7 +199,7 @@ export default function DiagnoseScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.primaryButtonText}>Obtenir les diagnostics →</Text>
+              <Text style={styles.primaryButtonText}>{t('diagnose.getDiagnoses')}</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -205,15 +208,13 @@ export default function DiagnoseScreen() {
       {/* Step 2: Differential diagnoses */}
       {step === 'differential' && (
         <View>
-          <Text style={styles.sectionTitle}>Diagnostics différentiels</Text>
+          <Text style={styles.sectionTitle}>{t('diagnose.differentialDiagnoses')}</Text>
 
           {/* REQ-25.2, 25.3, 25.4: Parse failure warning banner */}
           {parseFailed && (
             <View style={styles.parseWarningBanner} accessibilityRole="alert">
               <Text style={styles.parseWarningText}>
-                {isFrench
-                  ? 'Les résultats diagnostiques peuvent être incomplets ou peu fiables. Veuillez exercer votre jugement clinique.'
-                  : 'Diagnostic results may be incomplete or unreliable. Please exercise clinical judgment.'}
+                {t('diagnose.parseWarning')}
               </Text>
             </View>
           )}
@@ -224,20 +225,23 @@ export default function DiagnoseScreen() {
               style={styles.diagnosisCard}
               onPress={() => handleGetPrescription(d)}
               accessibilityRole="button"
-              accessibilityLabel={`Sélectionner ${d.condition}`}
+              accessibilityLabel={t('diagnose.selectDiagnosis', { condition: d.condition })}
             >
               <View style={styles.diagnosisHeader}>
                 <Text style={styles.diagnosisName}>{d.condition}</Text>
-                <View style={[styles.probBadge, { backgroundColor: getProbabilityColor(d.probability) }]}>
-                  <Text style={styles.probText}>{Math.round(d.probability * 100)}%</Text>
+                <View style={styles.probContainer}>
+                  <Text style={styles.probLabel}>{getProbabilityLabel(d.probability, t)}</Text>
+                  <View style={[styles.probBadge, { backgroundColor: getProbabilityColor(d.probability) }]}>
+                    <Text style={styles.probText}>{Math.round(d.probability * 100)}%</Text>
+                  </View>
                 </View>
               </View>
               {d.icdCode && (
-                <Text style={styles.icdCode}>CIM-10 : {d.icdCode}</Text>
+                <Text style={styles.icdCode}>{t('diagnose.icd10')} : {d.icdCode}</Text>
               )}
               {d.concordantSymptoms.length > 0 && (
                 <Text style={styles.concordant}>
-                  Symptômes concordants : {d.concordantSymptoms.join(', ')}
+                  {t('diagnose.concordantSymptoms')} : {d.concordantSymptoms.join(', ')}
                 </Text>
               )}
             </TouchableOpacity>
@@ -247,9 +251,7 @@ export default function DiagnoseScreen() {
           {prescriptionError && (
             <View style={styles.errorBanner} accessibilityRole="alert">
               <Text style={styles.errorText}>
-                {isFrench
-                  ? "Impossible d'obtenir la prescription."
-                  : 'Unable to get the prescription.'}
+                {t('diagnose.errorPrescription')}
               </Text>
               <TouchableOpacity
                 style={styles.retryButton}
@@ -259,15 +261,15 @@ export default function DiagnoseScreen() {
                   }
                 }}
                 accessibilityRole="button"
-                accessibilityLabel={isFrench ? 'Réessayer' : 'Retry'}
+                accessibilityLabel={t('diagnose.retry')}
               >
-                <Text style={styles.retryButtonText}>{isFrench ? 'Réessayer' : 'Retry'}</Text>
+                <Text style={styles.retryButtonText}>{t('diagnose.retry')}</Text>
               </TouchableOpacity>
             </View>
           )}
 
           <TouchableOpacity style={styles.secondaryButton} onPress={handleReset}>
-            <Text style={styles.secondaryButtonText}>← Recommencer</Text>
+            <Text style={styles.secondaryButtonText}>{t('diagnose.restart')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -276,13 +278,13 @@ export default function DiagnoseScreen() {
       {step === 'prescription' && prescription && (
         <View>
           <Text style={styles.sectionTitle}>
-            Prescription — {selectedDiagnosis?.condition}
+            {t('diagnose.prescriptionFor', { condition: selectedDiagnosis?.condition ?? '' })}
           </Text>
 
           {/* Critical alerts block prescription */}
           {criticalAlerts.length > 0 && (
             <View style={styles.criticalBlock} testID="alert-critical">
-              <Text style={styles.criticalBlockTitle}>⛔ Alertes critiques</Text>
+              <Text style={styles.criticalBlockTitle}>{t('diagnose.criticalAlerts')}</Text>
               {criticalAlerts.map((a, i) => (
                 <MobileAlertBanner key={`critical-${a.type}-${i}`} alert={a} />
               ))}
@@ -297,10 +299,10 @@ export default function DiagnoseScreen() {
           <MobilePrescriptionCard prescription={prescription} />
 
           <TouchableOpacity style={styles.secondaryButton} onPress={() => setStep('differential')}>
-            <Text style={styles.secondaryButtonText}>← Changer de diagnostic</Text>
+            <Text style={styles.secondaryButtonText}>{t('diagnose.changeDiagnosis')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={handleReset}>
-            <Text style={styles.secondaryButtonText}>Nouvelle consultation</Text>
+            <Text style={styles.secondaryButtonText}>{t('diagnose.newConsultation')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -329,6 +331,8 @@ const styles = StyleSheet.create({
   },
   diagnosisHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   diagnosisName: { fontSize: 15, fontWeight: '600', color: '#111827', flex: 1 },
+  probContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  probLabel: { fontSize: 12, fontWeight: '600', color: '#374151' },
   probBadge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 },
   probText: { fontSize: 13, fontWeight: '700', color: '#374151' },
   icdCode: { fontSize: 12, color: '#6b7280', marginTop: 4 },

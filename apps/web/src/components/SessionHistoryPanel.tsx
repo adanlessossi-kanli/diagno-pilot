@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
 
 // ── Interfaces ──────────────────────────────────────────────────────────────
@@ -28,6 +28,11 @@ export interface SessionHistoryPanelProps {
   deleteLabel: string;
   announceMessage: string | null;
   operationError: string | null;
+  searchPlaceholder?: string;
+  confirmDeleteTitle?: string;
+  confirmDeleteMessage?: string;
+  confirmDeleteLabel?: string;
+  cancelDeleteLabel?: string;
 }
 
 // ── Pure helper functions (tested by PBT 4.9, 4.10, 4.11) ──────────────────
@@ -43,6 +48,18 @@ export function upsertEntry(entries: SessionEntry[], entry: SessionEntry): Sessi
 
 export function prependEntry(entries: SessionEntry[], entry: SessionEntry): SessionEntry[] {
   return [entry, ...entries];
+}
+
+// ── Pure filter function (tested by PBT Property 6) ─────────────────────────
+
+export function filterEntriesByPreview(
+  entries: SessionEntry[],
+  query: string
+): SessionEntry[] {
+  const trimmed = query.trim();
+  if (trimmed === '') return entries;
+  const lowerQuery = trimmed.toLowerCase();
+  return entries.filter((e) => e.preview.toLowerCase().includes(lowerQuery));
 }
 
 // ── Helper: format ISO date for display ─────────────────────────────────────
@@ -130,11 +147,22 @@ export function SessionHistoryPanel({
   deleteLabel,
   announceMessage,
   operationError,
+  searchPlaceholder,
+  confirmDeleteTitle,
+  confirmDeleteMessage,
+  confirmDeleteLabel,
+  cancelDeleteLabel,
 }: SessionHistoryPanelProps) {
   const [expanded, setExpanded] = useState(true);
   const [isNarrow, setIsNarrow] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredEntries = useMemo(
+    () => filterEntriesByPreview(entries, searchQuery),
+    [entries, searchQuery]
+  );
 
   const listRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -200,12 +228,12 @@ export function SessionHistoryPanel({
   // ── Keyboard navigation ──
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (entries.length === 0) return;
+      if (filteredEntries.length === 0) return;
 
       switch (e.key) {
         case 'ArrowDown': {
           e.preventDefault();
-          const next = Math.min(focusedIndex + 1, entries.length - 1);
+          const next = Math.min(focusedIndex + 1, filteredEntries.length - 1);
           setFocusedIndex(next);
           entryRefs.current.get(next)?.focus();
           break;
@@ -219,7 +247,7 @@ export function SessionHistoryPanel({
         }
         case 'Enter': {
           e.preventDefault();
-          const entry = entries[focusedIndex];
+          const entry = filteredEntries[focusedIndex];
           if (entry && !selectingId) {
             onSelect(entry.id);
           }
@@ -227,7 +255,7 @@ export function SessionHistoryPanel({
         }
         case 'Delete': {
           e.preventDefault();
-          const entry = entries[focusedIndex];
+          const entry = filteredEntries[focusedIndex];
           if (entry) {
             handleDeleteAction(entry.id);
           }
@@ -235,7 +263,7 @@ export function SessionHistoryPanel({
         }
       }
     },
-    [entries, focusedIndex, selectingId, onSelect, handleDeleteAction],
+    [filteredEntries, focusedIndex, selectingId, onSelect, handleDeleteAction],
   );
 
   const handleConfirmDelete = useCallback(() => {
@@ -278,6 +306,7 @@ export function SessionHistoryPanel({
       {/* Backdrop for narrow overlay */}
       {isOverlay && (
         <div
+          key="session-backdrop"
           className="fixed inset-0 z-40 bg-black/40"
           aria-hidden="true"
           onClick={handleBackdropClick}
@@ -285,6 +314,7 @@ export function SessionHistoryPanel({
       )}
 
       <div
+        key="session-panel"
         className={`
           ${isNarrow && isExpanded ? 'fixed top-0 left-0 z-50 h-full' : 'relative'}
           ${isExpanded ? 'w-72' : 'w-12'}
@@ -312,6 +342,21 @@ export function SessionHistoryPanel({
             <h2 className="px-3 py-2 text-sm font-semibold text-gray-700 border-b border-gray-100">
               {panelTitle}
             </h2>
+
+            {/* Search input */}
+            {!loading && !error && entries.length > 0 && (
+              <div className="px-3 py-2 border-b border-gray-100">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={searchPlaceholder ?? 'Search...'}
+                  className="w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-label={searchPlaceholder ?? 'Search...'}
+                  data-testid="session-search-input"
+                />
+              </div>
+            )}
 
             {/* Operation error */}
             {operationError && (
@@ -351,7 +396,7 @@ export function SessionHistoryPanel({
                 className="flex-1 overflow-y-auto"
                 onKeyDown={handleKeyDown}
               >
-                {entries.map((entry, index) => {
+                {filteredEntries.map((entry, index) => {
                   const isActive = entry.id === activeId;
                   const isFocused = index === focusedIndex;
                   const isSelecting = entry.id === selectingId;
@@ -422,17 +467,17 @@ export function SessionHistoryPanel({
       </div>
 
       {/* aria-live region for announcements */}
-      <div aria-live="polite" className="sr-only" data-testid="announce-region">
+      <div key="session-announce" aria-live="polite" className="sr-only" data-testid="announce-region">
         {announceMessage}
       </div>
 
       {/* Confirm dialog for delete mode */}
       <ConfirmDialog
         open={confirmDeleteId !== null}
-        title="Delete session?"
-        message="This action cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        title={confirmDeleteTitle ?? "Delete session?"}
+        message={confirmDeleteMessage ?? "This action cannot be undone."}
+        confirmLabel={confirmDeleteLabel ?? "Delete"}
+        cancelLabel={cancelDeleteLabel ?? "Cancel"}
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
       />

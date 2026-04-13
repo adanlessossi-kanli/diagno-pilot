@@ -4,15 +4,15 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { StreamEvent } from '@diagno-pilot/api-client';
-import type { ChatMessage, PatientProfile } from '@diagno-pilot/types';
+import type { ChatMessage } from '@diagno-pilot/types';
 import { useAuth } from '../../../contexts/AuthContext';
 import { SessionHistoryPanel, upsertEntry, removeEntry } from '../../../components/SessionHistoryPanel';
 import type { SessionEntry } from '../../../components/SessionHistoryPanel';
+import CopyButton from '../../../components/CopyButton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type LocalChatMessage = ChatMessage & { interrupted?: boolean };
-type PatientMode = 'none' | 'select' | 'oneshot';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -130,7 +130,7 @@ function MessageBubble({
     : parseTopicGuardRefusal(message.content);
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`group relative flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[80%] ${isUser ? 'order-2' : 'order-1'}`}>
         <div
           className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
@@ -158,6 +158,37 @@ function MessageBubble({
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
+      {!isUser && (
+        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <CopyButton text={displayContent} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BouncingDots() {
+  return (
+    <span className="inline-flex gap-0.5 ml-2">
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
+          style={{ animationDelay: `${i * 0.15}s` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function ConnectingBubble() {
+  const t = useTranslations('chat');
+  return (
+    <div className="flex justify-start" data-testid="connecting-indicator">
+      <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2.5">
+        <span className="text-xs text-gray-500 italic">{t('connecting')}</span>
+        <BouncingDots />
+      </div>
     </div>
   );
 }
@@ -165,142 +196,11 @@ function MessageBubble({
 function ThinkingBubble() {
   const t = useTranslations('chat');
   return (
-    <div className="flex justify-start">
+    <div className="flex justify-start" data-testid="thinking-indicator">
       <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2.5">
         <span className="text-xs text-gray-500 italic">{t('thinking')}</span>
-        <span className="inline-flex gap-0.5 ml-2">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
-              style={{ animationDelay: `${i * 0.15}s` }}
-            />
-          ))}
-        </span>
+        <BouncingDots />
       </div>
-    </div>
-  );
-}
-
-// ─── Patient context panel ────────────────────────────────────────────────────
-
-interface PatientContextPanelProps {
-  patientMode: PatientMode;
-  setPatientMode: (m: PatientMode) => void;
-  patients: PatientProfile[];
-  loadingPatients: boolean;
-  patientsError: string;
-  selectedPatientId: string;
-  setSelectedPatientId: (id: string) => void;
-  oneShotPatient: { fullName: string; dateOfBirth: string; weightKg: string; allergies: string };
-  setOneShotPatient: React.Dispatch<React.SetStateAction<{ fullName: string; dateOfBirth: string; weightKg: string; allergies: string }>>;
-  attachedPatientLabel: string | null;
-}
-
-function PatientContextPanel({
-  patientMode,
-  setPatientMode,
-  patients,
-  loadingPatients,
-  patientsError,
-  selectedPatientId,
-  setSelectedPatientId,
-  oneShotPatient,
-  setOneShotPatient,
-  attachedPatientLabel,
-}: PatientContextPanelProps) {
-  const t = useTranslations('chat');
-
-  return (
-    <div className="border-b bg-gray-50 px-4 py-3 space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">{t('attachPatient')}:</span>
-        {(['none', 'select', 'oneshot'] as PatientMode[]).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => setPatientMode(mode)}
-            className={`px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-              patientMode === mode
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
-            }`}
-          >
-            {mode === 'none' && t('noPatient')}
-            {mode === 'select' && t('selectPatient')}
-            {mode === 'oneshot' && t('oneShotMode')}
-          </button>
-        ))}
-        {attachedPatientLabel && (
-          <span className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-0.5">
-            ✓ {t('patientAttached')}: {attachedPatientLabel}
-          </span>
-        )}
-      </div>
-
-      {patientMode === 'select' && (
-        <div>
-          {loadingPatients && <p className="text-xs text-gray-500">{t('loadingPatients')}</p>}
-          {patientsError && <p className="text-xs text-red-600">{patientsError}</p>}
-          {!loadingPatients && !patientsError && (
-            <select
-              value={selectedPatientId}
-              onChange={(e) => setSelectedPatientId(e.target.value)}
-              className="w-full max-w-xs border rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">— {t('selectPatient')} —</option>
-              {patients.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.fullName ?? p.id}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      )}
-
-      {patientMode === 'oneshot' && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-0.5">{t('patientName')}</label>
-            <input
-              type="text"
-              value={oneShotPatient.fullName}
-              onChange={(e) => setOneShotPatient((p) => ({ ...p, fullName: e.target.value }))}
-              className="w-full border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-0.5">{t('dateOfBirth')}</label>
-            <input
-              type="date"
-              value={oneShotPatient.dateOfBirth}
-              onChange={(e) => setOneShotPatient((p) => ({ ...p, dateOfBirth: e.target.value }))}
-              className="w-full border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-0.5">{t('weightKg')}</label>
-            <input
-              type="number"
-              min={0}
-              step={0.1}
-              value={oneShotPatient.weightKg}
-              onChange={(e) => setOneShotPatient((p) => ({ ...p, weightKg: e.target.value }))}
-              className="w-full border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-0.5">{t('allergiesLabel')}</label>
-            <input
-              type="text"
-              value={oneShotPatient.allergies}
-              onChange={(e) => setOneShotPatient((p) => ({ ...p, allergies: e.target.value }))}
-              className="w-full border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -330,6 +230,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
+  const [receivedFirstToken, setReceivedFirstToken] = useState(false);
   const [error, setError] = useState('');
   const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -360,19 +261,6 @@ export default function ChatPage() {
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [announceMessage, setAnnounceMessage] = useState<string | null>(null);
-
-  // Patient context
-  const [patientMode, setPatientMode] = useState<PatientMode>('none');
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [loadingPatients, setLoadingPatients] = useState(false);
-  const [patientsError, setPatientsError] = useState('');
-  const [selectedPatientId, setSelectedPatientId] = useState('');
-  const [oneShotPatient, setOneShotPatient] = useState({
-    fullName: '',
-    dateOfBirth: '',
-    weightKg: '',
-    allergies: '',
-  });
 
   // Auto-scroll refs
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -511,60 +399,6 @@ export default function ChatPage() {
     }
   }, [messages, loading, streaming]);
 
-  // Fetch patients when select mode is chosen
-  const fetchPatients = useCallback(async () => {
-    setLoadingPatients(true);
-    setPatientsError('');
-    try {
-      const list = await apiClient.patients.listAllPatients();
-      setPatients(list);
-    } catch {
-      setPatientsError(t('errorFetch'));
-    } finally {
-      setLoadingPatients(false);
-    }
-  }, [t, apiClient]);
-
-  useEffect(() => {
-    if (patientMode === 'select') {
-      void fetchPatients();
-    }
-  }, [patientMode, fetchPatients]);
-
-  // Build patient profile from current mode
-  function buildPatientProfile(): PatientProfile | undefined {
-    if (patientMode === 'select' && selectedPatientId) {
-      return patients.find((p) => p.id === selectedPatientId);
-    }
-    if (patientMode === 'oneshot') {
-      const allergies = oneShotPatient.allergies
-        ? oneShotPatient.allergies.split(',').map((a) => a.trim()).filter(Boolean)
-        : [];
-      return {
-        fullName: oneShotPatient.fullName || undefined,
-        dateOfBirth: oneShotPatient.dateOfBirth || undefined,
-        weightKg: oneShotPatient.weightKg ? parseFloat(oneShotPatient.weightKg) : undefined,
-        allergies,
-        renalFailure: false,
-        hepaticFailure: false,
-        currentMedications: [],
-      };
-    }
-    return undefined;
-  }
-
-  // Label shown when a patient is attached
-  const attachedPatientLabel: string | null = (() => {
-    if (patientMode === 'select' && selectedPatientId) {
-      const p = patients.find((pt) => pt.id === selectedPatientId);
-      return p?.fullName ?? selectedPatientId;
-    }
-    if (patientMode === 'oneshot' && oneShotPatient.fullName) {
-      return oneShotPatient.fullName;
-    }
-    return null;
-  })();
-
   // Send message
   async function handleSend(retryContent?: string) {
     const content = retryContent ?? input.trim();
@@ -573,6 +407,7 @@ export default function ChatPage() {
     setError('');
     setStreamError(null);
     setFailedMessage(null);
+    setReceivedFirstToken(false);
     if (!retryContent) setInput('');
 
     // Persist sessionId to localStorage on first message (Req 8.1)
@@ -605,13 +440,13 @@ export default function ChatPage() {
     abortControllerRef.current = controller;
 
     try {
-      const patientContext = buildPatientProfile();
-      const stream = apiClient.chat.sendMessageStream(sessionId, content, patientContext, controller.signal);
+      const stream = apiClient.chat.sendMessageStream(sessionId, content, undefined, controller.signal);
 
       let receivedDone = false;
 
       for await (const event of stream) {
         if (event.type === 'token') {
+          setReceivedFirstToken(true);
           // Append token content to the streaming assistant message
           setMessages((prev) =>
             prev.map((m) =>
@@ -790,6 +625,10 @@ export default function ChatPage() {
         deleteLabel={tHistory('delete')}
         announceMessage={announceMessage}
         operationError={operationError}
+        confirmDeleteTitle={tHistory('confirmDeleteTitle')}
+        confirmDeleteMessage={tHistory('confirmDeleteMessage')}
+        confirmDeleteLabel={tHistory('confirm')}
+        cancelDeleteLabel={tHistory('cancel')}
       />
       <main className="flex flex-col flex-1 h-screen max-h-screen bg-gray-100">
       {/* Header */}
@@ -807,22 +646,6 @@ export default function ChatPage() {
           {t('newSession')}
         </button>
       </header>
-
-      {/* Patient context panel — hidden for guests */}
-      {user?.role !== 'guest' && (
-        <PatientContextPanel
-          patientMode={patientMode}
-          setPatientMode={setPatientMode}
-          patients={patients}
-          loadingPatients={loadingPatients}
-          patientsError={patientsError}
-          selectedPatientId={selectedPatientId}
-          setSelectedPatientId={setSelectedPatientId}
-          oneShotPatient={oneShotPatient}
-          setOneShotPatient={setOneShotPatient}
-          attachedPatientLabel={attachedPatientLabel}
-        />
-      )}
 
       {/* Streaming cursor CSS */}
       <style>{`
@@ -849,6 +672,33 @@ export default function ChatPage() {
             <p className="text-xs text-gray-500 italic">{t('loadingHistory')}</p>
           </div>
         )}
+        {messages.length === 0 && !loadingHistory && (
+          <div
+            className="flex flex-col items-center justify-center h-full text-center px-4"
+            data-testid="chat-empty-state"
+          >
+            <svg
+              className="w-16 h-16 text-gray-300 mb-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"
+              />
+            </svg>
+            <h2 className="text-lg font-semibold text-gray-500 mb-1">
+              {t('emptyStateTitle')}
+            </h2>
+            <p className="text-sm text-gray-400">
+              {t('emptyStatePrompt')}
+            </p>
+          </div>
+        )}
         {messages.map((msg, idx) => {
           const isStreamingMsg = streaming && msg.role === 'assistant' && msg === messages[messages.length - 1] && msg.content !== '';
           // Find the previous user message for Topic Guard feedback
@@ -865,8 +715,8 @@ export default function ChatPage() {
             />
           );
         })}
-        {loading && !streaming && <ThinkingBubble key="thinking" />}
-        {loading && streaming && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].content === '' && (
+        {loading && !receivedFirstToken && <ConnectingBubble key="connecting" />}
+        {loading && receivedFirstToken && streaming && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].content === '' && (
           <ThinkingBubble key="thinking" />
         )}
         <div key="scroll-anchor" ref={bottomRef} />
@@ -918,6 +768,7 @@ export default function ChatPage() {
           style={{ minHeight: '40px' }}
           disabled={loading || streaming}
           aria-label={t('placeholder')}
+          autoFocus
         />
         <button
           type="button"

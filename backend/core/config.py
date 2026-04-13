@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     LLM_FALLBACK_URL: str | None = None
     LLM_FALLBACK_API_KEY: str | None = None
     EMBED_MODEL: str = "text-embedding-ada-002"
+    EMBED_URL: str | None = None  # Dedicated embedding endpoint; defaults to LLM_FALLBACK_URL
+    EMBED_API_KEY: str | None = None  # Defaults to LLM_FALLBACK_API_KEY
     LLM_TIMEOUT: int = 60  # seconds
     LLM_RETRY_MAX: int = 3
     LLM_RETRY_BASE_DELAY: float = 1.0

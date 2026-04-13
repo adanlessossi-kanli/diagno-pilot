@@ -99,13 +99,23 @@ class EmbeddingModel:
         """Call the OpenAI-compatible embeddings API and return the vector."""
         payload = {"model": self.model, "input": text}
 
-        urls_and_keys = []
-        if self.base_url:
-            urls_and_keys.append((self.base_url, self.api_key))
+        urls_and_keys: list[tuple[str, str]] = []
+
+        # Prefer dedicated EMBED_URL if configured
+        embed_url = (settings.EMBED_URL or "").rstrip("/")
+        embed_key = settings.EMBED_API_KEY or ""
+        if embed_url:
+            urls_and_keys.append((embed_url, embed_key))
+
+        # Fallback URL (typically OpenAI) — use for embeddings when no dedicated URL
         fallback_url = (settings.LLM_FALLBACK_URL or "").rstrip("/")
         fallback_key = settings.LLM_FALLBACK_API_KEY or ""
-        if fallback_url and fallback_url != self.base_url:
+        if fallback_url and fallback_url not in {u for u, _ in urls_and_keys}:
             urls_and_keys.append((fallback_url, fallback_key))
+
+        # Primary LLM URL as last resort (may not support /embeddings)
+        if self.base_url and self.base_url not in {u for u, _ in urls_and_keys}:
+            urls_and_keys.append((self.base_url, self.api_key))
 
         last_exc: Exception = RuntimeError("No embedding endpoints configured")
         for url, key in urls_and_keys:

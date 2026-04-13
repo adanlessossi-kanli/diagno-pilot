@@ -62,6 +62,12 @@ export function DocumentSidebar({ apiClient, userRole }: DocumentSidebarProps) {
   const [uploadSuccess, setUploadSuccess] = useState('');
   const [elapsedSec, setElapsedSec] = useState(0);
 
+  // Documents list collapsed state
+  const [docsCollapsed, setDocsCollapsed] = useState(false);
+
+  // Upload form collapsed state
+  const [uploadCollapsed, setUploadCollapsed] = useState(true);
+
   // Download errors keyed by document id
   const [downloadErrors, setDownloadErrors] = useState<Record<string, boolean>>({});
 
@@ -169,12 +175,26 @@ export function DocumentSidebar({ apiClient, userRole }: DocumentSidebarProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <aside className="flex flex-col h-full border-l bg-white">
-      {/* ── Upload Form ──────────────────────────────────────────────────── */}
-      <section className="p-4 border-b">
-        <h2 className="text-sm font-semibold mb-3">{t('uploadTitle')}</h2>
+    <aside className="flex flex-col h-full bg-white">
+      {/* ── Upload Form (collapsible) ─────────────────────────────────── */}
+      <section className="border-b">
+        <button
+          type="button"
+          onClick={() => setUploadCollapsed((prev) => !prev)}
+          className="flex items-center justify-between w-full px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          aria-expanded={!uploadCollapsed}
+        >
+          {t('uploadTitle')}
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${uploadCollapsed ? '' : 'rotate-180'}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
 
-        <form onSubmit={(e) => void handleUpload(e)} className="space-y-3">
+        {!uploadCollapsed && (
+        <form onSubmit={(e) => void handleUpload(e)} className="px-4 pb-4 space-y-3">
           {/* Title */}
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -253,14 +273,29 @@ export function DocumentSidebar({ apiClient, userRole }: DocumentSidebarProps) {
             {submitting ? t('uploading') : t('upload')}
           </button>
         </form>
+        )}
       </section>
 
-      {/* ── Document List ────────────────────────────────────────────────── */}
+      {/* ── Document List (collapsible) ──────────────────────────────── */}
       <section className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 py-3 border-b">
-          <h2 className="text-sm font-semibold">{t('documents')}</h2>
-        </div>
+        <button
+          type="button"
+          onClick={() => setDocsCollapsed((prev) => !prev)}
+          className="flex items-center justify-between w-full px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors border-b"
+          aria-expanded={!docsCollapsed}
+        >
+          {t('documents')} {!loading && !fetchError && documents.length > 0 && (
+            <span className="text-xs font-normal text-gray-400 ml-1">({documents.length})</span>
+          )}
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${docsCollapsed ? '' : 'rotate-180'}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
 
+        {!docsCollapsed && (<>
         {/* Delete error */}
         {deleteError && (
           <div className="px-4 py-2">
@@ -336,6 +371,7 @@ export function DocumentSidebar({ apiClient, userRole }: DocumentSidebarProps) {
             })}
           </ul>
         )}
+        </>)}
       </section>
     </aside>
   );

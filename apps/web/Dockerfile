@@ -14,20 +14,7 @@ COPY apps/web/package.json ./apps/web/
 
 RUN npm ci
 
-# Stage 2: Development (used by docker-compose with `npm run dev`)
-FROM node:22-alpine AS dev
-WORKDIR /app
-
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json package-lock.json ./
-COPY packages/ ./packages/
-COPY apps/web/ ./apps/web/
-
-WORKDIR /app/apps/web
-EXPOSE 3000
-CMD ["npm", "run", "dev"]
-
-# Stage 3: Build the application
+# Stage 2: Build the application
 FROM node:22-alpine AS builder
 WORKDIR /app
 
@@ -36,14 +23,20 @@ COPY package.json package-lock.json ./
 COPY packages/ ./packages/
 COPY apps/web/ ./apps/web/
 
+# Set backend URL at build time so Next.js rewrites are baked correctly
+ENV BACKEND_INTERNAL_URL=http://backend:8000
+
 WORKDIR /app/apps/web
 RUN npm run build
 
-# Stage 4: Production runner
+# Stage 3: Production runner
 FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV BACKEND_INTERNAL_URL=http://backend:8000
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 
 # Create non-root user (UID 1001)
 RUN adduser --system --uid 1001 nextuser
@@ -52,6 +45,12 @@ RUN adduser --system --uid 1001 nextuser
 COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public ./apps/web/public
+
+# Copy monorepo packages needed at runtime (i18n locale files, types, etc.)
+COPY --from=builder /app/packages ./packages
+
+# Create cache directory with correct permissions
+RUN mkdir -p /app/apps/web/.next/cache && chown -R nextuser /app/apps/web/.next
 
 USER nextuser
 

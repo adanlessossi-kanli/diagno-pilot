@@ -14,6 +14,7 @@
     "@diagno-pilot/types": "*",
     "@diagno-pilot/ui": "*",
     "@react-native-async-storage/async-storage": "^3.0.2",
+    "@react-native-community/netinfo": "^11.4.1",
     "@react-navigation/bottom-tabs": "^6.6.1",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.11.0",
@@ -47,7 +48,8 @@
       "^react/(.*)$": "<rootDir>/node_modules/react/$1",
       "^react-native$": "<rootDir>/node_modules/react-native",
       "^react-native/(.*)$": "<rootDir>/node_modules/react-native/$1",
-      "^expo-localization$": "<rootDir>/__mocks__/expo-localization.js"
+      "^expo-localization$": "<rootDir>/__mocks__/expo-localization.js",
+      "^@react-native-community/netinfo$": "<rootDir>/__mocks__/@react-native-community/netinfo.js"
     },
     "transformIgnorePatterns": [
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|@diagno-pilot/.*)"

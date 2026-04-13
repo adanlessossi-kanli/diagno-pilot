@@ -302,3 +302,159 @@ describe('DiagnosePage session history integration', () => {
     expect(newEntry).toBeDefined();
   });
 });
+
+// ─── UX Improvements Tests ───────────────────────────────────────────────────
+
+describe('DiagnosePage UX improvements', () => {
+  // Helper: mock a successful diagnosis response and submit the form
+  async function submitDiagnosisAndWaitForResults(container: HTMLElement, findByText: (text: string) => Promise<HTMLElement>) {
+    mockGetSymptomsDiagnosis.mockResolvedValue({
+      sessionId: 'test-session',
+      diagnoses: [{ condition: 'Malaria', probability: 0.8, icdCode: 'B50', matchingSymptoms: ['fever'], concordantSymptoms: ['fever'] }],
+      confidenceScore: 0.8,
+      llmUsed: 'test',
+      sources: [],
+      warningsPresent: false,
+      fallbackWarning: undefined,
+      degradedWarning: undefined,
+      parseFailed: false,
+      agentContributions: [],
+      evidenceCitations: [],
+    });
+
+    // Type symptoms
+    const textarea = container.querySelector('textarea')!;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: 'fever and headache' } });
+    });
+
+    // Submit the form
+    const submitBtn = container.querySelector('button[type="submit"]')!;
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+
+    // Wait for results to appear
+    await findByText('diagnose.resultsTitle');
+  }
+
+  it('renders StepProgress with symptom step active initially', async () => {
+    const { container } = render(<DiagnosePage />);
+
+    // Wait for initial render to settle
+    await act(async () => {});
+
+    // Find the StepProgress component by its role="group" with aria-label="Progress"
+    const stepProgress = container.querySelector('[role="group"][aria-label="Progress"]');
+    expect(stepProgress).not.toBeNull();
+
+    // Verify step labels are rendered
+    const stepLabels = stepProgress!.querySelectorAll('span');
+    const labelTexts = Array.from(stepLabels).map((el) => el.textContent);
+    expect(labelTexts).toContain('diagnose.stepSymptoms');
+    expect(labelTexts).toContain('diagnose.stepResults');
+    expect(labelTexts).toContain('diagnose.stepPrescription');
+
+    // The first step (symptoms) should be current (index 0)
+    // In StepProgress, the current step circle has fontWeight 700
+    // The first circle should show "1" (current step shows its number)
+    const circles = stepProgress!.querySelectorAll('[aria-hidden="true"]');
+    // First circle (index 0) should contain "1" (current step)
+    const firstCircle = circles[0];
+    expect(firstCircle?.textContent).toBe('1');
+  });
+
+  it('advances StepProgress to prescription step when results are displayed', async () => {
+    const { container, findByText } = render(<DiagnosePage />);
+
+    await submitDiagnosisAndWaitForResults(container, findByText);
+
+    // The StepProgress should now show prescription step as current (index 2)
+    const stepProgress = container.querySelector('[role="group"][aria-label="Progress"]');
+    expect(stepProgress).not.toBeNull();
+
+    // With currentIndex=2, steps 0 and 1 should be completed (show checkmarks/SVGs)
+    // Step 2 should be current (show "3")
+    const circles = stepProgress!.querySelectorAll('div > div > div[aria-hidden="true"]');
+    // The third step circle should show "3" (current)
+    const lastCircle = circles[circles.length - 1];
+    expect(lastCircle?.textContent).toBe('3');
+  });
+
+  it('shows ConfirmDialog when clicking New Diagnosis with results displayed', async () => {
+    const { container, findByText } = render(<DiagnosePage />);
+
+    await submitDiagnosisAndWaitForResults(container, findByText);
+
+    // Click the "New Diagnosis" button
+    const newDiagBtn = await findByText(/\+\s*diagnose\.newDiagnosis/);
+    await act(async () => {
+      fireEvent.click(newDiagBtn);
+    });
+
+    // Verify a ConfirmDialog appears
+    const dialog = container.querySelector('[role="alertdialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
+
+    // Verify dialog title and message
+    expect(dialog?.textContent).toContain('diagnose.confirmNewDiagnosis');
+    expect(dialog?.textContent).toContain('diagnose.confirmNewDiagnosisMessage');
+  });
+
+  it('confirming in ConfirmDialog clears results', async () => {
+    const { container, findByText, queryByText } = render(<DiagnosePage />);
+
+    await submitDiagnosisAndWaitForResults(container, findByText);
+
+    // Click "New Diagnosis" to open dialog
+    const newDiagBtn = await findByText(/\+\s*diagnose\.newDiagnosis/);
+    await act(async () => {
+      fireEvent.click(newDiagBtn);
+    });
+
+    // Click the confirm button
+    const confirmBtn = await findByText('common.confirm');
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    // Results should be cleared
+    await waitFor(() => {
+      expect(queryByText('diagnose.resultsTitle')).toBeNull();
+    });
+
+    // The form textarea should be reset (empty)
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea?.value).toBe('');
+  });
+
+  it('canceling in ConfirmDialog keeps results', async () => {
+    const { container, findByText, queryByText } = render(<DiagnosePage />);
+
+    await submitDiagnosisAndWaitForResults(container, findByText);
+
+    // Click "New Diagnosis" to open dialog
+    const newDiagBtn = await findByText(/\+\s*diagnose\.newDiagnosis/);
+    await act(async () => {
+      fireEvent.click(newDiagBtn);
+    });
+
+    // Verify dialog is open
+    expect(container.querySelector('[role="alertdialog"]')).not.toBeNull();
+
+    // Click the cancel button
+    const cancelBtn = await findByText('common.cancel');
+    await act(async () => {
+      fireEvent.click(cancelBtn);
+    });
+
+    // Dialog should close
+    await waitFor(() => {
+      expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    });
+
+    // Results should still be displayed
+    expect(queryByText('diagnose.resultsTitle')).not.toBeNull();
+  });
+});

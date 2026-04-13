@@ -23,7 +23,7 @@ jest.mock('expo-router', () => ({
 
 // ─── Mock AuthContext ─────────────────────────────────────────────────────────
 
-const mockSendMessage = jest.fn();
+const mockSendMessageStream = jest.fn();
 
 jest.mock('../../../src/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -34,11 +34,37 @@ jest.mock('../../../src/contexts/AuthContext', () => ({
     logout: jest.fn(),
     apiClient: {
       chat: {
-        sendMessage: mockSendMessage,
+        sendMessageStream: mockSendMessageStream,
       },
     },
   }),
 }));
+
+jest.mock('../../../src/contexts/I18nContext', () => ({
+  useI18n: () => ({
+    locale: 'fr-TG',
+    setLocale: jest.fn(),
+    cacheVersion: 0,
+    t: (key: string) => key,
+  }),
+}));
+
+/**
+ * Helper: creates an async generator that yields StreamEvent objects
+ * matching the sendMessageStream contract.
+ */
+async function* fakeStream(reply: ChatMessage) {
+  // Yield the full answer as a single 'done' event
+  yield {
+    type: 'done' as const,
+    answer: reply.content,
+    session_id: 'test-session',
+    sources: reply.sources ?? [],
+    llm_used: 'test-model',
+    fallback_warning: null,
+    warnings_present: false,
+  };
+}
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -72,14 +98,14 @@ beforeEach(() => {
 
 describe('ChatScreen — message sending', () => {
   it('appends user message to conversation after sending', async () => {
-    mockSendMessage.mockResolvedValue(makeAssistantReply(false));
+    mockSendMessageStream.mockReturnValue(fakeStream(makeAssistantReply(false)));
 
     render(<ChatScreen />);
 
     const input = screen.getByLabelText('Message');
     fireEvent.changeText(input, 'Quelle est la dose de ciprofloxacine ?');
 
-    const sendButton = screen.getByLabelText('Envoyer');
+    const sendButton = screen.getByLabelText('chat.send');
     await act(async () => {
       fireEvent.press(sendButton);
     });
@@ -90,14 +116,14 @@ describe('ChatScreen — message sending', () => {
   }, 10000);
 
   it('renders assistant reply after sending', async () => {
-    mockSendMessage.mockResolvedValue(makeAssistantReply(false));
+    mockSendMessageStream.mockReturnValue(fakeStream(makeAssistantReply(false)));
 
     render(<ChatScreen />);
 
     const input = screen.getByLabelText('Message');
     fireEvent.changeText(input, 'Question test');
 
-    const sendButton = screen.getByLabelText('Envoyer');
+    const sendButton = screen.getByLabelText('chat.send');
     await act(async () => {
       fireEvent.press(sendButton);
     });
@@ -108,14 +134,14 @@ describe('ChatScreen — message sending', () => {
   });
 
   it('renders MobileSourceCitation when assistant reply has sources', async () => {
-    mockSendMessage.mockResolvedValue(makeAssistantReply(true));
+    mockSendMessageStream.mockReturnValue(fakeStream(makeAssistantReply(true)));
 
     render(<ChatScreen />);
 
     const input = screen.getByLabelText('Message');
     fireEvent.changeText(input, 'Fluoroquinolones enfants ?');
 
-    const sendButton = screen.getByLabelText('Envoyer');
+    const sendButton = screen.getByLabelText('chat.send');
     await act(async () => {
       fireEvent.press(sendButton);
     });
@@ -127,20 +153,20 @@ describe('ChatScreen — message sending', () => {
   });
 
   it('calls sendMessage API with the typed text', async () => {
-    mockSendMessage.mockResolvedValue(makeAssistantReply(false));
+    mockSendMessageStream.mockReturnValue(fakeStream(makeAssistantReply(false)));
 
     render(<ChatScreen />);
 
     const input = screen.getByLabelText('Message');
     fireEvent.changeText(input, 'Ma question');
 
-    const sendButton = screen.getByLabelText('Envoyer');
+    const sendButton = screen.getByLabelText('chat.send');
     await act(async () => {
       fireEvent.press(sendButton);
     });
 
     await waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
+      expect(mockSendMessageStream).toHaveBeenCalledWith(
         expect.any(String),
         'Ma question'
       );
@@ -148,14 +174,14 @@ describe('ChatScreen — message sending', () => {
   });
 
   it('clears input after sending', async () => {
-    mockSendMessage.mockResolvedValue(makeAssistantReply(false));
+    mockSendMessageStream.mockReturnValue(fakeStream(makeAssistantReply(false)));
 
     render(<ChatScreen />);
 
     const input = screen.getByLabelText('Message');
     fireEvent.changeText(input, 'Question à envoyer');
 
-    const sendButton = screen.getByLabelText('Envoyer');
+    const sendButton = screen.getByLabelText('chat.send');
     await act(async () => {
       fireEvent.press(sendButton);
     });
@@ -163,5 +189,19 @@ describe('ChatScreen — message sending', () => {
     await waitFor(() => {
       expect(input.props.value).toBe('');
     });
+  });
+});
+
+describe('ChatScreen — character count indicator', () => {
+  it('displays 0/1000 character count on initial render', () => {
+    render(<ChatScreen />);
+    expect(screen.getByText('0/1000')).toBeTruthy();
+  });
+
+  it('updates character count as user types', () => {
+    render(<ChatScreen />);
+    const input = screen.getByLabelText('Message');
+    fireEvent.changeText(input, 'Hello');
+    expect(screen.getByText('5/1000')).toBeTruthy();
   });
 });

@@ -3,16 +3,13 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      target: dev
+      target: runner
     ports:
       - "3000:3000"
     environment:
+      - NODE_ENV=production
       - BACKEND_INTERNAL_URL=http://backend:8000
       - NEXT_PUBLIC_API_URL=
-    volumes:
-      - ./apps/web/src:/app/apps/web/src
-      - ./apps/web/public:/app/apps/web/public
-      - ./packages:/app/packages
     depends_on:
       - backend
     healthcheck:
@@ -24,7 +21,6 @@ services:
 
   backend:
     build: ./backend
-    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-include *.py
     ports:
       - "8000:8000"
     environment:
@@ -49,8 +45,6 @@ services:
       - AGENT_TREATMENT_URL=http://agent-treatment:8004
       - LLM_TIMEOUT=${LLM_TIMEOUT:-180}
       - LLM_RETRY_MAX=${LLM_RETRY_MAX:-1}
-    volumes:
-      - ./backend:/workspace/backend
     depends_on:
       mongo:
         condition: service_healthy
@@ -183,10 +177,7 @@ services:
     build: ./backend
     environment:
       - MONGODB_URI=mongodb://${MONGO_USERNAME:-diagno_dev}:${MONGO_PASSWORD:-diagno_dev_pass}@mongo:27017/diagno_pilot?authSource=admin
-    volumes:
-      - ./backend:/workspace/backend
-      - ./scripts:/workspace/scripts
-    command: python /workspace/scripts/seed.py
+    command: python -m backend.scripts.seed
     depends_on:
       mongo:
         condition: service_healthy
@@ -200,15 +191,11 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=$${REDIS_PASSWORD:-diagno_redis_dev} redis-cli ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:-diagno_redis_dev} redis-cli ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ⚠️ MongoDB authentication: existing dev environments must remove the mongo volume
-  # before the first start with auth, because MONGODB_INITDB_ROOT_USERNAME is only
-  # executed on a fresh volume:
-  #   docker compose down -v
   mongo:
     image: mongodb/mongodb-atlas-local:8.0
     hostname: mongo
@@ -267,7 +254,6 @@ services:
       - "3001:3000"
     environment:
       - GF_AUTH_ANONYMOUS_ENABLED=true
-      # In production, disable anonymous access: GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
     volumes:
       - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro

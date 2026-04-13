@@ -52,10 +52,10 @@ describe('auth.login', () => {
     const params = new URLSearchParams(body);
     expect(params.get('username')).toBe('doc@example.com');
     expect(params.get('password')).toBe('secret');
-    expect(result.token_type).toBe('bearer');
+    expect((result as Record<string, unknown>).tokenType).toBe('bearer');
     // Tokens must NOT be in the response body
-    expect((result as Record<string, unknown>)['access_token']).toBeUndefined();
-    expect((result as Record<string, unknown>)['refresh_token']).toBeUndefined();
+    expect((result as Record<string, unknown>)['accessToken']).toBeUndefined();
+    expect((result as Record<string, unknown>)['refreshToken']).toBeUndefined();
   });
 
   it('sends login with credentials: include', async () => {
@@ -735,7 +735,7 @@ describe('documents.listChatSessions', () => {
     const result = await client.documents.listChatSessions(0, 10);
 
     expect(result.sessions).toHaveLength(1);
-    expect(result.sessions[0].session_id).toBe('ds1');
+    expect((result.sessions[0] as Record<string, unknown>).sessionId).toBe('ds1');
   });
 
   it('handles empty sessions array', async () => {
@@ -779,7 +779,7 @@ describe('documents.getChatHistory', () => {
     expect(init?.method).toBe('GET');
     expect(init?.credentials).toBe('include');
     expect(result).not.toBeNull();
-    expect(result!.session_id).toBe('ds1');
+    expect((result as Record<string, unknown>).sessionId).toBe('ds1');
     expect(result!.messages).toHaveLength(1);
   });
 

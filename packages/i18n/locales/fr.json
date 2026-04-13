@@ -30,7 +30,15 @@
     "signupError": "Erreur lors de la création du compte. Veuillez réessayer.",
     "hasAccount": "Déjà un compte ?",
     "loginLink": "Se connecter",
-    "signupSuccess": "Compte créé. Vous pouvez maintenant vous connecter."
+    "signupSuccess": "Compte créé. Vous pouvez maintenant vous connecter.",
+    "signingIn": "Connexion en cours…",
+    "forgotPassword": "Mot de passe oublié ?",
+    "forgotPasswordTitle": "Mot de passe oublié ?",
+    "forgotPasswordMessage": "Veuillez contacter votre administrateur pour réinitialiser votre mot de passe.",
+    "backToLogin": "Retour à la connexion",
+    "emailRequired": "L'adresse e-mail est obligatoire",
+    "passwordRequired": "Le mot de passe est obligatoire",
+    "emailInvalid": "Veuillez saisir une adresse e-mail valide"
   },
   "common": {
     "loading": "Chargement...",
@@ -48,7 +56,17 @@
     "notFound": "Ressource introuvable.",
     "unauthorized": "Accès non autorisé.",
     "forbidden": "Vous n'avez pas les droits nécessaires.",
-    "networkError": "Erreur réseau. Vérifiez votre connexion."
+    "networkError": "Erreur réseau. Vérifiez votre connexion.",
+    "networkDescription": "Impossible de compléter la requête. Veuillez vérifier votre connexion internet.",
+    "networkAction": "Vérifiez votre connexion et réessayez.",
+    "offline": "Vous êtes hors ligne. Veuillez vérifier votre connexion internet.",
+    "timeout": "La requête prend plus de temps que prévu.",
+    "timeoutAction": "Vous pouvez patienter, réessayer ou annuler la requête.",
+    "autoCancel": "La requête a été automatiquement annulée après 30 secondes.",
+    "unauthorizedDescription": "Votre session a peut-être expiré.",
+    "unauthorizedAction": "Veuillez vous reconnecter.",
+    "genericDescription": "Une erreur inattendue s'est produite.",
+    "genericAction": "Veuillez réessayer plus tard."
   },
   "patients": {
     "title": "Patients",
@@ -70,6 +88,13 @@
     "errorCreate": "Erreur lors de la création du patient.",
     "createTitle": "Nouveau patient",
     "allergiesCount": "{count} allergie(s)",
+    "search": "Rechercher des patients...",
+    "createNurse": "Créer une infirmière",
+    "emptyDescription": "Créez votre premier dossier patient pour commencer.",
+    "nameRequired": "Le nom est obligatoire",
+    "weightPositive": "Le poids doit être un nombre positif",
+    "unsavedChanges": "Modifications non enregistrées",
+    "unsavedChangesMessage": "Vous avez des modifications non enregistrées. Êtes-vous sûr de vouloir les abandonner ?",
     "viewRecord": "Voir le dossier",
     "ageGroups": {
       "neonatal": "Néonatal (0–28j)",
@@ -148,6 +173,11 @@
       "errorFetch": "Erreur lors du chargement de l'historique."
     },
     "restoredPartial": "Certains détails ne sont pas disponibles — affichage des résultats restaurés d'une session précédente.",
+    "stepSymptoms": "Symptômes",
+    "stepResults": "Résultats",
+    "stepPrescription": "Prescription",
+    "confirmNewDiagnosis": "Commencer un nouveau diagnostic ?",
+    "confirmNewDiagnosisMessage": "Vos résultats actuels seront effacés. Êtes-vous sûr de vouloir recommencer ?",
     "viewHistory": "Historique des diagnostics",
     "prescriptionStep": {
       "title": "Prescription antibiotique",
@@ -213,7 +243,11 @@
     "loadingHistory": "Chargement de l'historique...",
     "newSessionVerifyFailed": "Impossible de vérifier que la session a été sauvegardée. Veuillez réessayer ou continuer votre conversation.",
     "responseInterrupted": "[Réponse interrompue]",
-    "sourcesUnavailable": "Sources indisponibles — la réponse a été interrompue avant que les sources puissent être transmises."
+    "sourcesUnavailable": "Sources indisponibles — la réponse a été interrompue avant que les sources puissent être transmises.",
+    "emptyStateTitle": "Posez une question médicale",
+    "emptyStatePrompt": "Posez une question sur les antibiotiques, les maladies infectieuses ou les protocoles de traitement.",
+    "connecting": "Connexion...",
+    "copied": "Copié !"
   },
   "alerts": {
     "critical": "Alerte critique",
@@ -342,6 +376,9 @@
     "errorHide": "Erreur lors du masquage de la consultation.",
     "delete": "Supprimer",
     "hide": "Masquer",
+    "search": "Rechercher des sessions...",
+    "deleteTitle": "Supprimer la session ?",
+    "deleteMessage": "Cette action est irréversible.",
     "confirmDeleteTitle": "Supprimer la session ?",
     "confirmDeleteMessage": "Cette action est irréversible.",
     "cancel": "Annuler",

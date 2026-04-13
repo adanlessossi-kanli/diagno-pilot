@@ -127,7 +127,8 @@ describe('PatientDetailPage — page-level tests', () => {
     await renderPatientDetailPage('p1', PatientDetailPage);
 
     await waitFor(() => {
-      expect(screen.getByText('Alice Martin')).toBeDefined();
+      // Patient name appears in both breadcrumb and h1; use heading role for specificity
+      expect(screen.getByRole('heading', { name: 'Alice Martin' })).toBeDefined();
     }, { timeout: 5000 });
   });
 
@@ -146,7 +147,7 @@ describe('PatientDetailPage — page-level tests', () => {
     await renderPatientDetailPage('p1', PatientDetailPage);
 
     await waitFor(() => {
-      expect(screen.getByText('Alice Martin')).toBeDefined();
+      expect(screen.getByRole('heading', { name: 'Alice Martin' })).toBeDefined();
     }, { timeout: 5000 });
 
     // The weight label is rendered via t('weight') which returns 'weight'
@@ -168,7 +169,7 @@ describe('PatientDetailPage — page-level tests', () => {
     await renderPatientDetailPage('p1', PatientDetailPage);
 
     await waitFor(() => {
-      expect(screen.getByText('Alice Martin')).toBeDefined();
+      expect(screen.getByRole('heading', { name: 'Alice Martin' })).toBeDefined();
     }, { timeout: 5000 });
 
     expect(screen.getByText('penicillin')).toBeDefined();
@@ -200,7 +201,7 @@ describe('PatientDetailPage — page-level tests', () => {
     await renderPatientDetailPage('p1', PatientDetailPage);
 
     await waitFor(() => {
-      expect(screen.getByText('Alice Martin')).toBeDefined();
+      expect(screen.getByRole('heading', { name: 'Alice Martin' })).toBeDefined();
     }, { timeout: 5000 });
 
     // The consultations section heading is rendered via t('consultations')
@@ -262,9 +263,9 @@ describe('PatientDetailPage — Property 10: Patient detail page renders all req
 
       await renderPatientDetailPage('p-test', PatientDetailPage);
 
-      // Use function matcher to avoid regex interpretation of special characters
+      // Patient name appears in both breadcrumb and h1; use heading role for specificity
       await waitFor(() => {
-        expect(screen.getByText(fullName, { exact: true })).toBeDefined();
+        expect(screen.getByRole('heading', { name: fullName })).toBeDefined();
       }, { timeout: 5000 });
 
       expect(screen.getByText('weight')).toBeDefined();

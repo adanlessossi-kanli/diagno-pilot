@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
@@ -21,16 +22,44 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 ASSISTANT_QA_SYSTEM_PROMPT = (
-    "You are a specialized medical assistant. "
-    "You ONLY answer questions about: tropical diseases, infectious diseases, "
-    "general clinical medicine, nutrition, mental health, and medical ethics. "
-    "For any question outside these domains (sports, politics, cooking, entertainment, etc.), "
-    "you MUST politely decline, explaining that you are specialized in tropical and clinical medicine. "
-    "ALWAYS prefix your refusal response with the exact marker '[TOPIC_GUARD_REFUSAL]' "
-    "followed by a line break, then the refusal message. "
+    "You are a specialized medical assistant for healthcare professionals in tropical regions. "
+    "You answer questions about the following medical domains:\n"
+    "- Tropical diseases: malaria, dengue, typhoid fever, yellow fever, chikungunya, "
+    "schistosomiasis, filariasis, trypanosomiasis, leishmaniasis, cholera, Ebola, etc.\n"
+    "- Infectious diseases: tuberculosis, HIV/AIDS, hepatitis, meningitis, pneumonia, "
+    "sexually transmitted infections, parasitic infections, fungal infections, etc.\n"
+    "- General clinical medicine: diagnosis, symptoms, treatment protocols, pharmacology, "
+    "patient management, emergency medicine, pediatrics, obstetrics, surgery, etc.\n"
+    "- Nutrition: malnutrition, dietary recommendations, micronutrient deficiencies, etc.\n"
+    "- Mental health: depression, anxiety, PTSD, psychopharmacology, etc.\n"
+    "- Medical ethics: informed consent, confidentiality, clinical trial ethics, etc.\n\n"
+    "IMPORTANT: If the user's question is about ANY of the above medical topics, "
+    "you MUST answer it helpfully and thoroughly. Do NOT refuse medical questions.\n\n"
+    "ONLY refuse questions that are clearly non-medical (e.g. sports scores, recipes, "
+    "celebrity gossip, politics, video games, travel tips unrelated to health). "
+    "When refusing, prefix your response with '[TOPIC_GUARD_REFUSAL]' followed by a line break, "
+    "then a polite explanation that you specialize in medical topics.\n\n"
     "Detect the language of the user's message and respond in that same language. "
-    "If ambiguous, use the provided locale language."
+    "If ambiguous, default to French."
 )
+
+# Model-specific markers that may leak into streamed output (e.g. MedicalQwen3
+# reasoning tokens).  These are stripped from both individual tokens and the
+# final assembled answer before persistence and delivery to the frontend.
+
+_MODEL_MARKER_RE = re.compile(
+    r"\[RESEARCH_ANSWER\]"
+    r"|\[/RESEARCH_ANSWER\]"
+    r"|<\|research_answer\|>"
+    r"|<\|/research_answer\|>"
+    r"|\[STOP\]"
+    r"|<\|stop\|>"
+)
+
+
+def _strip_model_markers(text: str) -> str:
+    """Remove model-specific reasoning markers from *text*."""
+    return _MODEL_MARKER_RE.sub("", text)
 
 
 class ChatMessage:
@@ -135,13 +164,15 @@ class ChatService:
                         retryable=True,
                     )
                 elif chunk.token:
-                    assembled_answer += chunk.token
-                    last_llm_used = chunk.llm_used
-                    last_fallback_used = chunk.fallback_used
-                    yield StreamEvent(
-                        type="token",
-                        content=chunk.token,
-                    )
+                    cleaned = _strip_model_markers(chunk.token)
+                    if cleaned:
+                        assembled_answer += cleaned
+                        last_llm_used = chunk.llm_used
+                        last_fallback_used = chunk.fallback_used
+                        yield StreamEvent(
+                            type="token",
+                            content=cleaned,
+                        )
         except Exception as exc:
             had_error = True
             logger.exception("LLM stream failed: %s", exc)
@@ -174,6 +205,7 @@ class ChatService:
                 logger.exception("Failed to persist user turn after stream error")
         else:
             # Successful stream: emit done event and persist both turns
+            assembled_answer = _strip_model_markers(assembled_answer).strip()
             yield StreamEvent(
                 type="done",
                 answer=assembled_answer,
