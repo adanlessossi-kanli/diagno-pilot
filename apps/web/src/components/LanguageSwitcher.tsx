@@ -29,7 +29,7 @@ export default function LanguageSwitcher() {
           onClick={() => handleSwitch(loc)}
           aria-label={`Switch to ${loc === 'en' ? 'English' : 'French'}`}
           aria-current={locale === loc ? 'true' : undefined}
-          className={`text-xs font-semibold px-2.5 py-1 rounded border transition-colors ${
+          className={`text-sm font-semibold min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded border transition-colors ${
             locale === loc
               ? 'bg-blue-600 text-white border-blue-600'
               : 'text-gray-500 border-gray-300 hover:text-blue-600 hover:border-blue-400'

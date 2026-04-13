@@ -91,7 +91,7 @@ export function MobileSymptomInput({ symptoms, onAdd, onRemove }: MobileSymptomI
               <Text style={styles.tagText}>
                 {s.name}
                 {s.severity ? ` · ${s.severity}` : ''}
-                {s.durationDays > 0 ? ` · ${s.durationDays}j` : ''}
+                {(s.durationDays ?? 0) > 0 ? ` · ${s.durationDays}j` : ''}
               </Text>
               <TouchableOpacity
                 onPress={() => onRemove(i)}

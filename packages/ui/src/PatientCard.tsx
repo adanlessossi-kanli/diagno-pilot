@@ -3,8 +3,33 @@ import type { PatientProfile } from '@diagno-pilot/types';
 
 // REQ-06: Patient profile display
 
+export interface PatientCardLabels {
+  weight?: string;
+  dateOfBirth?: string;
+  allergies?: string;
+  comorbidities?: string;
+  medications?: string;
+  unknownPatient?: string;
+  none?: string;
+  known?: string;
+  active?: string;
+}
+
+const defaultLabels: Required<PatientCardLabels> = {
+  weight: 'Weight',
+  dateOfBirth: 'Date of birth',
+  allergies: 'Allergies',
+  comorbidities: 'Comorbidities',
+  medications: 'Medications',
+  unknownPatient: 'Unknown patient',
+  none: 'None',
+  known: 'known',
+  active: 'active',
+};
+
 export interface PatientCardProps {
   patient: PatientProfile;
+  labels?: PatientCardLabels;
 }
 
 const ageGroupLabel: Record<string, string> = {
@@ -23,7 +48,8 @@ function getInitials(fullName: string): string {
     .join('');
 }
 
-export function PatientCard({ patient }: PatientCardProps) {
+export function PatientCard({ patient, labels: labelsProp }: PatientCardProps) {
+  const labels = { ...defaultLabels, ...labelsProp };
   const initials = getInitials(patient.fullName ?? '');
 
   return (
@@ -37,7 +63,7 @@ export function PatientCard({ patient }: PatientCardProps) {
         </div>
         <div>
           <h3 className="m-0 text-base font-semibold text-neutral-900">
-            {patient.fullName ?? 'Unknown patient'}
+            {patient.fullName ?? labels.unknownPatient}
           </h3>
           {patient.ageGroup && (
             <span className="text-xs text-neutral-500">
@@ -50,25 +76,25 @@ export function PatientCard({ patient }: PatientCardProps) {
       <dl className="m-0 grid grid-cols-2 gap-2">
         {patient.weightKg !== undefined && (
           <>
-            <dt className="m-0 text-xs text-neutral-500 font-medium">Weight</dt>
+            <dt className="m-0 text-xs text-neutral-500 font-medium">{labels.weight}</dt>
             <dd className="m-0 text-sm text-neutral-900">{patient.weightKg} kg</dd>
           </>
         )}
         {patient.dateOfBirth && (
           <>
-            <dt className="m-0 text-xs text-neutral-500 font-medium">Date of birth</dt>
+            <dt className="m-0 text-xs text-neutral-500 font-medium">{labels.dateOfBirth}</dt>
             <dd className="m-0 text-sm text-neutral-900">{patient.dateOfBirth}</dd>
           </>
         )}
-        <dt className="m-0 text-xs text-neutral-500 font-medium">Allergies</dt>
+        <dt className="m-0 text-xs text-neutral-500 font-medium">{labels.allergies}</dt>
         <dd className="m-0 text-sm text-neutral-900">
           {patient.allergies.length > 0
-            ? `${patient.allergies.length} known`
-            : 'None'}
+            ? `${patient.allergies.length} ${labels.known}`
+            : labels.none}
         </dd>
         {(patient.renalFailure || patient.hepaticFailure) && (
           <>
-            <dt className="m-0 text-xs text-neutral-500 font-medium">Comorbidities</dt>
+            <dt className="m-0 text-xs text-neutral-500 font-medium">{labels.comorbidities}</dt>
             <dd className="m-0 text-sm text-neutral-900">
               {[
                 patient.renalFailure && 'Renal failure',
@@ -81,8 +107,8 @@ export function PatientCard({ patient }: PatientCardProps) {
         )}
         {patient.currentMedications.length > 0 && (
           <>
-            <dt className="m-0 text-xs text-neutral-500 font-medium">Medications</dt>
-            <dd className="m-0 text-sm text-neutral-900">{patient.currentMedications.length} active</dd>
+            <dt className="m-0 text-xs text-neutral-500 font-medium">{labels.medications}</dt>
+            <dd className="m-0 text-sm text-neutral-900">{patient.currentMedications.length} {labels.active}</dd>
           </>
         )}
       </dl>

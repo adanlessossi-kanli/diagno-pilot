@@ -30,7 +30,15 @@
     "signupError": "Error creating account. Please try again.",
     "hasAccount": "Already have an account?",
     "loginLink": "Sign in",
-    "signupSuccess": "Account created. You can now sign in."
+    "signupSuccess": "Account created. You can now sign in.",
+    "signingIn": "Signing in…",
+    "forgotPassword": "Forgot password?",
+    "forgotPasswordTitle": "Forgot your password?",
+    "forgotPasswordMessage": "Please contact your administrator to reset your password.",
+    "backToLogin": "Back to login",
+    "emailRequired": "Email is required",
+    "passwordRequired": "Password is required",
+    "emailInvalid": "Please enter a valid email address"
   },
   "common": {
     "loading": "Loading...",
@@ -48,7 +56,17 @@
     "notFound": "Resource not found.",
     "unauthorized": "Unauthorized access.",
     "forbidden": "You do not have the required permissions.",
-    "networkError": "Network error. Please check your connection."
+    "networkError": "Network error. Please check your connection.",
+    "networkDescription": "Unable to complete the request. Please check your internet connection.",
+    "networkAction": "Check your connection and try again.",
+    "offline": "You are offline. Please check your internet connection.",
+    "timeout": "The request is taking longer than expected.",
+    "timeoutAction": "You can wait, retry, or cancel the request.",
+    "autoCancel": "The request was automatically cancelled after 30 seconds.",
+    "unauthorizedDescription": "Your session may have expired.",
+    "unauthorizedAction": "Please log in again.",
+    "genericDescription": "An unexpected error occurred.",
+    "genericAction": "Please try again later."
   },
   "patients": {
     "title": "Patients",
@@ -70,6 +88,13 @@
     "errorCreate": "Error creating patient.",
     "createTitle": "New patient",
     "allergiesCount": "{count} allergy(ies)",
+    "search": "Search patients...",
+    "createNurse": "Create nurse",
+    "emptyDescription": "Create your first patient record to get started.",
+    "nameRequired": "Name is required",
+    "weightPositive": "Weight must be a positive number",
+    "unsavedChanges": "Unsaved changes",
+    "unsavedChangesMessage": "You have unsaved changes. Are you sure you want to discard them?",
     "viewRecord": "View record",
     "ageGroups": {
       "neonatal": "Neonatal (0–28d)",
@@ -148,6 +173,11 @@
       "errorFetch": "Error loading history."
     },
     "restoredPartial": "Some details unavailable — showing restored results from a previous session.",
+    "stepSymptoms": "Symptoms",
+    "stepResults": "Results",
+    "stepPrescription": "Prescription",
+    "confirmNewDiagnosis": "Start a new diagnosis?",
+    "confirmNewDiagnosisMessage": "Your current results will be cleared. Are you sure you want to start over?",
     "viewHistory": "Diagnosis history",
     "prescriptionStep": {
       "title": "Antibiotic Prescription",
@@ -213,7 +243,11 @@
     "loadingHistory": "Loading history...",
     "newSessionVerifyFailed": "Could not verify session was saved. Please try again or continue your conversation.",
     "responseInterrupted": "[Response interrupted]",
-    "sourcesUnavailable": "Sources unavailable — response was interrupted before sources could be delivered."
+    "sourcesUnavailable": "Sources unavailable — response was interrupted before sources could be delivered.",
+    "emptyStateTitle": "Ask a medical question",
+    "emptyStatePrompt": "Ask a question about antibiotics, infectious diseases, or treatment protocols.",
+    "connecting": "Connecting...",
+    "copied": "Copied!"
   },
   "alerts": {
     "critical": "Critical alert",
@@ -342,6 +376,9 @@
     "errorHide": "Error hiding consultation.",
     "delete": "Delete",
     "hide": "Hide",
+    "search": "Search sessions...",
+    "deleteTitle": "Delete session?",
+    "deleteMessage": "This action cannot be undone.",
     "confirmDeleteTitle": "Delete session?",
     "confirmDeleteMessage": "This action cannot be undone.",
     "cancel": "Cancel",

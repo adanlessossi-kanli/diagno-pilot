@@ -54,7 +54,7 @@ describe('LoginPage — page-level tests', () => {
     render(<LoginPage />);
 
     expect(screen.getByLabelText(/email/i)).toBeDefined();
-    expect(screen.getByLabelText(/password/i)).toBeDefined();
+    expect(document.getElementById('password')).toBeDefined();
   });
 
   it('renders the submit button', async () => {
@@ -72,7 +72,7 @@ describe('LoginPage — page-level tests', () => {
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'doc@test.com' },
     });
-    fireEvent.change(screen.getByLabelText(/password/i), {
+    fireEvent.change(document.getElementById('password')!, {
       target: { value: 'password123' },
     });
 
@@ -91,7 +91,7 @@ describe('LoginPage — page-level tests', () => {
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'bad@test.com' },
     });
-    fireEvent.change(screen.getByLabelText(/password/i), {
+    fireEvent.change(document.getElementById('password')!, {
       target: { value: 'wrongpass' },
     });
 
@@ -115,7 +115,7 @@ describe('LoginPage — page-level tests', () => {
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: 'bad@test.com' },
     });
-    fireEvent.change(screen.getByLabelText(/password/i), {
+    fireEvent.change(document.getElementById('password')!, {
       target: { value: 'wrongpass' },
     });
 

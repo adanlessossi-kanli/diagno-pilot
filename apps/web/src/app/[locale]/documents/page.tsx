@@ -26,6 +26,8 @@ export default function DocumentsPage() {
 
   // Mobile sidebar toggle
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop sidebar collapsed state
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Access control — redirect unauthorized roles
   useEffect(() => {
@@ -53,10 +55,27 @@ export default function DocumentsPage() {
       {/* Document Chat (center, includes SessionHistoryPanel internally) */}
       <DocumentChat apiClient={apiClient} isAuthenticated={!!user} />
 
-      {/* Document Sidebar (right, desktop only) */}
-      <aside className="hidden md:flex flex-col w-[25%] min-w-[280px] max-w-[380px] shrink-0">
-        <DocumentSidebar apiClient={apiClient} userRole={user.role} />
-      </aside>
+      {/* Desktop sidebar toggle button */}
+      <button
+        className="hidden md:flex items-center justify-center w-6 shrink-0 border-l border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+        onClick={() => setSidebarCollapsed((prev) => !prev)}
+        aria-label={sidebarCollapsed ? 'Expand document sidebar' : 'Collapse document sidebar'}
+        aria-expanded={!sidebarCollapsed}
+      >
+        <svg
+          className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${sidebarCollapsed ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+
+      {/* Document Sidebar (right, desktop only, collapsible) */}
+      {!sidebarCollapsed && (
+        <aside className="hidden md:flex flex-col w-[320px] shrink-0 border-l overflow-y-auto overflow-x-hidden">
+          <DocumentSidebar apiClient={apiClient} userRole={user.role} />
+        </aside>
+      )}
 
       {/* Mobile sidebar toggle button */}
       <button

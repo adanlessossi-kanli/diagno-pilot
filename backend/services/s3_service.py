@@ -66,6 +66,14 @@ class S3Service:
                 ExpiresIn=expires_in,
             ),
         )
+        # LocalStack URLs use the Docker-internal hostname (e.g. http://localstack:4566)
+        # which the browser can't reach. Replace with localhost for dev environments.
+        if settings.AWS_ENDPOINT_URL:
+            from urllib.parse import urlparse
+            internal = urlparse(settings.AWS_ENDPOINT_URL)
+            if internal.hostname and internal.hostname != "localhost":
+                external = f"http://localhost:{internal.port or 4566}"
+                url = url.replace(settings.AWS_ENDPOINT_URL, external)
         return url
 
     async def download(self, key: str) -> bytes:

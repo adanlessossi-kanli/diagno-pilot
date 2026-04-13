@@ -1,0 +1,4 @@
+# file: C:\PUBLIC\dev\diagno-pilot\backend\services\embedding_model.py
+# hypothesis_version: 6.151.9
+
+[30.0, '/', 'Authorization', 'Content-Type', 'application/json', 'data', 'embedding', 'error', 'input', 'model', 'success']

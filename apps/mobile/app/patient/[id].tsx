@@ -76,9 +76,9 @@ export default function PatientDetailScreen() {
         consultations.map((c) => (
           <View key={c.id} style={styles.consultationCard}>
             <Text style={styles.consultDate}>
-              {new Date(c.createdAt).toLocaleDateString('fr-FR', {
+              {c.createdAt ? new Date(c.createdAt).toLocaleDateString('fr-FR', {
                 day: '2-digit', month: 'long', year: 'numeric',
-              })}
+              }) : '—'}
             </Text>
 
             {c.symptoms.length > 0 && (

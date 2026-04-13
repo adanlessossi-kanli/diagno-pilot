@@ -1,0 +1,287 @@
+# Implementation Plan: UX Improvements
+
+## Overview
+
+Incremental UX improvements across the Diagno-Pilot web (Next.js) and mobile (React Native Expo) platforms. Changes span login usability, diagnosis workflow, chat enhancements, patient management, shared UI components, navigation, accessibility, error handling, and mobile i18n. All changes are frontend-only — no backend modifications.
+
+## Tasks
+
+- [x] 1. Create shared StepProgress component and utility functions
+  - [x] 1.1 Create `packages/ui/src/StepProgress.tsx` with `StepProgressProps` interface and `getStepState()` pure function
+    - Export `getStepState(stepIndex, currentIndex)` returning `'completed' | 'current' | 'upcoming'`
+    - Export `StepProgress` component rendering step labels with completed/current/upcoming visual states
+    - Use design tokens from `packages/ui/src/tokens.ts` for styling
+    - _Requirements: 2.1_
+  - [x] 1.2 Write property test for StepProgress state mapping
+    - **Property 1: Step progress state mapping**
+    - **Validates: Requirements 2.1**
+    - Create `packages/ui/src/__tests__/StepProgress.pbt.test.ts`
+    - Use fast-check with minimum 100 iterations
+  - [x] 1.3 Create `apps/web/src/utils/errorMessages.ts` with `buildErrorMessage()` function
+    - Map error types to i18n translation key pairs (`descriptionKey`, `actionKey`)
+    - Cover network, timeout, unauthorized, and generic error types
+    - _Requirements: 8.1_
+  - [x] 1.4 Write property test for error message completeness
+    - **Property 7: Error message completeness**
+    - **Validates: Requirements 8.1**
+    - Create `apps/web/src/__tests__/errorMessages.pbt.test.ts`
+    - Use fast-check with minimum 100 iterations
+  - [x] 1.5 Create `formatCharCount(current, max)` utility function in `apps/mobile/src/utils/formatCharCount.ts`
+    - Returns `"{current}/{max}"` string
+    - _Requirements: 3.2_
+  - [x] 1.6 Write property test for character count formatting
+    - **Property 2: Character count formatting**
+    - **Validates: Requirements 3.2**
+    - Create `apps/mobile/src/__tests__/formatCharCount.pbt.test.ts`
+    - Use fast-check with minimum 100 iterations
+
+- [x] 2. Checkpoint — Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 3. Improve Login Page usability
+  - [x] 3.1 Add password visibility toggle to `apps/web/src/app/[locale]/login/page.tsx`
+    - Add eye/eye-off icon button next to password field
+    - Toggle input type between "password" and "text"
+    - Update toggle icon accordingly
+    - _Requirements: 1.1, 1.2_
+  - [x] 3.2 Add inline form validation with react-hook-form + Zod to login page
+    - Add Zod schema for email (required, valid format) and password (required)
+    - Integrate `react-hook-form` with `zodResolver`
+    - Display inline error messages below respective fields on submit
+    - Replace `'…'` loading text with localized `t('auth.signingIn')` on submit button
+    - _Requirements: 1.5, 1.6, 1.7, 1.8_
+  - [x] 3.3 Add "Forgot password" link and create placeholder page
+    - Add link below login form pointing to `/{locale}/forgot-password`
+    - Create `apps/web/src/app/[locale]/forgot-password/page.tsx` with logo, localized heading, contact-admin message, and back-to-login link
+    - _Requirements: 1.3, 1.4_
+  - [x] 3.4 Add i18n keys for login improvements to web translation files
+    - Add keys: `auth.signingIn`, `auth.forgotPassword`, `auth.forgotPasswordTitle`, `auth.forgotPasswordMessage`, `auth.backToLogin`, `auth.emailRequired`, `auth.passwordRequired`, `auth.emailInvalid`
+    - _Requirements: 1.5, 1.6, 1.7, 1.8_
+  - [x] 3.5 Write unit tests for login page improvements
+    - Test password toggle, forgot password link, loading label, inline validation
+    - _Requirements: 1.1, 1.2, 1.3, 1.5, 1.6, 1.7, 1.8_
+
+- [x] 4. Enhance Diagnose Page workflow
+  - [x] 4.1 Integrate StepProgress component into `apps/web/src/app/[locale]/diagnose/page.tsx`
+    - Add StepProgress bar showing symptom input → results → prescription
+    - Track current step index based on page state
+    - Step indicators are display-only, not clickable
+    - _Requirements: 2.1_
+  - [x] 4.2 Add ConfirmDialog on "New Diagnosis" button when results are displayed
+    - Show ConfirmDialog before clearing results
+    - On confirm: clear results and reset form
+    - On cancel: keep current state unchanged
+    - Pass localized strings for dialog title, message, confirm/cancel labels
+    - _Requirements: 2.2, 2.3, 2.4_
+  - [x] 4.3 Add i18n keys for diagnose page improvements
+    - Add keys: `diagnose.stepSymptoms`, `diagnose.stepResults`, `diagnose.stepPrescription`, `diagnose.confirmNewDiagnosis`, `diagnose.confirmNewDiagnosisMessage`
+    - _Requirements: 2.1, 2.2_
+  - [x] 4.4 Write unit tests for diagnose page improvements
+    - Test StepProgress rendering, ConfirmDialog on new diagnosis
+    - _Requirements: 2.1, 2.2, 2.3, 2.4_
+
+- [x] 5. Enhance Chat Page and DocumentChat
+  - [x] 5.1 Create `apps/web/src/components/CopyButton.tsx`
+    - Copy text to clipboard on click
+    - Show localized "Copied!" feedback briefly
+    - _Requirements: 3.4, 3.5_
+  - [x] 5.2 Add empty state to web Chat Page (`apps/web/src/app/[locale]/chat/page.tsx`)
+    - Display EmptyState component with localized prompt when no messages
+    - _Requirements: 3.1_
+  - [x] 5.3 Add two-phase loading indicators to Chat Page
+    - Show "connecting" indicator before first SSE token
+    - Transition to "thinking" indicator once first token arrives
+    - Client-side detection based on SSE token receipt timing
+    - _Requirements: 3.3_
+  - [x] 5.4 Add CopyButton on assistant message hover in Chat Page and DocumentChat
+    - Show CopyButton on hover over assistant messages in `apps/web/src/app/[locale]/chat/page.tsx`
+    - Show CopyButton on hover over assistant messages in `apps/web/src/components/DocumentChat.tsx`
+    - _Requirements: 3.4, 3.5_
+  - [x] 5.5 Add i18n keys for chat improvements
+    - Add keys: `chat.emptyStateTitle`, `chat.emptyStatePrompt`, `chat.connecting`, `chat.copied`
+    - _Requirements: 3.1, 3.3, 3.5_
+  - [x] 5.6 Write unit tests for chat page improvements
+    - Test empty state, connecting/thinking indicators, copy button
+    - _Requirements: 3.1, 3.3, 3.4, 3.5_
+
+- [x] 6. Checkpoint — Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 7. Improve Patient Management
+  - [x] 7.1 Create `filterPatientsByName` pure function in `apps/web/src/app/[locale]/patients/page.tsx`
+    - Case-insensitive substring match on `patient.fullName`
+    - Return full list when query is empty/whitespace
+    - Exclude patients with null/undefined fullName when query is non-empty
+    - Preserve original order
+    - _Requirements: 4.3_
+  - [x] 7.2 Write property test for patient search filter
+    - **Property 3: Patient search filter correctness**
+    - **Validates: Requirements 4.3**
+    - Create `apps/web/src/__tests__/filterPatients.pbt.test.ts`
+    - Use fast-check with minimum 100 iterations
+  - [x] 7.3 Add search input to Patients Page for client-side filtering
+    - Add search input field above patient list
+    - Filter displayed patients in real time using `filterPatientsByName`
+    - _Requirements: 4.3_
+  - [x] 7.4 Replace hardcoded French strings with i18n keys on Patients Page
+    - Replace "Créer une infirmière", "Créez votre premier dossier patient pour commencer.", Zod validation messages
+    - Add i18n keys: `patients.search`, `patients.createNurse`, `patients.emptyDescription`
+    - _Requirements: 4.1_
+  - [x] 7.5 Add spinner overlay and disabled inputs during CreatePatientModal submission
+    - Disable all form inputs while submitting
+    - Display spinner overlay on modal content
+    - _Requirements: 4.2_
+  - [x] 7.6 Add unsaved changes ConfirmDialog on CreatePatientModal close
+    - Track form dirty state via `react-hook-form`'s `formState.isDirty`
+    - Show ConfirmDialog on close attempt (×, backdrop, Escape) when dirty
+    - On confirm: close modal, discard changes
+    - On cancel: keep modal open
+    - Add i18n keys: `patients.unsavedChanges`, `patients.unsavedChangesMessage`
+    - _Requirements: 4.4_
+  - [x] 7.7 Write unit tests for patient management improvements
+    - Test search filtering, spinner overlay, unsaved changes dialog
+    - _Requirements: 4.1, 4.2, 4.3, 4.4_
+
+- [x] 8. Improve shared UI components
+  - [x] 8.1 Refactor SymptomInput to use design tokens and add visible labels
+    - Replace all inline `style` objects in `packages/ui/src/SymptomInput.tsx` with design token values from `tokens.ts`
+    - Add visible `<label>` elements with `htmlFor`/`id` pairs for symptom name, severity, and duration fields
+    - _Requirements: 5.1, 7.1, 2.5_
+  - [x] 8.2 Add `labels` prop to PrescriptionCard for i18n support
+    - Add optional `labels` prop to `packages/ui/src/PrescriptionCard.tsx`: `{ dose, frequency, duration, route, cappedToAdultDose }`
+    - Fall back to current English strings when labels prop is not provided
+    - _Requirements: 5.2_
+  - [x] 8.3 Write property test for PrescriptionCard labels
+    - **Property 4: PrescriptionCard renders provided labels**
+    - **Validates: Requirements 5.2**
+    - Create `packages/ui/src/__tests__/PrescriptionCard.pbt.test.tsx`
+    - Use fast-check with minimum 100 iterations
+  - [x] 8.4 Add `labels` prop to PatientCard for i18n support
+    - Add optional `labels` prop to `packages/ui/src/PatientCard.tsx`: `{ weight, dateOfBirth, allergies, comorbidities, medications, unknownPatient, none, known, active }`
+    - Fall back to current English strings when labels prop is not provided
+    - _Requirements: 5.3_
+  - [x] 8.5 Write property test for PatientCard labels
+    - **Property 5: PatientCard renders provided labels**
+    - **Validates: Requirements 5.3**
+    - Create `packages/ui/src/__tests__/PatientCard.pbt.test.tsx`
+    - Use fast-check with minimum 100 iterations
+  - [x] 8.6 Add dismiss button to Toast component
+    - Add × button to `apps/web/src/components/Toast.tsx`
+    - Clicking dismiss hides toast and invokes `onClose` callback
+    - _Requirements: 5.4, 5.5_
+  - [x] 8.7 Update AlertBanner critical icon to distinct stop/octagon SVG
+    - Replace the triangle icon for `critical` level in `packages/ui/src/AlertBanner.tsx` with a stop/octagon SVG
+    - Keep the triangle icon for `warning` level
+    - _Requirements: 5.6_
+  - [x] 8.8 Write unit tests for Toast dismiss and AlertBanner icons
+    - Test Toast dismiss button functionality
+    - Test AlertBanner distinct icons for critical vs warning
+    - _Requirements: 5.4, 5.5, 5.6_
+
+- [x] 9. Checkpoint — Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 10. Add navigation and layout enhancements
+  - [x] 10.1 Create `apps/web/src/components/Breadcrumb.tsx`
+    - Accept `items: BreadcrumbItem[]` with `{ label, href? }`
+    - Render breadcrumb trail with links for items with href, plain text for last item
+    - _Requirements: 6.1_
+  - [x] 10.2 Add Breadcrumb to patient detail page
+    - Integrate Breadcrumb component on patient detail page at `/patients/:id`
+    - Show navigation path: Home → Patients → Patient Name
+    - _Requirements: 6.1_
+  - [x] 10.3 Add search input to SessionHistoryPanel and create `filterEntriesByPreview` function
+    - Add search input field at top of `apps/web/src/components/SessionHistoryPanel.tsx`
+    - Export `filterEntriesByPreview(entries, query)` pure function
+    - Case-insensitive substring match on `entry.preview`
+    - Return full list when query is empty/whitespace
+    - Add i18n keys: `sessionHistory.search`, `sessionHistory.deleteTitle`, `sessionHistory.deleteMessage`
+    - _Requirements: 6.2, 7.4, 7.5_
+  - [x] 10.4 Write property test for session entry search filter
+    - **Property 6: Session entry search filter correctness**
+    - **Validates: Requirements 6.2**
+    - Create `apps/web/src/__tests__/filterSessions.pbt.test.ts`
+    - Use fast-check with minimum 100 iterations
+  - [x] 10.5 Pass localized strings to SessionHistoryPanel ConfirmDialog for delete
+    - Update ConfirmDialog in SessionHistoryPanel to use i18n keys for title, message, confirm, cancel labels
+    - _Requirements: 7.4, 7.5_
+  - [x] 10.6 Create `apps/web/src/components/BackToTop.tsx`
+    - Floating button that appears after scrolling > 1 viewport height
+    - Smooth-scrolls to top on click
+    - _Requirements: 6.3, 6.4_
+  - [x] 10.7 Integrate BackToTop on Diagnose Page, Patients Page, and patient detail page
+    - Add BackToTop component to relevant pages
+    - _Requirements: 6.3, 6.4_
+  - [x] 10.8 Write unit tests for Breadcrumb, BackToTop, and SessionHistoryPanel search
+    - Test Breadcrumb rendering, BackToTop visibility/scroll, session search filtering
+    - _Requirements: 6.1, 6.2, 6.3, 6.4_
+
+- [x] 11. Improve accessibility
+  - [x] 11.1 Increase LanguageSwitcher button size and font
+    - Update `apps/web/src/components/LanguageSwitcher.tsx` to minimum 44×44 CSS pixels touch target and 14px font size
+    - _Requirements: 7.2_
+  - [x] 11.2 Add text labels alongside probability color badges on mobile Diagnose Page
+    - Add "High", "Medium", "Low" text labels next to probability color indicators in `apps/mobile/app/(tabs)/diagnose.tsx`
+    - Use i18n keys: `diagnose.probabilityHigh`, `diagnose.probabilityMedium`, `diagnose.probabilityLow`
+    - _Requirements: 7.3_
+  - [x] 11.3 Write unit tests for accessibility improvements
+    - Test LanguageSwitcher minimum touch target size
+    - _Requirements: 7.2_
+
+- [x] 12. Add error handling and resilience features
+  - [x] 12.1 Create `apps/web/src/components/OfflineBanner.tsx`
+    - Use `navigator.onLine` + periodic health-check fetch (`/api/health` every 30s)
+    - Show persistent banner when offline (both `navigator.onLine === false` OR 3 consecutive health check failures)
+    - Auto-hide when connectivity is restored
+    - _Requirements: 8.2, 8.3_
+  - [x] 12.2 Create `apps/mobile/src/components/MobileOfflineBanner.tsx`
+    - Use `@react-native-community/netinfo` `addEventListener` for connectivity detection
+    - Show persistent banner when `isConnected === false`
+    - Auto-hide when connectivity is restored
+    - _Requirements: 8.2, 8.3_
+  - [x] 12.3 Create `apps/web/src/hooks/useRequestTimeout.ts`
+    - Implement `useRequestTimeout` hook with 15s warning and 30s auto-cancel thresholds
+    - Return `{ startTimer, clearTimer, isWarning, isAborted }`
+    - _Requirements: 8.4, 8.5_
+  - [x] 12.4 Integrate error handling improvements into Patients, Diagnose, and Documents pages
+    - Use `buildErrorMessage()` for non-streaming network error display
+    - Integrate `OfflineBanner` at app shell level
+    - Apply `useRequestTimeout` to non-streaming API calls
+    - Add i18n keys: `errors.networkDescription`, `errors.networkAction`, `errors.offline`, `errors.timeout`, `errors.timeoutAction`, `errors.autoCancel`
+    - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
+  - [x] 12.5 Write unit tests for offline banner and timeout feedback
+    - Test OfflineBanner show/hide based on connectivity
+    - Test useRequestTimeout 15s and 30s thresholds
+    - _Requirements: 8.2, 8.3, 8.4, 8.5_
+
+- [x] 13. Checkpoint — Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 14. Fix mobile internationalization gaps
+  - [x] 14.1 Replace hardcoded French strings in mobile Diagnose Page with i18n keys
+    - Replace all hardcoded strings in `apps/mobile/app/(tabs)/diagnose.tsx`: step labels, section titles, button labels, alert headings, inline text
+    - Add i18n keys to mobile translation files for FR and EN
+    - _Requirements: 9.1_
+  - [x] 14.2 Add character count indicator to mobile Chat Page
+    - Display `formatCharCount(input.length, 1000)` below input field in `apps/mobile/app/(tabs)/chat.tsx`
+    - Add i18n key: `chat.charCount`
+    - _Requirements: 3.2_
+  - [x] 14.3 Replace hardcoded French strings in mobile Chat Page with i18n keys
+    - Replace all hardcoded strings in `apps/mobile/app/(tabs)/chat.tsx`: empty state text, placeholder, sources label, error message
+    - Add i18n keys to mobile translation files for FR and EN
+    - _Requirements: 9.2_
+  - [x] 14.4 Write integration tests for mobile i18n
+    - Render diagnose and chat screens in English locale, assert no hardcoded French strings
+    - _Requirements: 9.1, 9.2_
+
+- [x] 15. Final checkpoint — Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+## Notes
+
+- Tasks marked with `*` are optional and can be skipped for faster MVP
+- Each task references specific requirements for traceability
+- Checkpoints ensure incremental validation
+- Property tests validate universal correctness properties from the design document
+- Unit tests validate specific examples and edge cases
+- All code uses TypeScript (web: Next.js + React, mobile: React Native Expo)

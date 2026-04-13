@@ -7,6 +7,9 @@ import { createApiClient } from '@diagno-pilot/api-client';
 import type { PatientFile, UploadFileResponse } from '@diagno-pilot/api-client';
 import type { PatientProfile, Consultation } from '@diagno-pilot/types';
 import { useAuth } from '../../../../contexts/AuthContext';
+import Breadcrumb from '../../../../components/Breadcrumb';
+import type { BreadcrumbItem } from '../../../../components/Breadcrumb';
+import BackToTop from '../../../../components/BackToTop';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -205,6 +208,7 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
   const { id } = use(params);
   const t = useTranslations('patientDetail');
   const tCommon = useTranslations('common');
+  const tNav = useTranslations('nav');
   const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const locale = useLocale();
@@ -328,6 +332,17 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
 
   return (
     <main className="min-h-screen p-8 max-w-5xl mx-auto">
+      {/* Breadcrumb navigation */}
+      <div className="mb-6">
+        <Breadcrumb
+          items={[
+            { label: tNav('home'), href: '/' },
+            { label: tNav('patients'), href: `/${locale}/patients` },
+            { label: patient?.fullName ?? '...' },
+          ]}
+        />
+      </div>
+
       {/* Back button */}
       <button
         type="button"
@@ -503,6 +518,7 @@ export default function PatientDetailPage({ params }: PatientDetailPageProps) {
           </section>
         </div>
       )}
+      <BackToTop />
     </main>
   );
 }

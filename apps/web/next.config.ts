@@ -9,9 +9,10 @@ const monorepoRoot = path.resolve(__dirname, '../..');
 
 const isDev = process.env.NODE_ENV !== 'production';
 
-// In development, Next.js HMR requires 'unsafe-inline' and 'unsafe-eval' for
-// React Fast Refresh. In production these are removed for strict XSS protection.
-const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self'";
+// Next.js injects inline scripts for hydration, chunk loading, and routing
+// in both dev and production builds. 'unsafe-inline' is required.
+// In dev, 'unsafe-eval' is additionally needed for React Fast Refresh / HMR.
+const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
 
 // API is proxied through Next.js rewrites so all requests go to 'self' —
 // no cross-origin cookie issues. connect-src 'self' is sufficient.

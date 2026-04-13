@@ -1,9 +1,13 @@
 // REQ-7.1, REQ-7.2, REQ-7.4: i18n context for mobile — persists locale via SecureStore (key: diagno_locale)
 // Supports fr-TG, fr-BJ, en; uses expo-localization for device locale detection.
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import * as Localization from 'expo-localization';
 import type { Locale } from '@diagno-pilot/types';
+import fr from '../i18n/fr';
+import en from '../i18n/en';
+
+const translations: Record<string, Record<string, string>> = { fr, en };
 
 export const LOCALE_KEY = 'diagno_locale';
 export const DEFAULT_LOCALE: Locale = 'fr-TG';
@@ -44,6 +48,8 @@ interface I18nContextValue {
   setLocale: (locale: Locale) => Promise<void>;
   /** Increment to signal that cached medical content should be re-fetched. */
   cacheVersion: number;
+  /** Look up a translation key, with optional parameter interpolation. */
+  t: (key: string, params?: Record<string, string>) => string;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -79,8 +85,23 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     setCacheVersion((v) => v + 1);
   }, []);
 
+  // REQ-9.1: Translation lookup with optional parameter interpolation
+  const t = useMemo(() => {
+    const lang = locale.startsWith('fr') ? 'fr' : 'en';
+    const dict = translations[lang] ?? translations.fr;
+    return (key: string, params?: Record<string, string>): string => {
+      let value = dict[key] ?? key;
+      if (params) {
+        for (const [k, v] of Object.entries(params)) {
+          value = value.replace(`{${k}}`, v);
+        }
+      }
+      return value;
+    };
+  }, [locale]);
+
   return (
-    <I18nContext.Provider value={{ locale, setLocale, cacheVersion }}>
+    <I18nContext.Provider value={{ locale, setLocale, cacheVersion, t }}>
       {children}
     </I18nContext.Provider>
   );

@@ -36,8 +36,8 @@ import type { ChatSessionListResponse } from '@diagno-pilot/types';
 export type { AuthUser } from '@diagno-pilot/types';
 
 export interface LoginResponse {
-  token_type: string;
-  expires_in: number;
+  tokenType: string;
+  expiresIn: number;
   user: {
     id: string;
     email: string;
@@ -278,7 +278,7 @@ export async function parseResponse<T>(res: Response, schema?: ZodSchema<T>): Pr
     return result.data;
   }
 
-  return data as T;
+  return normalizeKeys(data) as T;
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -649,14 +649,14 @@ export function createApiClient(
       return get<Record<string, unknown>[]>('/api/v1/documents', signal).then((docs) =>
         docs.map((d) => ({
           id: d['id'] as string,
-          title: (d['title'] as string) || (d['original_name'] as string) || '',
+          title: (d['title'] as string) || (d['originalName'] as string) || '',
           source: d['source'] as string,
-          s3Key: (d['s3_key'] ?? d['s3Key']) as string,
-          originalName: (d['original_name'] ?? d['originalName']) as string,
-          sizeBytes: (d['size_bytes'] ?? d['sizeBytes'] ?? 0) as number,
-          indexedAt: (d['indexed_at'] ?? d['indexedAt']) as string | undefined,
-          createdAt: (d['created_at'] ?? d['createdAt']) as string,
-          chunkCount: (d['chunk_count'] ?? d['chunkCount'] ?? 0) as number,
+          s3Key: (d['s3Key'] ?? '') as string,
+          originalName: (d['originalName'] ?? '') as string,
+          sizeBytes: (d['sizeBytes'] ?? 0) as number,
+          indexedAt: d['indexedAt'] as string | undefined,
+          createdAt: (d['createdAt'] ?? '') as string,
+          chunkCount: (d['chunkCount'] ?? 0) as number,
         }))
       );
     },

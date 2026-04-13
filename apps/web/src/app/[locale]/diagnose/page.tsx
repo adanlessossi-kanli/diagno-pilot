@@ -11,12 +11,17 @@ import { useLocale } from 'next-intl';
 import { createApiClient } from '@diagno-pilot/api-client';
 import type { DiagnosisResponse, DiagnoseSession, PrescriptionResponse } from '@diagno-pilot/api-client';
 import type { PatientProfile, Symptom } from '@diagno-pilot/types';
+import { StepProgress } from '@diagno-pilot/ui';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PrescriptionStep } from './PrescriptionStep';
 import { Toast } from '../../../components/Toast';
+import { ConfirmDialog } from '../../../components/ConfirmDialog';
 import { IMAGES } from '@/lib/images';
 import { SessionHistoryPanel, prependEntry } from '../../../components/SessionHistoryPanel';
 import type { SessionEntry } from '../../../components/SessionHistoryPanel';
+import BackToTop from '../../../components/BackToTop';
+import { buildErrorMessage } from '../../../utils/errorMessages';
+import { useRequestTimeout } from '../../../hooks/useRequestTimeout';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,8 +70,10 @@ export default function DiagnosePage() {
   const t = useTranslations('diagnose');
   const tCommon = useTranslations('common');
   const tHistory = useTranslations('sessionHistory');
+  const tErrors = useTranslations('errors');
   const { user } = useAuth();
   const locale = useLocale();
+  const { startTimer, clearTimer, isWarning, isAborted } = useRequestTimeout();
 
   const apiClient = useMemo(() => {
     const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -110,6 +117,7 @@ export default function DiagnosePage() {
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [announceMessage, setAnnounceMessage] = useState<string | null>(null);
+  const [showNewDiagnosisConfirm, setShowNewDiagnosisConfirm] = useState(false);
 
   // sessionStorage key for persisting diagnose session ID
   const sessionStorageKey = `diagno-pilot-diagnose-session-${user?.id ?? 'anonymous'}`;
@@ -354,6 +362,8 @@ export default function DiagnosePage() {
     sessionStorage.removeItem(sessionStorageKey);
 
     setLoading(true);
+    const controller = new AbortController();
+    startTimer(controller);
     try {
       const patientProfile = buildPatientProfile();
       const response = await apiClient.diagnose.getSymptomsDiagnosis(symptoms, patientProfile);
@@ -373,8 +383,12 @@ export default function DiagnosePage() {
         setConsultations((prev) => prependEntry(prev, newEntry));
       }
     } catch {
-      setError(t('errorDiagnose'));
+      const { descriptionKey, actionKey } = buildErrorMessage('network');
+      const descKey = descriptionKey.replace('errors.', '') as Parameters<typeof tErrors>[0];
+      const actKey = actionKey.replace('errors.', '') as Parameters<typeof tErrors>[0];
+      setError(`${tErrors(descKey)} ${tErrors(actKey)}`);
     } finally {
+      clearTimer();
       setLoading(false);
     }
   }
@@ -433,6 +447,13 @@ export default function DiagnosePage() {
   // Filter out hidden entries
   const visibleConsultations = consultations.filter((e) => !hiddenIds.has(e.id));
 
+  // Compute current step index for StepProgress
+  const currentStepIndex = useMemo(() => {
+    if (!results) return 0;
+    if (!results.parseFailed && results.diagnoses.length > 0) return 2;
+    return 1;
+  }, [results]);
+
   return (
     <div className="flex h-screen">
       <SessionHistoryPanel
@@ -452,6 +473,10 @@ export default function DiagnosePage() {
         deleteLabel={tHistory('hide')}
         announceMessage={announceMessage}
         operationError={operationError}
+        confirmDeleteTitle={tHistory('confirmDeleteTitle')}
+        confirmDeleteMessage={tHistory('confirmDeleteMessage')}
+        confirmDeleteLabel={tHistory('confirm')}
+        cancelDeleteLabel={tHistory('cancel')}
       />
       <main className="flex-1 min-h-screen p-8 max-w-3xl mx-auto overflow-y-auto">
       {/* Header illustration */}
@@ -466,18 +491,36 @@ export default function DiagnosePage() {
         />
       </div>
 
+      <StepProgress
+        steps={[t('stepSymptoms'), t('stepResults'), t('stepPrescription')]}
+        currentIndex={currentStepIndex}
+      />
+
       <h1 className="text-2xl font-bold mb-6 flex items-center justify-between">
         {t('title')}
         {results && (
           <button
             type="button"
-            onClick={handleNewDiagnosis}
+            onClick={() => setShowNewDiagnosisConfirm(true)}
             className="text-sm font-medium text-blue-600 hover:underline"
           >
             + {t('newDiagnosis')}
           </button>
         )}
       </h1>
+
+      <ConfirmDialog
+        open={showNewDiagnosisConfirm}
+        title={t('confirmNewDiagnosis')}
+        message={t('confirmNewDiagnosisMessage')}
+        confirmLabel={tCommon('confirm')}
+        cancelLabel={tCommon('cancel')}
+        onConfirm={() => {
+          setShowNewDiagnosisConfirm(false);
+          handleNewDiagnosis();
+        }}
+        onCancel={() => setShowNewDiagnosisConfirm(false)}
+      />
 
       {showSuccessToast && (
         <Toast
@@ -527,6 +570,7 @@ export default function DiagnosePage() {
                 {...register('freeText')}
                 className="w-full border rounded px-3 py-2 h-28 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder={t('symptomsPlaceholder')}
+                autoFocus
               />
               {formErrors.freeText && (
                 <p role="alert" className="text-xs text-red-600 mt-1">
@@ -697,6 +741,20 @@ export default function DiagnosePage() {
           </p>
         )}
 
+        {/* ── Timeout warning ── */}
+        {isWarning && !isAborted && (
+          <p role="status" className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            {tErrors('timeout')} {tErrors('timeoutAction')}
+          </p>
+        )}
+
+        {/* ── Auto-cancel notice ── */}
+        {isAborted && (
+          <p role="alert" className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+            {tErrors('autoCancel')}
+          </p>
+        )}
+
         {/* ── Submit ── */}
         <button
           type="submit"
@@ -749,13 +807,6 @@ export default function DiagnosePage() {
               </div>
             )}
 
-            {/* Global confidence score */}
-            {results.confidenceScore != null && (
-              <div className="flex items-center gap-2" data-testid="confidence-score">
-                <span className="text-sm font-medium text-gray-600">{t('confidenceScore')}:</span>
-                <span className="text-lg font-bold">{Math.round(results.confidenceScore * 100)}%</span>
-              </div>
-            )}
 
             {results.llmUsed && (
               <p className="text-xs text-gray-500">{t('llmUsed')}: {results.llmUsed}</p>
@@ -890,6 +941,7 @@ export default function DiagnosePage() {
         </Link>
       </div>
     </main>
+    <BackToTop />
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { CitationChip } from './CitationChip';
 import type { DocumentSource } from './CitationChip';
 import { SessionHistoryPanel, upsertEntry, removeEntry } from './SessionHistoryPanel';
 import type { SessionEntry } from './SessionHistoryPanel';
+import CopyButton from './CopyButton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ function MessageBubble({
   const isUser = message.role === 'user';
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`group relative flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div className={`max-w-[80%] ${isUser ? 'order-2' : 'order-1'}`}>
         <div
           className={`rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
@@ -96,6 +97,11 @@ function MessageBubble({
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
+      {!isUser && (
+        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <CopyButton text={message.content} />
+        </div>
+      )}
     </div>
   );
 }
@@ -516,7 +522,7 @@ export function DocumentChat({ apiClient, isAuthenticated }: DocumentChatProps) 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-1 min-w-0 h-full">
       <SessionHistoryPanel
         entries={sessions}
         activeId={sessionId}
@@ -534,6 +540,10 @@ export function DocumentChat({ apiClient, isAuthenticated }: DocumentChatProps) 
         deleteLabel={tHistory('delete')}
         announceMessage={announceMessage}
         operationError={operationError}
+        confirmDeleteTitle={tHistory('confirmDeleteTitle')}
+        confirmDeleteMessage={tHistory('confirmDeleteMessage')}
+        confirmDeleteLabel={tHistory('confirm')}
+        cancelDeleteLabel={tHistory('cancel')}
       />
       <main className="flex flex-col flex-1 h-full max-h-full bg-gray-100">
         {/* Streaming cursor CSS */}
@@ -640,6 +650,7 @@ export function DocumentChat({ apiClient, isAuthenticated }: DocumentChatProps) 
             style={{ minHeight: '40px' }}
             disabled={loading || streaming || !isAuthenticated}
             aria-label={t('placeholder')}
+            autoFocus
           />
           <button
             type="button"

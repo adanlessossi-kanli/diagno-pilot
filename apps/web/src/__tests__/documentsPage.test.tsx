@@ -302,8 +302,8 @@ describe('Documents Page', () => {
     it('renders upload button', () => {
       mockUser = { id: 'u1', email: 'admin@test.com', fullName: 'Admin', role: 'admin' };
       render(<DocumentsPage />);
-      const uploadButtons = screen.getAllByText(mockTranslations.upload);
-      expect(uploadButtons.length).toBeGreaterThanOrEqual(1);
+      const uploadHeaders = screen.getAllByText(mockTranslations.uploadTitle);
+      expect(uploadHeaders.length).toBeGreaterThanOrEqual(1);
     });
   });
 });
